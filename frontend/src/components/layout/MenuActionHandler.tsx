@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
 import { MasterPinPrompt } from '@/components/settings/MasterPinPrompt';
@@ -14,6 +14,7 @@ export default function MenuActionHandler() {
   const tRestore = useTranslations('restore');
   const tSettings = useTranslations('settings');
   const router = useRouter();
+  const pathname = usePathname();
   const [pendingPinAction, setPendingPinAction] = useState<PendingPinAction>(null);
 
   async function runBackup(pin: string) {
@@ -102,10 +103,21 @@ export default function MenuActionHandler() {
 
       switch (action) {
         case 'new-order':
-          router.push('/pos');
+          if (pathname === '/pos' || pathname === '/pos.html') {
+            window.dispatchEvent(new CustomEvent('flo-menu-new-order'));
+          } else {
+            router.push('/pos');
+          }
           break;
         case 'quick-search':
-          router.push('/pos');
+          if (pathname === '/pos' || pathname === '/pos.html') {
+            window.dispatchEvent(new CustomEvent('flo-menu-quick-search'));
+          } else {
+            router.push('/pos');
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('flo-menu-quick-search'));
+            }, 300);
+          }
           break;
         case 'view-orders':
           router.push('/orders');
@@ -144,7 +156,7 @@ export default function MenuActionHandler() {
 
     return () => { unsubscribe?.(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, [router, pathname]);
 
   return (
     <MasterPinPrompt

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import { Search, SlidersHorizontal } from 'lucide-react';
 import type { Category, Product } from '@/lib/types';
 import { useCartStore } from '@/store/cart';
@@ -58,6 +58,16 @@ export default function ProductGrid({
   const { showProductImages } = usePosSettingsStore();
   const t = useTranslations('pos');
   const fmt = useFormatCurrency();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleQuickSearch = () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener('flo-menu-quick-search', handleQuickSearch);
+    return () => window.removeEventListener('flo-menu-quick-search', handleQuickSearch);
+  }, []);
   const cartQuantities = useMemo(() => {
     const quantities = new Map<Product['id'], number>();
     for (const item of cart.items) {
@@ -78,6 +88,9 @@ export default function ProductGrid({
         <div className="relative mb-2">
           <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <input
+            ref={searchInputRef}
+            id="pos-search-input"
+            data-testid="pos-search-input"
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

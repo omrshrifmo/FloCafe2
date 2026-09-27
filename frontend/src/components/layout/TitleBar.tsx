@@ -80,7 +80,7 @@ export default function TitleBar() {
       className="flo-title-bar hidden shrink-0 md:flex"
       aria-label={businessName}
     >
-      <div className="flo-title-bar__safe-area pointer-events-none flex w-full items-center justify-between">
+      <div className="flo-title-bar__safe-area pointer-events-none flex items-center justify-between">
         {/* Leading edge: Sidebar toggle button (placed after traffic lights on macOS, top-left on Windows/Linux) */}
         <div className="flo-title-bar__interactive pointer-events-auto flex items-center translate-y-[1.5px]">
           <SidebarTrigger

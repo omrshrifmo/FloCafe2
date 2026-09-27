@@ -103,7 +103,9 @@ export default function POSPage() {
   const { customerMandatory, autoPrintKot, autoPrintBill, billingType, tablesRequired, kotPrintingEnabled, setBillingType, setTablesRequired, setKotPrintingEnabled } = usePosSettingsStore();
   const { open: leftSidebarOpen } = useSidebar();
   const t = useTranslations('pos');
+  const tOrders = useTranslations('orders');
   const tSupport = useTranslations('support');
+  const tCommon = useTranslations('common');
   const currencyFmt = useFormatCurrency();
   const { confirm, ConfirmDialog } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
@@ -509,6 +511,32 @@ export default function POSPage() {
   // Runs once per user session to recover persisted append state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUserId]);
+
+  useEffect(() => {
+    const handleNewOrder = async () => {
+      if (cart.items.length === 0) {
+        toast.success(tOrders('newOrder'), { icon: '🛒' });
+        const input = document.getElementById('pos-search-input') as HTMLInputElement | null;
+        input?.focus();
+        return;
+      }
+      const shouldClear = await confirm(
+        tOrders('cartClearConfirm'),
+        {
+          title: tOrders('newOrder'),
+          confirmLabel: tOrders('confirmCancel'),
+        },
+      );
+      if (shouldClear) {
+        cart.clearCart();
+        const input = document.getElementById('pos-search-input') as HTMLInputElement | null;
+        input?.focus();
+      }
+    };
+
+    window.addEventListener('flo-menu-new-order', handleNewOrder);
+    return () => window.removeEventListener('flo-menu-new-order', handleNewOrder);
+  }, [cart, confirm, tOrders]);
 
   useEffect(() => {
     const fetchData = async () => {

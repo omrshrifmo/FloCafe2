@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-26T14:33:05.250Z",
+  "taskSummary": "Branch origin (general)",
+  "proposals": [
+    {
+      "name": "cross-platform-scripting",
+      "reason": "Branch bootstrap (general)",
+      "confidence": 80,
+      "installed": true
+    },
+    {
+      "name": "cursor-kiro-extension-publishing",
+      "reason": "Workspace files match **/.github/workflows/publish*.yml; repo stack match (+15)",
+      "confidence": 80,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.github/workflows/publish*.yml"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 15,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.github/workflows/publish*.yml; repo stack match",
+      "estimatedMinutes": 8,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "file-style-conventions",
+      "reason": "Branch bootstrap (general)",
+      "confidence": 80,
+      "installed": true
+    },
+    {
+      "name": "github-actions-ci",
+      "reason": "Workspace files match **/.github/workflows/*.yml, **/.github/**/*.md; repo stack match (+15)",
+      "confidence": 80,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.github/workflows/*.yml",
+        "**/.github/**/*.md",
+        "**/src/**",
+        "**/*.test.ts"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 15,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.github/workflows/*.yml, **/.github/**/*.md; repo stack match",
+      "estimatedMinutes": 15,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "self-learning",
+      "reason": "Branch bootstrap (general)",
+      "confidence": 80,
+      "installed": true
+    },
+    {
+      "name": "skill-creator",
+      "reason": "Branch bootstrap (general)",
+      "confidence": 80,
+      "installed": true
+    },
+    {
+      "name": "skill-official-updater",
+      "reason": "Branch bootstrap (general)",
+      "confidence": 80,
+      "installed": true
+    },
+    {
+      "name": "deployment-practical",
+      "reason": "Workspace files match **/.env*",
+      "confidence": 65,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.env*"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.env*",
+      "estimatedMinutes": 20,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "doc-coauthoring",
+      "reason": "Workspace files match **/docs/**",
+      "confidence": 65,
+      "installed": true,
+      "matchedGlobs": [
+        "**/*.md",
+        "**/docs/**"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/docs/**",
+      "estimatedMinutes": 10,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "drawio-diagrams",
+      "reason": "Workspace files match **/docs/architecture/**",
+      "confidence": 65,
+      "installed": true,
+      "matchedGlobs": [
+        "**/docs/architecture/**"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/docs/architecture/**",
+      "estimatedMinutes": 10,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "skill-feedback-adaptation",
+      "reason": "Workspace files match **/.claude/learning/task-skill-proposals.json, **/.claude/learning/**",
+      "confidence": 65,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.claude/learning/task-skill-proposals.json",
+        "**/.claude/learning/**"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 5,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.claude/learning/task-skill-proposals.json, **/.claude/learning/**",
+      "estimatedMinutes": 5,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "extension-value-audit",
+      "reason": "Workspace files match **/.claude/learning/task-skill-proposals.json, **/.claude/learning/skill-adoption.jsonl",
+      "confidence": 60,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.claude/learning/task-skill-proposals.json",
+        "**/.claude/learning/skill-adoption.jsonl"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 0,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.claude/learning/task-skill-proposals.json, **/.claude/learning/skill-adoption.jsonl",
+      "estimatedMinutes": 8,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    }
+  ]
+}

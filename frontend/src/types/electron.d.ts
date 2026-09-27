@@ -5,7 +5,8 @@ export interface ElectronAPI {
   onMenuAction: (callback: (action: string) => void) => (() => void);
   // Windows/Linux title-bar menu row; macOS keeps its native menu bar and the
   // main process answers with an empty entry list there.
-  getApplicationMenu: () => Promise<{ entries: ApplicationMenuEntry[] } | ElectronIpcError>;
+  getApplicationMenu: (locale?: string) => Promise<{ entries: ApplicationMenuEntry[] } | ElectronIpcError>;
+  setApplicationMenuLocale?: (locale: string) => Promise<{ success: boolean; entries?: ApplicationMenuEntry[] } | ElectronIpcError>;
   openApplicationMenu: (key: string, x: number, y: number) => Promise<ElectronActionResult | ElectronIpcError>;
 
   // Window controls

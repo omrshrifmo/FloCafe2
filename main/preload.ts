@@ -65,7 +65,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Windows/Linux title-bar menu row. The labels come from the main-process
   // application menu; each click pops that entry's real submenu.
-  getApplicationMenu: () => ipcRenderer.invoke('get-application-menu'),
+  getApplicationMenu: (locale?: string) => ipcRenderer.invoke('get-application-menu', locale),
+  setApplicationMenuLocale: (locale: string) => ipcRenderer.invoke('set-application-menu-locale', locale),
   openApplicationMenu: (key: string, x: number, y: number) =>
     ipcRenderer.invoke('open-application-menu', key, x, y),
 

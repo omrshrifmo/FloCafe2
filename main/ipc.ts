@@ -133,6 +133,7 @@ export function registerIpcHandlers(
   getMainWindow?: MainWindowGetter,
   showMainWindow: (window: BrowserWindow) => boolean = () => false,
   getCurrentEffectiveIsDark?: () => boolean,
+  onRebuildMenu?: (locale: string) => void,
 ): void {
   ipcMain.on('window-document', (event, documentNonce: unknown) => {
     let currentFrame: Electron.WebFrameMain | null = null;
@@ -352,10 +353,22 @@ export function registerIpcHandlers(
   // top-level labels and main pops the matching submenu from the same Menu
   // object createMenu() already applied (accelerators keep working). macOS
   // keeps its authoritative native menu bar and has no title-bar menu.
-  handle('get-application-menu', () => {
+  handle('get-application-menu', (_event, locale?: unknown) => {
     if (process.platform === 'darwin') return { entries: [] };
+    if (typeof locale === 'string' && locale.trim()) {
+      onRebuildMenu?.(locale.trim());
+    }
     const menu = Menu.getApplicationMenu() ?? null;
     return { entries: menu ? listApplicationMenuEntries(menu.items) : [] };
+  });
+
+  handle('set-application-menu-locale', (_event, locale: unknown) => {
+    if (typeof locale === 'string' && locale.trim()) {
+      onRebuildMenu?.(locale.trim());
+      const menu = Menu.getApplicationMenu() ?? null;
+      return { success: true, entries: menu ? listApplicationMenuEntries(menu.items) : [] };
+    }
+    return { error: 'Invalid locale' };
   });
 
   handle('open-application-menu', (event, key: unknown, x: unknown, y: unknown) => {

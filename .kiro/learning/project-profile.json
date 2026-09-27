@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "profileType": "team-multi-agent",
+  "detectedFrom": {
+    "gitRemotes": [
+      "https://github.com/omrshrifmo/FloCafe2.git"
+    ],
+    "teamSize": "team",
+    "aiTools": [
+      "claude"
+    ],
+    "budgetPattern": "none",
+    "hasSharedClaudeSkills": false,
+    "isGitRepo": true,
+    "branchCount": 1,
+    "trackedFileCount": 911,
+    "repoSizeKb": 18,
+    "commitsLast30d": 249,
+    "commitsTotal": 1207,
+    "projectAgeDays": 0,
+    "authorCount30d": 7,
+    "activityLevel": "high",
+    "hasAidlcWorkflow": false,
+    "hasPendingProfileInit": false,
+    "remoteReachable": true,
+    "remoteOriginUrl": "https://github.com/omrshrifmo/FloCafe2.git",
+    "remoteBranchCount": 6,
+    "remoteAuthors30d": 7,
+    "upstreamAhead": 0,
+    "upstreamBehind": 0,
+    "remoteProbeSource": "cache"
+  },
+  "enabledFeatures": {
+    "autoOptimizer": true
+  },
+  "costTracking": "full",
+  "confidence": 0.88,
+  "detectedAt": "2026-09-26T14:22:48.686Z",
+  "appliedAt": "2026-09-26T17:54:11.260Z",
+  "userPlan": "accept-detected",
+  "rationale": "Git analysis: 912 tracked files, 6 branches (2 local, 6 remote), 1213 commits (250 last 30d), 8 authors (30d), high activity, ~18 KB git objects. Remote git (https://github.com/omrshrifmo/FloCafe2.git): 6 remote branches, 8 remote authors (30d), via cache. Collaborative or multi-branch product — full sync and attribution."
+}

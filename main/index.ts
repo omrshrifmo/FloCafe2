@@ -16,6 +16,7 @@ import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } f
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
 import { registerIpcHandlers, isTrustedSender } from './ipc';
+import { getMenuLabels } from './application-menu';
 import { authorizeMasterPin } from './services/master-pin';
 import { requestShutdown as requestWhatsAppShutdown, shutdown as shutdownWhatsApp } from './services/whatsapp';
 import log from 'electron-log/main';
@@ -1036,9 +1037,14 @@ function stopMdns(): Promise<void> {
   });
 }
 
-function createMenu(): void {
+let currentMenuLocale = 'en';
+
+export function createMenu(locale: string = currentMenuLocale): void {
+  currentMenuLocale = locale;
+  const labels = getMenuLabels(locale);
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{
+      id: 'app',
       label: app.getName(),
       submenu: [
         { label: `About ${app.getName()}`, click: () => showAbout() },
@@ -1053,63 +1059,69 @@ function createMenu(): void {
       ],
     }] : []),
     {
-      label: 'File',
+      id: 'file',
+      label: labels.top.file,
       submenu: [
-        { label: 'New Order', accelerator: 'CmdOrCtrl+N', click: () => mainWindow?.webContents.send('new-order') },
-        { label: 'Quick Search', accelerator: 'CmdOrCtrl+K', click: () => mainWindow?.webContents.send('quick-search') },
+        { id: 'new-order', label: labels.items.newOrder, accelerator: 'CmdOrCtrl+N', click: () => mainWindow?.webContents.send('new-order') },
+        { id: 'quick-search', label: labels.items.quickSearch, accelerator: 'CmdOrCtrl+K', click: () => mainWindow?.webContents.send('quick-search') },
         { type: 'separator' },
-        { label: 'Backup Database', click: () => mainWindow?.webContents.send('backup-database') },
-        { label: 'Restore Backup', click: () => mainWindow?.webContents.send('restore-backup') },
+        { id: 'backup-database', label: labels.items.backupDatabase, click: () => mainWindow?.webContents.send('backup-database') },
+        { id: 'restore-backup', label: labels.items.restoreBackup, click: () => mainWindow?.webContents.send('restore-backup') },
         { type: 'separator' },
-        { label: 'Database Health Check', click: () => mainWindow?.webContents.send('menu-db-health-check') },
-        { label: 'Initialize Database', click: () => mainWindow?.webContents.send('menu-db-initialize') },
-        { label: 'Master PIN…', click: () => mainWindow?.webContents.send('menu-master-pin') },
+        { id: 'menu-db-health-check', label: labels.items.dbHealthCheck, click: () => mainWindow?.webContents.send('menu-db-health-check') },
+        { id: 'menu-db-initialize', label: labels.items.dbInitialize, click: () => mainWindow?.webContents.send('menu-db-initialize') },
+        { id: 'menu-master-pin', label: labels.items.masterPin, click: () => mainWindow?.webContents.send('menu-master-pin') },
         { type: 'separator' },
-        { label: 'Exit', accelerator: process.platform === 'darwin' ? undefined : 'CmdOrCtrl+Q', click: () => { isQuitting = true; app.quit(); } },
+        { id: 'exit', label: labels.items.exit, accelerator: process.platform === 'darwin' ? undefined : 'CmdOrCtrl+Q', click: () => { isQuitting = true; app.quit(); } },
       ],
     },
     {
-      label: 'Edit',
+      id: 'edit',
+      label: labels.top.edit,
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'undo', label: labels.items.undo },
+        { role: 'redo', label: labels.items.redo },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
+        { role: 'cut', label: labels.items.cut },
+        { role: 'copy', label: labels.items.copy },
+        { role: 'paste', label: labels.items.paste },
+        { role: 'selectAll', label: labels.items.selectAll },
       ],
     },
     {
-      label: 'Orders',
+      id: 'orders',
+      label: labels.top.orders,
       submenu: [
-        { label: 'View All Orders', accelerator: 'CmdOrCtrl+O', click: () => mainWindow?.webContents.send('view-orders') },
+        { id: 'view-orders', label: labels.items.viewAllOrders, accelerator: 'CmdOrCtrl+O', click: () => mainWindow?.webContents.send('view-orders') },
       ],
     },
     {
-      label: 'Reports',
+      id: 'reports',
+      label: labels.top.reports,
       submenu: [
-        { label: 'Daily Summary', click: () => mainWindow?.webContents.send('report-daily') },
-        { label: 'Sales Report', click: () => mainWindow?.webContents.send('report-sales') },
-        { label: 'X Report', click: () => mainWindow?.webContents.send('report-x') },
-        { label: 'Z Report', click: () => mainWindow?.webContents.send('report-z') },
+        { id: 'report-daily', label: labels.items.dailySummary, click: () => mainWindow?.webContents.send('report-daily') },
+        { id: 'report-sales', label: labels.items.salesReport, click: () => mainWindow?.webContents.send('report-sales') },
+        { id: 'report-x', label: labels.items.xReport, click: () => mainWindow?.webContents.send('report-x') },
+        { id: 'report-z', label: labels.items.zReport, click: () => mainWindow?.webContents.send('report-z') },
       ],
     },
     {
-      label: 'Settings',
+      id: 'settings',
+      label: labels.top.settings,
       submenu: [
-        { label: 'Business Settings', click: () => mainWindow?.webContents.send('settings-business') },
-        { label: 'Tax Settings', click: () => mainWindow?.webContents.send('settings-tax') },
-        { label: 'Printer Setup', click: () => mainWindow?.webContents.send('settings-printer') },
-        { label: 'Kitchen Stations', click: () => mainWindow?.webContents.send('settings-kitchen') },
+        { id: 'settings-business', label: labels.items.businessSettings, click: () => mainWindow?.webContents.send('settings-business') },
+        { id: 'settings-tax', label: labels.items.taxSettings, click: () => mainWindow?.webContents.send('settings-tax') },
+        { id: 'settings-printer', label: labels.items.printerSetup, click: () => mainWindow?.webContents.send('settings-printer') },
+        { id: 'settings-kitchen', label: labels.items.kitchenStations, click: () => mainWindow?.webContents.send('settings-kitchen') },
       ],
     },
     {
-      label: 'Window',
+      id: 'window',
+      label: labels.top.window,
       submenu: [
-        { label: 'Flo Cafe', click: () => { if (showMainWindow()) mainWindow?.focus(); } },
+        { id: 'window-focus', label: labels.items.appWindow, click: () => { if (showMainWindow()) mainWindow?.focus(); } },
         { type: 'separator' },
-        { role: 'minimize' },
+        { role: 'minimize', label: labels.items.minimize },
         ...(process.platform === 'darwin' ? [
           { role: 'zoom' as const },
           { type: 'separator' as const },
@@ -1118,23 +1130,25 @@ function createMenu(): void {
       ],
     },
     {
-      label: 'Help',
+      id: 'help',
+      label: labels.top.help,
       submenu: [
-        ...(process.platform !== 'darwin' ? [{ label: 'About Flo', click: () => showAbout() }] : []),
+        ...(process.platform !== 'darwin' ? [{ id: 'about-flo', label: labels.items.aboutFlo, click: () => showAbout() }] : []),
         ...(isStoreBuild
           ? []
-          : [{ label: 'Check for Updates', click: () => checkForUpdates() }]),
-        { label: 'Open Logs Folder', click: () => shell.showItemInFolder(log.transports.file.getFile().path) },
+          : [{ id: 'check-updates', label: labels.items.checkUpdates, click: () => checkForUpdates() }]),
+        { id: 'open-logs', label: labels.items.openLogs, click: () => shell.showItemInFolder(log.transports.file.getFile().path) },
       ],
     },
   ];
 
   if (isDev) {
     template.push({
+      id: 'developer',
       label: 'Developer',
       submenu: [
-        { label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
-        { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow?.webContents.reload() },
+        { id: 'toggle-devtools', label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
+        { id: 'reload', label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow?.webContents.reload() },
       ],
     });
   }
@@ -1208,7 +1222,13 @@ async function initialize(): Promise<void> {
     if (isShutdownRequested()) return;
 
     console.log('[Flo] Registering IPC handlers...');
-    registerIpcHandlers(shutdownSignal, () => mainWindow, showMainWindow, () => currentEffectiveIsDark);
+    registerIpcHandlers(
+      shutdownSignal,
+      () => mainWindow,
+      showMainWindow,
+      () => currentEffectiveIsDark,
+      (locale) => createMenu(locale),
+    );
 
     ipcMain.handle('get-update-status', () =>
       // #467: return the real persisted state (including not-checked-yet and

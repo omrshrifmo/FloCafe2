@@ -207,13 +207,12 @@ body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
 
 /* Keep the centered business identity clear of the menu row. */
 .flo-title-bar:has(.flo-title-bar__menu) .flo-title-bar__identity {
-  max-inline-size: min(38vw, 20rem);
+  max-inline-size: min(28vw, 16rem);
 }
 
-/* At the 64rem minimum window width the non-wrapping menu row and the
- * absolutely centered identity would overlap. The menu is the restored
- * surface, so the identity yields there and only there. */
-@media (max-width: 64rem) {
+/* When the application menu row is present, the identity yields below 72rem
+ * so the menu buttons never collide with the identity box. */
+@media (max-width: 72rem) {
   .flo-title-bar:has(.flo-title-bar__menu) .flo-title-bar__identity {
     display: none;
   }
