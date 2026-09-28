@@ -9,8 +9,7 @@ import {
   type RasterSemanticUnit,
 } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
-import type { PrinterCutMode } from './profiles';
-import type { ResolvedPrintStyle } from '../../shared/print';
+import type { CustomerDocumentSource, CustomerDocumentVariant, ResolvedPrintStyle } from '../../shared/print';
 
 export type DitheringMode = 'threshold' | 'error-diffusion';
 export type BrandedFontFamily = 'system' | 'cairo' | 'almarai';
@@ -81,10 +80,13 @@ export interface BrandedReceiptRequest {
   readonly meta: {
     readonly invoiceNumber?: string;
     readonly orderNumber?: string;
+    readonly quoteReference?: string;
     readonly timestamp?: string;
     readonly tableName?: string;
     readonly customerName?: string;
     readonly customerPhone?: string;
+    readonly onlinePlatform?: string;
+    readonly externalOrderId?: string;
   };
   readonly items: readonly BrandedReceiptItem[];
   readonly totals: readonly BrandedReceiptTotalRow[];
@@ -367,6 +369,8 @@ export function buildBrandedReceiptRequest(options: {
   ditheringMode?: DitheringMode;
   threshold?: number;
   requestId?: string;
+  documentVariant?: CustomerDocumentVariant;
+  source?: CustomerDocumentSource;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? DEFAULT_RASTER_WIDTH_80MM;
   const geometry = computeBrandedGeometry({
@@ -434,12 +438,28 @@ export function buildBrandedReceiptRequest(options: {
     isLarge: true,
   });
 
-  if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
-    totals.push({ label: 'Paid / المدفوع', value: formatAmt(Number(bill.paid_amount)) });
+  const isPreliminary = options.documentVariant === 'preliminary' || bill.documentVariant === 'preliminary';
+  const isCart = options.source?.kind === 'active_cart' || bill.source?.kind === 'active_cart';
+
+  if (isPreliminary) {
+    if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
+      totals.push({ label: 'Paid / المدفوع', value: formatAmt(Number(bill.paid_amount)) });
+    }
+    const balanceRemaining = bill.balance !== undefined
+      ? Number(bill.balance)
+      : Math.max(0, Number(bill.total || order.total || 0) - Number(bill.paid_amount || 0));
+    totals.push({ label: 'Balance Due / المتبقي', value: formatAmt(balanceRemaining) });
+  } else {
+    if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
+      totals.push({ label: 'Paid / المدفوع', value: formatAmt(Number(bill.paid_amount)) });
+    }
+    if (bill.balance !== undefined && Number(bill.balance) > 0) {
+      totals.push({ label: 'Balance / المتبقي', value: formatAmt(Number(bill.balance)) });
+    }
   }
-  if (bill.balance !== undefined && Number(bill.balance) > 0) {
-    totals.push({ label: 'Balance / المتبقي', value: formatAmt(Number(bill.balance)) });
-  }
+
+  const defaultBanner = options.order?.isReprint ? '*** REPRINT / إعادة طباعة ***' : undefined;
+  const preliminaryBanner = '*** PRELIMINARY RECEIPT — NOT PAID / فاتورة مبدئية — غير مدفوعة ***';
 
   return {
     version: 1,
@@ -458,21 +478,28 @@ export function buildBrandedReceiptRequest(options: {
       address: business.address || undefined,
       phone: business.phone || undefined,
       taxId: business.taxRegistrationNumber || undefined,
-      banner: options.order?.isReprint ? '*** REPRINT / إعادة طباعة ***' : undefined,
+      banner: isPreliminary ? preliminaryBanner : defaultBanner,
     },
     meta: {
-      invoiceNumber: bill.bill_number ? String(bill.bill_number) : undefined,
-      orderNumber: order.order_number ? String(order.order_number) : undefined,
+      invoiceNumber: isCart ? undefined : (bill.bill_number ? String(bill.bill_number) : undefined),
+      orderNumber: isCart ? undefined : (order.order_number ? String(order.order_number) : undefined),
+      quoteReference: isCart ? (options.source && 'quoteId' in options.source ? options.source.quoteId : (bill.quoteId || '')) : undefined,
       timestamp: bill.created_at || order.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
       tableName: order.table?.name || business.table_name || undefined,
-      customerName: business.customer_name || undefined,
-      customerPhone: business.customer_phone || undefined,
+      customerName: order.customer?.name || business.customer_name || undefined,
+      customerPhone: order.customer?.phone || business.customer_phone || undefined,
+      onlinePlatform: order.online_platform || business.online_platform || undefined,
+      externalOrderId: order.external_order_id || business.external_order_id || undefined,
     },
     items,
     totals,
     footer: {
-      footerNote: business.footer_note || undefined,
-      thankYou: 'Thank you for your visit / شكراً لزيارتكم',
+      footerNote: isPreliminary
+        ? (business.footer_note
+          ? `${business.footer_note}\nThis is not a tax invoice or final bill / هذه ليست فاتورة ضريبية أو نهائية`
+          : 'This is not a tax invoice or final bill / هذه ليست فاتورة ضريبية أو نهائية')
+        : (business.footer_note || undefined),
+      thankYou: isPreliminary ? undefined : 'Thank you for your visit / شكراً لزيارتكم',
     },
   };
 }
@@ -987,6 +1014,8 @@ export function renderBrandedReceiptSoftware(
   // 3. Metadata
   if (request.meta.invoiceNumber) {
     renderText(contentLeft, currentY, `INV: ${request.meta.invoiceNumber}`, 1, true);
+  } else if (request.meta.quoteReference) {
+    renderText(contentLeft, currentY, `REF: ${request.meta.quoteReference}`, 1, true);
   }
   if (request.meta.orderNumber) {
     renderText(contentLeft + Math.floor(contentWidth / 2), currentY, `#${request.meta.orderNumber}`, 1, true);

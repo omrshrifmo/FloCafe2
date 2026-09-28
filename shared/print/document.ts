@@ -192,6 +192,57 @@ export interface BusinessSnapshot {
   readonly showCustomerPhone: boolean;
 }
 
+/** Document variant determining title, banner, balance semantics, and drawer behavior. */
+export type CustomerDocumentVariant = 'final' | 'reprint' | 'preliminary';
+
+/** Explicit source kind distinguishing stored entities from ephemeral cart quotes. */
+export type PreliminarySourceKind = 'persisted_order' | 'active_cart';
+
+export interface PersistedOrderSource {
+  readonly kind: 'persisted_order';
+  readonly orderId: number | string;
+  readonly orderNumber: string;
+  readonly billId?: number | string | null;
+  readonly billNumber?: string | null;
+  readonly isPaid: boolean;
+}
+
+export interface ActiveCartSource {
+  readonly kind: 'active_cart';
+  readonly quoteId: string;
+  readonly createdAt: string;
+}
+
+export type CustomerDocumentSource = PersistedOrderSource | ActiveCartSource;
+
+export interface ActiveCartPreliminaryItem {
+  readonly productId: number;
+  readonly quantity: number;
+  readonly unitPrice?: number;
+  readonly addons?: readonly { readonly id?: number | string; readonly name?: string; readonly price?: number; readonly quantity?: number }[];
+  readonly specialInstructions?: string;
+}
+
+export interface ActiveCartPreliminaryPayload {
+  readonly items: readonly ActiveCartPreliminaryItem[];
+  readonly orderType: 'dine_in' | 'takeaway' | 'delivery' | 'online';
+  readonly tableId?: number | string | null;
+  readonly customerId?: number | string | null;
+  readonly guestCount?: number;
+  readonly deliveryAddress?: string;
+  readonly onlinePlatform?: string;
+  readonly externalOrderId?: string;
+  readonly orderNotes?: string;
+  readonly discount?: {
+    readonly type: 'percentage' | 'amount';
+    readonly value: number;
+    readonly reason?: string;
+  } | null;
+  readonly packagingCharge?: number;
+  readonly deliveryCharge?: number;
+  readonly serviceCharge?: number;
+}
+
 /**
  * Normalized authoritative values passed in by callers. Renderers and
  * builders perform no DB IO — everything printed must be present here.
@@ -201,6 +252,8 @@ export interface PrintData {
   readonly order: OrderSnapshot;
   readonly business: BusinessSnapshot;
   readonly isReprint: boolean;
+  readonly documentVariant?: CustomerDocumentVariant;
+  readonly source?: CustomerDocumentSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,15 +312,20 @@ export interface BusinessHeaderBlock {
 export interface DocumentMetaBlock {
   readonly kind: 'document-meta';
   readonly direction: TextDirection;
-  /** Tax-invoice vs plain-invoice title, chosen by tax applicability. */
+  /** Tax-invoice vs plain-invoice title, chosen by tax applicability, or preliminary title. */
   readonly title: SemanticLabel;
+  /** Optional preliminary banner (e.g. "PRELIMINARY RECEIPT — NOT PAID") */
+  readonly preliminaryBanner?: SemanticLabel | null;
   /** Label rendered alongside the invoice/order number. */
   readonly invoiceNumberLabel: SemanticLabel;
   /** Alternate bill-number label; layouts that head the receipt with "Bill #". */
   readonly billNumberLabel: SemanticLabel;
   /** Date label for layouts that print a labeled date line (e.g. compact). */
   readonly dateLabel: SemanticLabel;
-  readonly invoiceNumber: DirectionalText;
+  /** Invoice/order number. Null for active carts with no persisted order or bill. */
+  readonly invoiceNumber: DirectionalText | null;
+  /** Ephemeral quote reference for active cart preliminary receipts. */
+  readonly quoteReference?: { readonly label: SemanticLabel; readonly value: DirectionalText } | null;
   /** Canonical stored timestamp; presentation formatting is a renderer duty. */
   readonly timestamp: DirectionalText;
   /** Table reference with its (uninterpolated) label concept. */
@@ -357,6 +415,10 @@ export interface TotalsBlock {
   /** Flat packaging-charge line, present when the snapshot carries a nonzero charge. */
   readonly packagingCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   readonly grandTotal: { readonly label: SemanticLabel; readonly amount: number };
+  /** Amount paid so far from confirmed DB payments (for preliminary receipts) */
+  readonly paidAmountSoFar?: { readonly label: SemanticLabel; readonly amount: number } | null;
+  /** Balance due remaining (grandTotal - paidAmountSoFar) (for preliminary receipts) */
+  readonly balanceDue?: { readonly label: SemanticLabel; readonly amount: number } | null;
   readonly pointsRedeemed: { readonly label: SemanticLabel; readonly points: number } | null;
   readonly pointsEarned: { readonly label: SemanticLabel; readonly points: number } | null;
   readonly pointsBalance: { readonly label: SemanticLabel; readonly points: number } | null;
@@ -388,6 +450,8 @@ export interface MessageBlock {
   readonly kind: 'message';
   readonly direction: TextDirection;
   readonly reprintBanner: SemanticLabel | null;
+  /** Non-final notice for preliminary receipts (e.g. "This is not a tax invoice or final bill.") */
+  readonly nonFinalNotice?: SemanticLabel | null;
   /** Online-order banner (#284): present whenever the order carries a platform/external id. */
   readonly onlineOrderBanner: {
     readonly label: SemanticLabel;
@@ -585,17 +649,33 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       : null,
   });
 
+  const isPreliminary = printData.documentVariant === 'preliminary';
+  const isCart = printData.source?.kind === 'active_cart';
+
   const meta: DocumentMetaBlock = Object.freeze({
     kind: 'document-meta',
     direction: base,
-    title: resolveSemanticLabel(labels, hasTax ? 'print.taxInvoiceTitle' : 'print.invoiceTitle'),
+    title: isPreliminary
+      ? resolveSemanticLabel(labels, 'print.preliminaryTitle')
+      : resolveSemanticLabel(labels, hasTax ? 'print.taxInvoiceTitle' : 'print.invoiceTitle'),
+    preliminaryBanner: isPreliminary
+      ? resolveSemanticLabel(labels, 'print.preliminaryBanner')
+      : null,
     invoiceNumberLabel: resolveSemanticLabel(labels, 'print.invoiceNumber'),
     billNumberLabel: resolveSemanticLabel(labels, 'receipt.billNumber'),
     dateLabel: resolveSemanticLabel(labels, 'receipt.date'),
-    invoiceNumber: directionalText(
-      bill.billNumber.length > 0 ? bill.billNumber : order.orderNumber,
-      base,
-    ),
+    invoiceNumber: isCart
+      ? null
+      : directionalText(
+        bill.billNumber.length > 0 ? bill.billNumber : order.orderNumber,
+        base,
+      ),
+    quoteReference: isCart && printData.source && printData.source.kind === 'active_cart'
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'print.quoteReference'),
+        value: directionalText(printData.source.quoteId, base),
+      })
+      : null,
     timestamp: directionalText(order.createdAt, base),
     table: business.showTableNumber && order.tableName.length > 0
       ? Object.freeze({
@@ -650,6 +730,9 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
     }))),
   });
 
+  const confirmedPaid = bill.payments.reduce((sum, p) => sum + toFiniteNumber(p.amount), 0);
+  const balanceRemaining = Math.max(0, bill.total - confirmedPaid);
+
   const totals: TotalsBlock = Object.freeze({
     kind: 'totals',
     direction: base,
@@ -691,6 +774,18 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       label: resolveSemanticLabel(labels, 'print.grandTotal'),
       amount: bill.total,
     }),
+    paidAmountSoFar: isPreliminary && confirmedPaid > 0
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'print.paidSoFar'),
+        amount: confirmedPaid,
+      })
+      : null,
+    balanceDue: isPreliminary
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'print.balanceDue'),
+        amount: balanceRemaining,
+      })
+      : null,
     pointsRedeemed: bill.pointsRedeemed > 0
       ? Object.freeze({
         label: resolveSemanticLabel(labels, 'print.pointsRedeemed'),
@@ -747,7 +842,8 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
   const messages: MessageBlock = Object.freeze({
     kind: 'message',
     direction: base,
-    reprintBanner: printData.isReprint ? resolveSemanticLabel(labels, 'receipt.reprint') : null,
+    reprintBanner: (!isPreliminary && printData.isReprint) ? resolveSemanticLabel(labels, 'receipt.reprint') : null,
+    nonFinalNotice: isPreliminary ? resolveSemanticLabel(labels, 'print.preliminaryFooterNotice') : null,
     onlineOrderBanner: hasOnlineOrderInfo
       ? Object.freeze({
         label: resolveSemanticLabel(labels, 'receipt.onlineOrder'),
@@ -756,7 +852,7 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       })
       : null,
     footerNote: business.footerNote.length > 0 ? directionalText(business.footerNote, base) : null,
-    thankYou: resolveSemanticLabel(labels, 'print.thankYouShort'),
+    thankYou: isPreliminary ? null : resolveSemanticLabel(labels, 'print.thankYouShort'),
     taxIncluded: resolveSemanticLabel(labels, 'receipt.taxIncluded'),
   });
 

@@ -837,7 +837,9 @@
     "exitFullscreen": "退出全屏 POS",
     "fullscreenUnavailable": "全屏模式不可用",
     "backspaceAmount": "退格金額",
-    "numericKeypad": "數字鍵盤"
+    "numericKeypad": "數字鍵盤",
+    "printPreliminary": "列印預結單",
+    "printBill": "列印帳單"
   },
   "printTest": {
     "amt": "金額",
@@ -950,7 +952,13 @@
       "columns": "欄位數",
       "wrapHint": "如果下一行換行，請選擇較小的欄位數值。",
       "success": "如果能讀到這行字，說明印表機工作正常！"
-    }
+    },
+    "preliminaryBanner": "預結單 — 未付款",
+    "preliminaryTitle": "預結帳單",
+    "preliminaryFooterNotice": "此單據為預結單 — 非正式付款憑證",
+    "paidSoFar": "已付金額",
+    "balanceDue": "應付餘額",
+    "quoteReference": "報價單號:"
   },
   "products": {
     "addAddon": "新增加購",

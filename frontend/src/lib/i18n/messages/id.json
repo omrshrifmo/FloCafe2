@@ -837,7 +837,9 @@
     "exitFullscreen": "Keluar dari mode layar penuh POS",
     "fullscreenUnavailable": "Mode layar penuh tidak tersedia",
     "backspaceAmount": "Hapus digit terakhir",
-    "numericKeypad": "Papan angka"
+    "numericKeypad": "Papan angka",
+    "printPreliminary": "Cetak Struk Sementara",
+    "printBill": "Cetak Tagihan"
   },
   "printTest": {
     "amt": "Jml",
@@ -950,7 +952,13 @@
       "columns": "Kolom",
       "wrapHint": "Jika baris berikutnya terpotong, pilih nilai kolom yang lebih kecil.",
       "success": "Jika Anda dapat membaca ini, printer Anda berfungsi!"
-    }
+    },
+    "preliminaryBanner": "STRUK SEMENTARA — BELUM DIBAYAR",
+    "preliminaryTitle": "TAGIHAN SEMENTARA",
+    "preliminaryFooterNotice": "INI ADALAH STRUK SEMENTARA — BUKAN BUKTI PEMBAYARAN",
+    "paidSoFar": "Sudah Dibayar",
+    "balanceDue": "Sisa Tagihan",
+    "quoteReference": "Kutipan #:"
   },
   "products": {
     "addAddon": "Tambah Tambahan",

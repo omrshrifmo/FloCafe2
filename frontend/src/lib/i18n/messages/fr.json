@@ -837,7 +837,9 @@
     "exitFullscreen": "Quitter le POS en plein écran",
     "fullscreenUnavailable": "Le mode plein écran n'est pas disponible",
     "backspaceAmount": "Effacer le dernier chiffre",
-    "numericKeypad": "Pavé numérique"
+    "numericKeypad": "Pavé numérique",
+    "printPreliminary": "Imprimer le reçu préliminaire",
+    "printBill": "Imprimer l'addition"
   },
   "printTest": {
     "amt": "Montant",
@@ -950,7 +952,13 @@
       "columns": "Colonnes",
       "wrapHint": "Si la ligne suivante passe à la ligne, choisissez un nombre de colonnes inférieur.",
       "success": "Si vous pouvez lire ceci, votre imprimante fonctionne !"
-    }
+    },
+    "preliminaryBanner": "REÇU PRÉLIMINAIRE — NON PAYÉ",
+    "preliminaryTitle": "NOTE PRÉLIMINAIRE",
+    "preliminaryFooterNotice": "CECI EST UN REÇU PRÉLIMINAIRE — PAS UN REÇU DE PAIEMENT",
+    "paidSoFar": "Payé jusqu'ici",
+    "balanceDue": "Solde dû",
+    "quoteReference": "Devis n° :"
   },
   "products": {
     "addAddon": "Ajouter une option",

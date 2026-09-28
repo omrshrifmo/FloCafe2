@@ -837,7 +837,9 @@
     "exitFullscreen": "Exit full-screen POS",
     "fullscreenUnavailable": "Full-screen mode is unavailable",
     "backspaceAmount": "Backspace amount",
-    "numericKeypad": "Numeric keypad"
+    "numericKeypad": "Numeric keypad",
+    "printPreliminary": "Print Preliminary Receipt",
+    "printBill": "Print Bill"
   },
   "printTest": {
     "amt": "Amt",
@@ -950,7 +952,13 @@
       "columns": "Columns",
       "wrapHint": "If the next line wraps, choose a smaller column value.",
       "success": "If you can read this, your printer is working!"
-    }
+    },
+    "preliminaryBanner": "PRELIMINARY RECEIPT — NOT PAID",
+    "preliminaryTitle": "PRELIMINARY BILL",
+    "preliminaryFooterNotice": "THIS IS A PRELIMINARY RECEIPT — NOT A PAYMENT RECEIPT",
+    "paidSoFar": "Paid So Far",
+    "balanceDue": "Balance Due",
+    "quoteReference": "Quote #:"
   },
   "products": {
     "addAddon": "Add Addon",

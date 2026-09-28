@@ -837,7 +837,9 @@
     "exitFullscreen": "الخروج من وضع الشاشة الكاملة لنظام نقاط البيع",
     "fullscreenUnavailable": "وضع ملء الشاشة غير متاح",
     "backspaceAmount": "حذف آخر رقم",
-    "numericKeypad": "لوحة الأرقام"
+    "numericKeypad": "لوحة الأرقام",
+    "printPreliminary": "طباعة فاتورة مبدئية",
+    "printBill": "طباعة الفاتورة"
   },
   "printTest": {
     "amt": "المبلغ",
@@ -950,7 +952,13 @@
       "columns": "الأعمدة",
       "wrapHint": "إذا تم تقطيع السطر التالي، فاختر قيمة عمود أصغر.",
       "success": "إذا كنت تستطيع قراءة هذا، فهذا يعني أن طابعتك تعمل!"
-    }
+    },
+    "preliminaryBanner": "فاتورة مبدئية — غير مدفوعة",
+    "preliminaryTitle": "فاتورة مبدئية",
+    "preliminaryFooterNotice": "هذه الفاتورة مبدئية وليست إيصال دفع نهائي — غير مدفوعة",
+    "paidSoFar": "المدفوع حتى الآن",
+    "balanceDue": "الرصيد المتبقي",
+    "quoteReference": "عرض سعر رقم:"
   },
   "products": {
     "addAddon": "إضافة ملحق",

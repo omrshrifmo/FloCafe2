@@ -837,7 +837,9 @@
     "exitFullscreen": "Lumabas sa full-screen POS",
     "fullscreenUnavailable": "Hindi available ang full-screen mode",
     "backspaceAmount": "I-backspace ang halaga",
-    "numericKeypad": "Numeric keypad"
+    "numericKeypad": "Numeric keypad",
+    "printPreliminary": "I-print ang Paunang Resibo",
+    "printBill": "I-print ang Bill"
   },
   "printTest": {
     "amt": "Halaga",
@@ -950,7 +952,13 @@
       "columns": "Mga Column",
       "wrapHint": "Kung may lumampas na linya, pumili ng mas mababang bilang ng column.",
       "success": "Gumagana nang maayos ang iyong printer!"
-    }
+    },
+    "preliminaryBanner": "PAUNANG RESIBO — HINDI BAYAD",
+    "preliminaryTitle": "PAUNANG BILL",
+    "preliminaryFooterNotice": "ITO AY PAUNANG RESIBO — HINDI KATIBAYAN NG PAGBABAYAD",
+    "paidSoFar": "Nabayaran Na",
+    "balanceDue": "Natitirang Balanse",
+    "quoteReference": "Tantiya #:"
   },
   "products": {
     "addAddon": "Magdagdag ng Addon",

@@ -30,6 +30,8 @@ import {
   getBlock,
   type BusinessHeaderBlock,
   type CustomerBlock,
+  type CustomerDocumentSource,
+  type CustomerDocumentVariant,
   type DocumentMetaBlock,
   type ItemTableBlock,
   type MessageBlock,
@@ -144,11 +146,21 @@ export function renderBillDocumentToCompactLines(
 
   lines.push('{INIT}');
 
-  // Reprint banner (MessageBlock).
+  // Reprint or preliminary banner (MessageBlock / DocumentMetaBlock).
   const messageStart = lines.length;
   const messageSourceLines: string[] = [];
   const messageSourceControlLines: string[] = [];
-  if (messages?.reprintBanner) {
+  if (meta?.preliminaryBanner) {
+    const bannerLines = compactBannerLines(meta.preliminaryBanner, {
+      logicalColumns: cols,
+      direction: document.direction.base,
+      languages: document.languages,
+      capabilities: options.capabilities,
+    });
+    lines.push(...bannerLines);
+    messageSourceLines.push(...bannerLines.map((line) => line.replace(/\{[^}]+\}/g, '')));
+    messageSourceControlLines.push(...bannerLines);
+  } else if (messages?.reprintBanner) {
     const bannerLines = compactBannerLines(messages.reprintBanner, {
       logicalColumns: cols,
       direction: document.direction.base,
@@ -195,8 +207,13 @@ export function renderBillDocumentToCompactLines(
   const metaStart = lines.length;
   const metaSourceLines: string[] = [];
   if (meta) {
-    lines.push(normalize(labelOf(meta.billNumberLabel) + ': ' + meta.invoiceNumber.text));
-    metaSourceLines.push(labelOf(meta.billNumberLabel) + ': ' + meta.invoiceNumber.text);
+    if (meta.invoiceNumber) {
+      lines.push(normalize(labelOf(meta.billNumberLabel) + ': ' + meta.invoiceNumber.text));
+      metaSourceLines.push(labelOf(meta.billNumberLabel) + ': ' + meta.invoiceNumber.text);
+    } else if (meta.quoteReference) {
+      lines.push(normalize(labelOf(meta.quoteReference.label) + ': ' + meta.quoteReference.value.text));
+      metaSourceLines.push(labelOf(meta.quoteReference.label) + ': ' + meta.quoteReference.value.text);
+    }
     const date = parseDbTimestamp(meta.timestamp.text);
     const dateText = date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions);
     lines.push(normalize(labelOf(meta.dateLabel) + ': ' + dateText));
@@ -355,6 +372,14 @@ export function renderBillDocumentToCompactLines(
     }
     const grandTotalValue = formatCurrency(totals.grandTotal.amount, prefix, options.locale, trimDecimals, fractionDigits);
     pushTotalRow(financialRows(labelOf(totals.grandTotal.label), grandTotalValue, cols, options.language, options.capabilities), true, labelOf(totals.grandTotal.label), grandTotalValue);
+    if (totals.paidAmountSoFar) {
+      const value = formatCurrency(totals.paidAmountSoFar.amount, prefix, options.locale, trimDecimals, fractionDigits);
+      pushTotalRow(financialRows(labelOf(totals.paidAmountSoFar.label), value, cols, options.language, options.capabilities), false, labelOf(totals.paidAmountSoFar.label), value);
+    }
+    if (totals.balanceDue) {
+      const value = formatCurrency(totals.balanceDue.amount, prefix, options.locale, trimDecimals, fractionDigits);
+      pushTotalRow(financialRows(labelOf(totals.balanceDue.label), value, cols, options.language, options.capabilities), true, labelOf(totals.balanceDue.label), value);
+    }
   }
   markGroup('totals', totalsStart, totalsSourceLines, totalsSourceControlLines, true, totalsSourceLayouts);
 
@@ -420,6 +445,12 @@ export function renderBillDocumentToCompactLines(
   const messageFooterStart = lines.length;
   const messageFooterSourceLines: string[] = [];
   const messageFooterSourceControlLines: string[] = [];
+  if (messages?.nonFinalNotice) {
+    const start = lines.length;
+    pushCenteredWrapped(lines, labelOf(messages.nonFinalNotice), cols, options.language, options.capabilities);
+    messageFooterSourceLines.push(labelOf(messages.nonFinalNotice));
+    messageFooterSourceControlLines.push(lines[start] ?? '');
+  }
   if (messages?.footerNote) {
     const start = lines.length;
     pushCenteredWrapped(lines, messages.footerNote.text, cols, options.language, options.capabilities);
@@ -463,12 +494,14 @@ export function renderCompactReceiptViaDocument(
     capabilities?: import('../../shared/print/thermal-capabilities').ThermalPrinterCapabilities;
     maskCustomerPhone?: boolean;
     preserveCurrencySymbol?: boolean;
+    documentVariant?: CustomerDocumentVariant;
+    source?: CustomerDocumentSource;
   },
 ): CompactDocumentRenderResult {
   const semanticBusiness = opts.maskCustomerPhone
     ? { ...(business || {}), customer_phone: maskPhoneOnReceipt(String(business?.customer_phone ?? '')) }
     : business;
-  const printData = buildBillPrintData(order, bill, semanticBusiness, opts.isReprint);
+  const printData = buildBillPrintData(order, bill, semanticBusiness, opts.isReprint, opts.documentVariant, opts.source);
   const printContext = buildBillPrintContext({
     columns: opts.columns,
     language: opts.language,

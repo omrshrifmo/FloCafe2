@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, ShoppingCart, Users } from 'lucide-react';
+import { X, ShoppingCart, Users, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePrinterStore } from '@/hooks/usePrinter';
 import TaxBreakdown from '@/components/pos/TaxBreakdown';
 import api from '@/lib/api';
 import { useTranslations } from 'use-intl';
@@ -44,6 +45,30 @@ export default function TableCheckoutModal({
   const [addingItems, setAddingItems] = useState(false);
   const [splitChecksEnabled, setSplitChecksEnabled] = useState(false);
   const [splitBill, setSplitBill] = useState<Bill | null>(null);
+  const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
+  const tOrders = useTranslations('orders');
+  const tPrint = useTranslations('print');
+
+  const handlePrintPreliminary = async () => {
+    if (printingPreliminary || !order) return;
+    setPrintingPreliminary(true);
+    try {
+      const warnings = await printPreliminaryReceipt({
+        orderId: order.id,
+        billId: order.bill?.id,
+      });
+      if (warnings.length > 0) {
+        toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
+      } else {
+        toast.success(tPrint('preliminaryTitle'));
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+    } finally {
+      setPrintingPreliminary(false);
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -205,7 +230,17 @@ export default function TableCheckoutModal({
             </div>
           )}
 
-          {splitBills.length > 0 && <div className="space-y-2">{splitBills.map((bill) => <div key={bill.id} className="flex items-center justify-between rounded-lg border p-2"><div><p className="text-sm font-medium">{bill.split_label}</p><p className="text-xs text-muted-foreground">{fmt(Number(bill.total))} · {bill.payment_status}</p></div>{bill.payment_status !== 'paid' && <Button size="sm" onClick={() => onPayment(bill)}>{t('pay')}</Button>}</div>)}</div>}
+          {order && order.status !== 'completed' && (!order.bill || order.bill.payment_status !== 'paid') && (
+            <Button
+              variant="outline"
+              onClick={handlePrintPreliminary}
+              disabled={printingPreliminary || generating}
+              className="w-full"
+            >
+              <Printer size={15} className="me-2" />
+              {printingPreliminary ? tOrders('printing') : t('printBill')}
+            </Button>
+          )}
 
           {/* Show different buttons based on cart state */}
           {splitBills.length === 0 && splitChecksEnabled && order.type === 'dine_in' && order.bill?.payment_status !== 'paid' && <Button variant="outline" onClick={handleSplitCheck} disabled={generating} className="w-full"><Users size={15} className="me-2" />{t('splitCheck')}</Button>}

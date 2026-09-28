@@ -1,8 +1,49 @@
 import { create } from 'zustand';
 import type { Customer, Product, Addon, CartItem } from '@/lib/types';
 import { generateCartItemId, normalizeCartItems } from '@/lib/cart-identity';
+import type { ActiveCartPreliminaryPayload } from '@print/document';
 
 export { generateCartItemId, normalizeCartItems } from '@/lib/cart-identity';
+
+export function buildActiveCartPayload(
+  cart: {
+    items: CartItem[];
+    orderType?: string;
+    tableId?: string | null;
+    customerId?: number | string | null;
+    guestCount?: number;
+    deliveryAddress?: string;
+    onlinePlatform?: string;
+    externalOrderId?: string;
+    orderNotes?: string;
+  },
+  discount?: { type: 'percentage' | 'amount'; value: number; reason?: string } | null,
+): ActiveCartPreliminaryPayload {
+  return {
+    items: cart.items.map((item) => ({
+      productId: Number(item.product.id),
+      quantity: Number(item.quantity),
+      specialInstructions: item.special_instructions || undefined,
+      addons: item.addons?.map((addon) => ({
+        id: Number(addon.id),
+        name: addon.name,
+        price: addon.price,
+        quantity: typeof addon.quantity === 'number' ? addon.quantity : 1,
+      })),
+    })),
+    orderType: (cart.orderType === 'takeaway' || cart.orderType === 'delivery' || cart.orderType === 'online')
+      ? cart.orderType
+      : 'dine_in',
+    tableId: cart.tableId ? Number(cart.tableId) : null,
+    customerId: cart.customerId ? Number(cart.customerId) : null,
+    guestCount: cart.guestCount,
+    deliveryAddress: cart.deliveryAddress || undefined,
+    onlinePlatform: cart.onlinePlatform || undefined,
+    externalOrderId: cart.externalOrderId || undefined,
+    orderNotes: cart.orderNotes || undefined,
+    discount: discount || null,
+  };
+}
 
 interface CartState {
   items: CartItem[];

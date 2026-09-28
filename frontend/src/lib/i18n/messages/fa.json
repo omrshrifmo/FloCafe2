@@ -837,7 +837,9 @@
     "exitFullscreen": "خروج از صندوق تمام‌صفحه",
     "fullscreenUnavailable": "حالت تمام‌صفحه در دسترس نیست",
     "backspaceAmount": "حذف رقم آخر",
-    "numericKeypad": "صفحه‌کلید عددی"
+    "numericKeypad": "صفحه‌کلید عددی",
+    "printPreliminary": "چاپ رسید اولیه",
+    "printBill": "چاپ صورتحساب"
   },
   "printTest": {
     "amt": "مبلغ",
@@ -950,7 +952,13 @@
       "columns": "ستون‌ها",
       "wrapHint": "اگر خط بعدی شکسته شد، مقدار ستون کوچک‌تری انتخاب کنید.",
       "success": "اگر این را می‌خوانید، چاپگر شما کار می‌کند!"
-    }
+    },
+    "preliminaryBanner": "رسید اولیه — پرداخت نشده",
+    "preliminaryTitle": "صورتحساب اولیه",
+    "preliminaryFooterNotice": "این یک رسید اولیه است — رسید پرداخت نهایی نیست",
+    "paidSoFar": "پرداخت شده تاکنون",
+    "balanceDue": "مانده قابل پرداخت",
+    "quoteReference": "پیش‌فاکتور #:"
   },
   "products": {
     "addAddon": "افزودن افزودنی",

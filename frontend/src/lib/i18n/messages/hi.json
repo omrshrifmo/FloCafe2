@@ -837,7 +837,9 @@
     "exitFullscreen": "फ़ुल-स्क्रीन पीओएस से बाहर निकलें",
     "fullscreenUnavailable": "फ़ुल-स्क्रीन मोड अनुपलब्ध है",
     "backspaceAmount": "बैकस्पेस राशि",
-    "numericKeypad": "संख्यात्मक कीपैड"
+    "numericKeypad": "संख्यात्मक कीपैड",
+    "printPreliminary": "प्रारंभिक रसीद प्रिंट करें",
+    "printBill": "बिल प्रिंट करें"
   },
   "printTest": {
     "amt": "राशि",
@@ -950,7 +952,13 @@
       "columns": "कॉलम",
       "wrapHint": "यदि अगली पंक्ति लिपटे, तो छोटा कॉलम मान चुनें।",
       "success": "यदि आप इसे पढ़ सकते हैं, तो प्रिंटर सही काम कर रहा है!"
-    }
+    },
+    "preliminaryBanner": "प्रारंभिक रसीद — भुगतान नहीं हुआ",
+    "preliminaryTitle": "प्रारंभिक बिल",
+    "preliminaryFooterNotice": "यह एक प्रारंभिक रसीद है — भुगतान रसीद नहीं है",
+    "paidSoFar": "अब तक भुगतान किया",
+    "balanceDue": "शेष देय राशि",
+    "quoteReference": "कोटेशन #:"
   },
   "products": {
     "addAddon": "एड-ऑन जोड़ें",

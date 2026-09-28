@@ -837,7 +837,9 @@
     "exitFullscreen": "Tam Ekrandan Çık",
     "fullscreenUnavailable": "Tam ekran desteklenmiyor",
     "backspaceAmount": "Sil",
-    "numericKeypad": "Sayısal Tuş Takımı"
+    "numericKeypad": "Sayısal Tuş Takımı",
+    "printPreliminary": "Ön Fiş Yazdır",
+    "printBill": "Hesap Yazdır"
   },
   "printTest": {
     "amt": "Tutar",
@@ -950,7 +952,13 @@
       "columns": "Sütun Genişliği",
       "wrapHint": "Bir sonraki satır taşarsa daha küçük bir sütun değeri seçin.",
       "success": "Bu metni okuyabiliyorsanız yazıcınız başarıyla çalışıyor!"
-    }
+    },
+    "preliminaryBanner": "ÖN FİŞ — ÖDENMEDİ",
+    "preliminaryTitle": "ÖN HESAP",
+    "preliminaryFooterNotice": "BU BİR ÖN FİŞTİR — ÖDEME MAKBUZU DEĞİLDİR",
+    "paidSoFar": "Şimdiye kadar ödenen",
+    "balanceDue": "Kalan bakiye",
+    "quoteReference": "Teklif No:"
   },
   "products": {
     "addAddon": "Eklenti Ekle",

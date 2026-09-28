@@ -837,7 +837,9 @@
     "exitFullscreen": "পূর্ণ-স্ক্রীন POS থেকে প্রস্থান করুন",
     "fullscreenUnavailable": "পূর্ণ-স্ক্রীন মোড অনুপলব্ধ",
     "backspaceAmount": "ব্যাকস্পেস পরিমাণ",
-    "numericKeypad": "সংখ্যাসূচক কীপ্যাড"
+    "numericKeypad": "সংখ্যাসূচক কীপ্যাড",
+    "printPreliminary": "প্রাথমিক রসিদ প্রিন্ট করুন",
+    "printBill": "বিল প্রিন্ট করুন"
   },
   "printTest": {
     "amt": "এএমটি",
@@ -950,7 +952,13 @@
       "columns": "কলাম",
       "wrapHint": "পরবর্তী লাইন মোড়ানো হলে, একটি ছোট কলাম মান চয়ন করুন।",
       "success": "আপনি যদি এটি পড়তে পারেন, আপনার প্রিন্টার কাজ করছে!"
-    }
+    },
+    "preliminaryBanner": "প্রাথমিক রসিদ — পরিশোধিত নয়",
+    "preliminaryTitle": "প্রাথমিক বিল",
+    "preliminaryFooterNotice": "এটি একটি প্রাথমিক রসিদ — অর্থপ্রদানের রসিদ নয়",
+    "paidSoFar": "এখনও পর্যন্ত প্রদত্ত",
+    "balanceDue": "বাকি পরিমাণ",
+    "quoteReference": "উদ্ধৃতি #:"
   },
   "products": {
     "addAddon": "অ্যাড-অন যোগ করুন",

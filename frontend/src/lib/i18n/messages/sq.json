@@ -837,7 +837,9 @@
     "exitFullscreen": "Dilni nga POS me ekran të plotë",
     "fullscreenUnavailable": "Modaliteti i ekranit të plotë nuk ofrohet",
     "backspaceAmount": "Shuma e hapësirës së pasme",
-    "numericKeypad": "Tastiera numerike"
+    "numericKeypad": "Tastiera numerike",
+    "printPreliminary": "Printo faturë paraprake",
+    "printBill": "Printo faturën"
   },
   "printTest": {
     "amt": "Shuma",
@@ -950,7 +952,13 @@
       "columns": "Kolonat",
       "wrapHint": "Nëse rreshti tjetër thyhet, zgjidhni një vlerë më të vogël kolonash.",
       "success": "Nëse mund ta lexoni këtë, printeri juaj funksionon!"
-    }
+    },
+    "preliminaryBanner": "FATURË PARAPRAKE — E PAPAGUAR",
+    "preliminaryTitle": "FATURË PARAPRAKE",
+    "preliminaryFooterNotice": "KJO ËSHTË NJË FATURË PARAPRAKE — NUK ËSHTË DËSHMI PAGESE",
+    "paidSoFar": "Paguar deri tani",
+    "balanceDue": "Balanca për pagesë",
+    "quoteReference": "Preventivi #:"
   },
   "products": {
     "addAddon": "Shto Shtesë",

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Sparkles, ArrowLeftRight, CheckCircle2, Percent, Wallet, ChevronDown } from 'lucide-react';
+import { X, Sparkles, ArrowLeftRight, CheckCircle2, Percent, Wallet, ChevronDown, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import api from '@/lib/api';
-import { useCartStore } from '@/store/cart';
+import { useCartStore, buildActiveCartPayload } from '@/store/cart';
+import { usePrinterStore } from '@/hooks/usePrinter';
 import { useAuthStore } from '@/store/auth';
 import { useTaxPreview } from '@/hooks/use-tax-preview';
 import { useTranslations, type AppConfig } from 'use-intl';
@@ -111,6 +112,10 @@ export default function PrepaidCheckoutModal({ currency, onClose, onConfirm }: P
   const [discountRequiresApproval, setDiscountRequiresApproval] = useState(false);
   const [discountPin, setDiscountPin] = useState('');
   const [amountTarget, setAmountTarget] = useState<AmountTarget>(null);
+  const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
+  const tPrint = useTranslations('print');
+  const tOrders = useTranslations('orders');
 
   const previewDiscount = useMemo(() => {
     const rawValue = Number.parseFloat(discountValue);
@@ -137,6 +142,29 @@ export default function PrepaidCheckoutModal({ currency, onClose, onConfirm }: P
     undefined,
     previewDiscount,
   );
+
+  const handlePrintPreliminary = async () => {
+    if (printingPreliminary || cart.items.length === 0) return;
+    setPrintingPreliminary(true);
+    try {
+      const discount = previewDiscount ? {
+        type: discountType,
+        value: previewDiscount.value,
+        reason: discountReason || undefined,
+      } : null;
+      const cartPayload = buildActiveCartPayload(cart, discount);
+      const warnings = await printPreliminaryReceipt({ cart: cartPayload });
+      if (warnings.length > 0) {
+        toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
+      } else {
+        toast.success(tPrint('preliminaryTitle'));
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+    } finally {
+      setPrintingPreliminary(false);
+    }
+  };
 
   const [payments, setPayments] = useState<Payment[]>(
     PAYMENT_METHODS.map((method) => ({ method: method.key, amount: '' })),
@@ -656,11 +684,22 @@ export default function PrepaidCheckoutModal({ currency, onClose, onConfirm }: P
         </div>
 
         {/* Pay Button */}
-        <div className="shrink-0 border-t border-border px-5 pb-6 pt-3">
+        <div className="shrink-0 border-t border-border px-5 pb-6 pt-3 flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handlePrintPreliminary}
+            disabled={printingPreliminary || processing || cart.items.length === 0}
+            className="flex-1 h-12 text-base font-semibold rounded-xl"
+            size="lg"
+          >
+            <Printer size={16} className="me-2" />
+            {printingPreliminary ? tOrders('printing') : t('printBill')}
+          </Button>
           <Button
             onClick={handleConfirm}
             disabled={processing || taxLoading || (!preview && !hasInvalidFixedDiscount) || totalPaymentMinor < remainingMinor}
-            className="w-full h-12 text-base font-semibold rounded-xl"
+            className="flex-1 h-12 text-base font-semibold rounded-xl"
             size="lg"
           >
             {taxLoading ? t('calculatingTax') : processing ? t('processingPayment') : t('confirmPaymentAmount', { amount: currencyFmt(remaining) })}

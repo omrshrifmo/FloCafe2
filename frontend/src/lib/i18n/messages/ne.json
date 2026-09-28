@@ -837,7 +837,9 @@
     "exitFullscreen": "पूर्ण-स्क्रिन POS बाट बाहिर निस्कनुहोस्",
     "fullscreenUnavailable": "पूर्ण-स्क्रिन मोड अनुपलब्ध छ",
     "backspaceAmount": "ब्याकस्पेस रकम",
-    "numericKeypad": "संख्यात्मक कीप्याड"
+    "numericKeypad": "संख्यात्मक कीप्याड",
+    "printPreliminary": "प्रारम्भिक रसिद छाप्नुहोस्",
+    "printBill": "बिल छाप्नुहोस्"
   },
   "printTest": {
     "amt": "रकम",
@@ -950,7 +952,13 @@
       "columns": "स्तम्भहरू",
       "wrapHint": "लाइन र्याप हुन्छ भने अर्को स्तम्भ छान्नुहोस्।",
       "success": "यदि तपाइँ यसलाई पढ्न सक्नुहुन्छ भने, तपाइँको प्रिन्टरले काम गरिरहेको छ!"
-    }
+    },
+    "preliminaryBanner": "प्रारम्भिक रसिद — भुक्तानी नभएको",
+    "preliminaryTitle": "प्रारम्भिक बिल",
+    "preliminaryFooterNotice": "यो प्रारम्भिक रसिद हो — भुक्तानी रसिদ होइन",
+    "paidSoFar": "हालसम्म भुक्तानी गरिएको",
+    "balanceDue": "बाँकी रकम",
+    "quoteReference": "कोटेशन #:"
   },
   "products": {
     "addAddon": "एडअन थप्नुहोस्",

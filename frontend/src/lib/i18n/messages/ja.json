@@ -837,7 +837,9 @@
     "exitFullscreen": "フルスクリーンPOSを終了",
     "fullscreenUnavailable": "フルスクリーンモードは利用できません",
     "backspaceAmount": "金額を1文字削除",
-    "numericKeypad": "数字キーパッド"
+    "numericKeypad": "数字キーパッド",
+    "printPreliminary": "仮伝票を印刷",
+    "printBill": "お会計票を印刷"
   },
   "printTest": {
     "amt": "金額",
@@ -950,7 +952,13 @@
       "columns": "列数",
       "wrapHint": "次の行が折り返される場合は、列数を小さくしてください。",
       "success": "この行を読めれば、プリンターは正常に動作しています！"
-    }
+    },
+    "preliminaryBanner": "仮伝票 — 未会計",
+    "preliminaryTitle": "仮お会計票",
+    "preliminaryFooterNotice": "これは仮伝票です — 領収書ではありません",
+    "paidSoFar": "受領済額",
+    "balanceDue": "差引請求額",
+    "quoteReference": "見積番号:"
   },
   "products": {
     "addAddon": "追加項目を追加",

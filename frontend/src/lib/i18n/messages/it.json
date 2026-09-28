@@ -837,7 +837,9 @@
     "exitFullscreen": "Esci dal POS a schermo intero",
     "fullscreenUnavailable": "La modalità a schermo intero non è disponibile",
     "backspaceAmount": "Cancella importo",
-    "numericKeypad": "Tastierino numerico"
+    "numericKeypad": "Tastierino numerico",
+    "printPreliminary": "Stampa ricevuta preliminare",
+    "printBill": "Stampa conto"
   },
   "printTest": {
     "amt": "Importo",
@@ -950,7 +952,13 @@
       "columns": "Colonne",
       "wrapHint": "Se la riga successiva va a capo, scegli un valore di colonne inferiore.",
       "success": "Se riesci a leggere questo, la stampante funziona!"
-    }
+    },
+    "preliminaryBanner": "RICEVUTA PRELIMINARE — NON PAGATA",
+    "preliminaryTitle": "CONTO PRELIMINARE",
+    "preliminaryFooterNotice": "QUESTA È UNA RICEVUTA PRELIMINARE — NON È UNA RICEVUTA DI PAGAMENTO",
+    "paidSoFar": "Pagato finora",
+    "balanceDue": "Saldo dovuto",
+    "quoteReference": "Preventivo n.:"
   },
   "products": {
     "addAddon": "Aggiungi extra",

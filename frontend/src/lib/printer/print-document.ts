@@ -2,6 +2,8 @@
 import {
   buildBillDocument,
   buildKotDocument,
+  type CustomerDocumentSource,
+  type CustomerDocumentVariant,
   isKotItemPending,
   type LabelResolver,
   type KotDocument,
@@ -42,6 +44,8 @@ export interface BillBusinessOptions {
   showCustomerPhone?: boolean;
   showTableNumber?: boolean;
   isReprint?: boolean;
+  documentVariant?: CustomerDocumentVariant;
+  source?: CustomerDocumentSource;
 }
 
 function maskPhoneOnReceipt(phone: string): string {
@@ -144,6 +148,8 @@ export function buildBillPrintData(bill: Bill, opts: BillBusinessOptions = {}): 
 
   return {
     isReprint: opts.isReprint === true,
+    documentVariant: opts.documentVariant,
+    source: opts.source ?? (bill as { source?: CustomerDocumentSource } | null | undefined)?.source,
     order: {
       orderNumber: String(order?.order_number ?? ''),
       createdAt: String(order?.created_at ?? ''),

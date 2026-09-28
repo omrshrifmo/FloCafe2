@@ -33,6 +33,8 @@ import {
 import {
   buildBillDocument,
   containsRtlScript,
+  type CustomerDocumentSource,
+  type CustomerDocumentVariant,
   type ItemTableBlock,
   type PaymentSnapshot,
   type PrintContext,
@@ -94,10 +96,19 @@ function parsePaymentDetails(raw: unknown): PaymentSnapshot[] {
 }
 
 /** Normalize raw bill/order/business rows into authoritative PrintData. */
-export function buildBillPrintData(order: any, bill: any, business: any, isReprint: boolean): PrintData {
+export function buildBillPrintData(
+  order: any,
+  bill: any,
+  business: any,
+  isReprint: boolean,
+  documentVariant?: CustomerDocumentVariant,
+  source?: CustomerDocumentSource,
+): PrintData {
   const items = Array.isArray(order?.items) ? order.items : [];
   return {
     isReprint,
+    ...(documentVariant !== undefined ? { documentVariant } : (bill?.documentVariant ? { documentVariant: bill.documentVariant } : {})),
+    ...(source !== undefined ? { source } : (bill?.source ? { source: bill.source } : {})),
     order: {
       orderNumber: String(order?.order_number ?? ''),
       createdAt: String(order?.created_at ?? ''),
@@ -405,6 +416,12 @@ export function renderBillDocumentToClassicLines(
         segment.main.push(dash);
         segment.sourceLines.main.push(dash);
         segment.sourceControlLines.main.push(dash);
+        if (block.preliminaryBanner) {
+          const bannerText = labelOf(block.preliminaryBanner);
+          segment.main.push('{CENTER}' + normalize(`*** ${bannerText} ***`) + '{/CENTER}');
+          segment.sourceLines.main.push(`*** ${bannerText} ***`);
+          segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        }
         const defaultTitle = block.title.conceptId === 'print.taxInvoiceTitle'
           ? printLabel(options.language, 'print.taxInvoiceTitle')
           : printLabel(options.language, 'print.invoiceTitle');
@@ -413,9 +430,15 @@ export function renderBillDocumentToClassicLines(
           segment.sourceLines.main.push(labelOf(block.title));
           segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
         }
-        segment.main.push('{CENTER}' + normalize(labelOf(block.invoiceNumberLabel) + ' ' + block.invoiceNumber.text) + '{/CENTER}');
-        segment.sourceLines.main.push(labelOf(block.invoiceNumberLabel) + ' ' + block.invoiceNumber.text);
-        segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        if (block.invoiceNumber) {
+          segment.main.push('{CENTER}' + normalize(labelOf(block.invoiceNumberLabel) + ' ' + block.invoiceNumber.text) + '{/CENTER}');
+          segment.sourceLines.main.push(labelOf(block.invoiceNumberLabel) + ' ' + block.invoiceNumber.text);
+          segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        } else if (block.quoteReference) {
+          segment.main.push('{CENTER}' + normalize(labelOf(block.quoteReference.label) + ' ' + block.quoteReference.value.text) + '{/CENTER}');
+          segment.sourceLines.main.push(labelOf(block.quoteReference.label) + ' ' + block.quoteReference.value.text);
+          segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        }
         const date = parseDbTimestamp(block.timestamp.text);
         segment.main.push('{CENTER}' + date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions) + '{/CENTER}');
         segment.sourceLines.main.push(date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions));
@@ -569,6 +592,16 @@ export function renderBillDocumentToClassicLines(
         } else if (breakdownIndex < totalsIndex) {
           renderGrandTotal(block);
         }
+        if (block.paidAmountSoFar) {
+          const label = labelOf(block.paidAmountSoFar.label);
+          const value = formatCurrency(block.paidAmountSoFar.amount, prefix, options.locale, trimDecimals, fractionDigits);
+          appendFinancial(segment, financialRows(label, value, cols, options.language, options.capabilities), false, label, value);
+        }
+        if (block.balanceDue) {
+          const label = labelOf(block.balanceDue.label);
+          const value = formatCurrency(block.balanceDue.amount, prefix, options.locale, trimDecimals, fractionDigits);
+          appendFinancial(segment, financialRows(label, value, cols, options.language, options.capabilities), true, label, value);
+        }
         // Loyalty earned/balance is totals-owned content.
         if (block.pointsEarned || block.pointsBalance) {
           segment.post.push(dash);
@@ -684,6 +717,13 @@ export function renderBillDocumentToClassicLines(
           segment.sourceLines.post.push(block.footerNote.text);
           segment.sourceControlLines.post.push(segment.post[start] ?? '');
         }
+        if (block.nonFinalNotice) {
+          const noticeText = labelOf(block.nonFinalNotice);
+          const start = segment.post.length;
+          pushCenteredWrapped(segment.post, `*** ${noticeText} ***`, cols, options.language, options.capabilities);
+          segment.sourceLines.post.push(`*** ${noticeText} ***`);
+          segment.sourceControlLines.post.push(segment.post[start] ?? '');
+        }
         break;
       }
     }
@@ -787,12 +827,14 @@ export function renderClassicReceiptViaDocument(
     capabilities?: import('../../shared/print/thermal-capabilities').ThermalPrinterCapabilities;
     maskCustomerPhone?: boolean;
     preserveCurrencySymbol?: boolean;
+    documentVariant?: CustomerDocumentVariant;
+    source?: CustomerDocumentSource;
   },
 ): ClassicDocumentPreviewResult {
   const semanticBusiness = opts.maskCustomerPhone
     ? { ...(business || {}), customer_phone: maskPhoneOnReceipt(String(business?.customer_phone ?? '')) }
     : business;
-  const printData = buildBillPrintData(order, bill, semanticBusiness, opts.isReprint);
+  const printData = buildBillPrintData(order, bill, semanticBusiness, opts.isReprint, opts.documentVariant, opts.source);
   const printContext = buildBillPrintContext({
     columns: opts.columns,
     language: opts.language,

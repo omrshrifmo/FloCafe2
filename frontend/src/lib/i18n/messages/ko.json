@@ -837,7 +837,9 @@
     "exitFullscreen": "전체 화면 POS 나가기",
     "fullscreenUnavailable": "전체 화면 모드를 사용할 수 없습니다",
     "backspaceAmount": "한 자리 지우기",
-    "numericKeypad": "숫자 키패드"
+    "numericKeypad": "숫자 키패드",
+    "printPreliminary": "가영수증 인쇄",
+    "printBill": "계산서 인쇄"
   },
   "printTest": {
     "amt": "금액",
@@ -950,7 +952,13 @@
       "columns": "열",
       "wrapHint": "다음 줄이 줄바꿈되면 더 작은 열 값을 선택하세요.",
       "success": "이 글이 보인다면 프린터가 정상 작동하고 있습니다!"
-    }
+    },
+    "preliminaryBanner": "가영수증 — 미결제",
+    "preliminaryTitle": "가청구서",
+    "preliminaryFooterNotice": "이 문서는 가영수증이며 결제 영수증이 아닙니다",
+    "paidSoFar": "기결제액",
+    "balanceDue": "잔액",
+    "quoteReference": "견적번호:"
   },
   "products": {
     "addAddon": "추가 옵션 추가",

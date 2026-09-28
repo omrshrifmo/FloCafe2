@@ -837,7 +837,9 @@
     "exitFullscreen": "Sair do PDV em tela cheia",
     "fullscreenUnavailable": "O modo de tela cheia não está disponível",
     "backspaceAmount": "Apagar último dígito",
-    "numericKeypad": "Teclado numérico"
+    "numericKeypad": "Teclado numérico",
+    "printPreliminary": "Imprimir recibo preliminar",
+    "printBill": "Imprimir conta"
   },
   "printTest": {
     "amt": "Total",
@@ -950,7 +952,13 @@
       "columns": "Colunas",
       "wrapHint": "Se a próxima linha quebrar, escolha um valor de colunas menor.",
       "success": "Se você consegue ler isto, sua impressora está funcionando!"
-    }
+    },
+    "preliminaryBanner": "RECIBO PRELIMINAR — NÃO PAGO",
+    "preliminaryTitle": "CONTA PRELIMINAR",
+    "preliminaryFooterNotice": "ESTE É UM RECIBO PRELIMINAR — NÃO É UM COMPROVANTE DE PAGAMENTO",
+    "paidSoFar": "Pago até o momento",
+    "balanceDue": "Saldo devedor",
+    "quoteReference": "Orçamento #:"
   },
   "products": {
     "addAddon": "Adicionar Adicional",

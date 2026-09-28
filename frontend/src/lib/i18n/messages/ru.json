@@ -837,7 +837,9 @@
     "exitFullscreen": "Выйти из полноэкранного POS-терминала",
     "fullscreenUnavailable": "Полноэкранный режим недоступен",
     "backspaceAmount": "Удалить последний символ суммы",
-    "numericKeypad": "Цифровая клавиатура"
+    "numericKeypad": "Цифровая клавиатура",
+    "printPreliminary": "Печать предварительного чека",
+    "printBill": "Печать счета"
   },
   "printTest": {
     "amt": "Сумма",
@@ -950,7 +952,13 @@
       "columns": "Столбцы",
       "wrapHint": "Если следующая строка переносится, уменьшите число столбцов.",
       "success": "Если вы это читаете, принтер работает!"
-    }
+    },
+    "preliminaryBanner": "ПРЕДВАРИТЕЛЬНЫЙ ЧЕК — НЕ ОПЛАЧЕНО",
+    "preliminaryTitle": "ПРЕДВАРИТЕЛЬНЫЙ СЧЕТ",
+    "preliminaryFooterNotice": "ЭТО ПРЕДВАРИТЕЛЬНЫЙ ЧЕК — НЕ ЯВЛЯЕТСЯ КВИТАНЦИЕЙ ОБ ОПЛАТЕ",
+    "paidSoFar": "Оплачено",
+    "balanceDue": "К оплате",
+    "quoteReference": "Смета №:"
   },
   "products": {
     "addAddon": "Добавить дополнение",

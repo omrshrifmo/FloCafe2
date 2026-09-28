@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, Wallet, ArrowLeftRight, CheckCircle2, Sparkles, User, Percent, Send, ChevronDown } from 'lucide-react';
+import { X, Wallet, ArrowLeftRight, CheckCircle2, Sparkles, User, Percent, Send, ChevronDown, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePrinterStore } from '@/hooks/usePrinter';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import type { Bill } from '@/lib/types';
@@ -67,6 +68,7 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
   const locale = useLocale();
   const tCommon = useTranslations('common');
   const tOrders = useTranslations('orders');
+  const tPrint = useTranslations('print');
   const tReceipt = useTranslations('receipt');
   const tWhatsappSend = useTranslations('whatsapp.send');
 
@@ -98,6 +100,28 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
     idempotencyKeyRef.current = null;
   }, [bill.id]);
   const [justPaid, setJustPaid] = useState(false);
+  const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
+
+  const handlePrintPreliminary = async () => {
+    if (printingPreliminary) return;
+    setPrintingPreliminary(true);
+    try {
+      const warnings = await printPreliminaryReceipt({
+        billId: bill.id,
+        orderId: bill.order_id,
+      });
+      if (warnings.length > 0) {
+        toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
+      } else {
+        toast.success(tPrint('preliminaryTitle'));
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+    } finally {
+      setPrintingPreliminary(false);
+    }
+  };
   const [sendingWa, setSendingWa] = useState(false);
   const [pointsEarned, setPointsEarned] = useState(0);
   const [payments, setPayments] = useState<Payment[]>(
@@ -787,9 +811,28 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
               </Button>
             </>
           ) : (
-            <Button onClick={handlePay} disabled={processing || totalPaymentMinor < remainingMinor} className="w-full" size="lg">
-              {processing ? t('processingPayment') : `${t('pay')} ${currencyFmt(totalPayment)}`}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePrintPreliminary}
+                disabled={printingPreliminary || processing}
+                className="flex-1"
+                size="lg"
+              >
+                <Printer size={16} className="me-2" />
+                {printingPreliminary ? tOrders('printing') : t('printBill')}
+              </Button>
+              <Button
+                type="button"
+                onClick={handlePay}
+                disabled={processing || totalPaymentMinor < remainingMinor}
+                className="flex-1"
+                size="lg"
+              >
+                {processing ? t('processingPayment') : `${t('pay')} ${currencyFmt(totalPayment)}`}
+              </Button>
+            </div>
           )}
         </div>
       </div>

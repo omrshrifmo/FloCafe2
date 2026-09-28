@@ -17,6 +17,7 @@ import {
   buildFrontendBillDocument,
   buildFrontendKotDocument,
 } from '@/lib/printer/print-document';
+import type { ActiveCartPreliminaryPayload } from '@print/document';
 import { buildTaxBillBytes, type TaxBillOptions } from '@/lib/printer/tax-bill-encoder';
 import { buildKotBytes, type KotOptions } from '@/lib/printer/kot-encoder';
 import {
@@ -110,6 +111,11 @@ interface PrinterState {
   printBill: (bill: Bill, tenant: ReceiptTenant, opts?: ReceiptOptions) => Promise<PrintWarning[]>;
   printTaxBill: (bill: Bill, tenant: ReceiptTenant, opts?: TaxBillOptions) => Promise<PrintWarning[]>;
   printKot: (order: Order, opts?: KotOptions & { items?: OrderItem[] }) => Promise<PrintWarning[]>;
+  printPreliminaryReceipt: (options: {
+    orderId?: number;
+    billId?: number;
+    cart?: ActiveCartPreliminaryPayload;
+  }) => Promise<PrintWarning[]>;
   setPrintMode: (mode: PrintModeType) => void;
   setPaperWidth: (width: PaperWidth) => void;
   setPrintMethod: (method: PrintMode) => void;
@@ -573,6 +579,26 @@ export const usePrinterStore = create<PrinterState>()(
         } catch (err) {
           set({ lastError: (err as Error).message });
           throw err;
+        }
+      },
+
+      printPreliminaryReceipt: async (options) => {
+        const { printerUseUnicode, printerArabicShaping } = usePosSettingsStore.getState();
+        try {
+          const response = await api.post<{ warnings?: PrintWarning[] }>('/printers/print-bill', {
+            documentVariant: 'preliminary',
+            sourceKind: options.cart ? 'active_cart' : 'persisted_order',
+            cart: options.cart,
+            orderId: options.orderId,
+            billId: options.billId,
+            useUnicode: printerUseUnicode,
+            arabicShaping: printerArabicShaping,
+          });
+          return response.data.warnings || [];
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { error?: string; detail?: string } }; message?: string };
+          const errorMsg = e.response?.data?.detail || e.response?.data?.error || e.message || 'Print failed';
+          throw new Error(errorMsg);
         }
       },
 

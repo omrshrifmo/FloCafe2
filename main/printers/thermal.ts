@@ -51,7 +51,7 @@ import {
 import { ippGetPrinters, ippGetDefaultPrinterName, ippGetPrinterAttributes, ippPrintRaw } from './ipp-client';
 import { buildRasterDiagnosticBands, encodeRasterFeedAndCut, encodeRasterUnits, rasterCapabilityEnabled } from '../../shared/print/raster';
 import type { RasterSemanticLineGroup } from '../../shared/print/raster';
-import type { PrintDocument } from '../../shared/print/document';
+import type { CustomerDocumentSource, CustomerDocumentVariant, PrintDocument } from '../../shared/print/document';
 import { columnsForPaperWidth as columnsForConfiguredPaperWidth, displayCellWidth, padToDisplayCells, truncateToDisplayCells } from '../../shared/print/width';
 import {
   bilingualLabelLines,
@@ -829,15 +829,17 @@ export async function initPrinter(): Promise<void> {
   }
 }
 
-export async function printReceipt(order: any, bill: any, business?: any, template: string = 'classic', useUnicode: boolean = false, isReprint: boolean = false, signal?: AbortSignal, arabicShapingOverride?: boolean, language?: string, additionalLanguage?: string): Promise<DispatchResult> {
+export async function printReceipt(order: any, bill: any, business?: any, template: string = 'classic', useUnicode: boolean = false, isReprint: boolean = false, signal?: AbortSignal, arabicShapingOverride?: boolean, language?: string, additionalLanguage?: string, documentVariant?: CustomerDocumentVariant, source?: CustomerDocumentSource): Promise<DispatchResult> {
   try {
     if (signal?.aborted) return { ok: false, detail: 'Print cancelled during shutdown' };
-    console.log('[Printer] printReceipt called, template:', template, 'useUnicode:', useUnicode, 'isReprint:', isReprint);
+    console.log('[Printer] printReceipt called, template:', template, 'useUnicode:', useUnicode, 'isReprint:', isReprint, 'variant:', documentVariant);
     const printer = getPrinterConfig();
     if (!printer) {
       console.log('[Printer] No printer configured');
       return { ok: false, detail: 'No printer configured' };
     }
+    const isPreliminary = documentVariant === 'preliminary' || bill?.documentVariant === 'preliminary';
+    const resolvedSource = source || bill?.source;
     const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
     const resolvedReceiptStyle = resolveEffectivePrintStyle(stylePrefs, 'receipt', language ?? business?.language);
     const renderMode = resolvedReceiptStyle.renderMode;
@@ -856,6 +858,8 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
         logoAsset,
         borderThicknessDots: resolvedReceiptStyle.frame.borderStyle !== 'none' ? resolvedReceiptStyle.frame.borderThickness : 0,
         borderInsetDots: resolvedReceiptStyle.frame.borderPadding,
+        documentVariant: isPreliminary ? 'preliminary' : (isReprint ? 'reprint' : 'final'),
+        source: resolvedSource,
       });
 
       let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
@@ -867,9 +871,9 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
 
       if (brandedOutput && brandedOutput.ok) {
         const pulseSetting = getSettingValue('cash_drawer_pulse_enabled');
-        const shouldPulse = pulseSetting === null
+        const shouldPulse = !isPreliminary && (pulseSetting === null
           ? printer.cash_drawer_pulse_enabled === 1
-          : pulseSetting === 'true' && shouldPulseForPayment(bill);
+          : pulseSetting === 'true' && shouldPulseForPayment(bill));
         const receiptData = shouldPulse ? appendCashDrawerPulse(brandedOutput.rasterBytes) : brandedOutput.rasterBytes;
 
         console.log('[Printer] Dispatching branded raster receipt, bytes:', receiptData.length);
@@ -899,7 +903,7 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
       }
     }
 
-    const prepared = prepareReceipt(order, bill, business, template, useUnicode, isReprint, arabicShapingOverride, language, additionalLanguage);
+    const prepared = prepareReceipt(order, bill, business, template, useUnicode, isReprint, arabicShapingOverride, language, additionalLanguage, documentVariant, resolvedSource);
     const { data, warnings, columns } = await rasterizeReceiptIfEnabled(
       prepared,
       order,
@@ -921,9 +925,9 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
       };
     }
     const pulseSetting = getSettingValue('cash_drawer_pulse_enabled');
-    const shouldPulse = pulseSetting === null
+    const shouldPulse = !isPreliminary && (pulseSetting === null
       ? printer.cash_drawer_pulse_enabled === 1
-      : pulseSetting === 'true' && shouldPulseForPayment(bill);
+      : pulseSetting === 'true' && shouldPulseForPayment(bill));
     const receiptData = shouldPulse ? appendCashDrawerPulse(data) : data;
     console.log('[Printer] Using printer:', printer.name, printer.connection_type, 'columns:', columns);
     console.log('[Printer] Receipt data length:', receiptData.length, 'bytes');
@@ -1373,7 +1377,7 @@ function getPrinterConfig(): any {
   ).get();
 }
 
-export function prepareReceipt(order: any, bill: any, business?: any, template: string = 'classic', useUnicode: boolean = false, isReprint: boolean = false, arabicShapingOverride?: boolean, language?: string, additionalLanguage?: string): {
+export function prepareReceipt(order: any, bill: any, business?: any, template: string = 'classic', useUnicode: boolean = false, isReprint: boolean = false, arabicShapingOverride?: boolean, language?: string, additionalLanguage?: string, documentVariant?: CustomerDocumentVariant, source?: CustomerDocumentSource): {
   printer: any;
   data: Buffer;
   warnings: PrintWarning[];
@@ -1391,7 +1395,7 @@ export function prepareReceipt(order: any, bill: any, business?: any, template: 
   const { profile, columns, capabilities } = resolvePrinterContext(printer, arabicShapingOverride);
   const warnings: PrintWarning[] = [];
   const nativeCapabilities = nativeFallbackCapabilities(capabilities);
-  const data = formatReceipt(order, bill, business, template, columns, useUnicode, isReprint, profile.cutMode, warnings, nativeCapabilities.shaping.arabic, language, additionalLanguage, nativeCapabilities);
+  const data = formatReceipt(order, bill, business, template, columns, useUnicode, isReprint, profile.cutMode, warnings, nativeCapabilities.shaping.arabic, language, additionalLanguage, nativeCapabilities, documentVariant, source);
   return { printer, data, warnings, columns };
 }
 
@@ -1411,6 +1415,8 @@ function receiptDocumentLines(
   additionalLanguage: string | undefined,
   cutMode: PrinterCutMode,
   capabilities: ThermalPrinterCapabilities,
+  documentVariant?: CustomerDocumentVariant,
+  source?: CustomerDocumentSource,
 ): RasterDocumentLines | null {
   // See formatReceipt's identical placeholder below for why country + currency are both required.
   const biz = business || { name: 'Store', address: '', phone: '', taxRegistrationNumber: '', country: 'US', currency: 'USD' };
@@ -1433,6 +1439,8 @@ function receiptDocumentLines(
       capabilities,
       preserveCurrencySymbol: true,
       maskCustomerPhone: false,
+      documentVariant,
+      source,
     })
     : renderClassicReceiptViaDocument(order, bill, rasterBiz, {
       columns,
@@ -1445,6 +1453,8 @@ function receiptDocumentLines(
       capabilities,
       preserveCurrencySymbol: true,
       maskCustomerPhone: false,
+      documentVariant,
+      source,
     });
   return result;
 }
@@ -1644,7 +1654,7 @@ async function rasterizeReceiptIfEnabled(
     : prepared;
 }
 
-export function formatReceipt(order: any, bill: any, business?: any, template?: string, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, language?: string, additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities): Buffer {
+export function formatReceipt(order: any, bill: any, business?: any, template?: string, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, language?: string, additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities, documentVariant?: CustomerDocumentVariant, source?: CustomerDocumentSource): Buffer {
   console.log('[Printer] formatReceipt - template:', template);
   console.log('[Printer] formatReceipt - order:', order?.order_number, 'bill:', bill?.bill_number);
   console.log('[Printer] formatReceipt - items count:', order?.items?.length || 0, 'cols:', cols);
@@ -1686,9 +1696,9 @@ export function formatReceipt(order: any, bill: any, business?: any, template?: 
   try {
     switch (tpl) {
       case 'classic':
-        return formatClassicReceipt(order, bill, biz, cols, useUnicode, isReprint, cutMode, warnings, arabicShaping, lang, additionalLanguage, capabilities);
+        return formatClassicReceipt(order, bill, biz, cols, useUnicode, isReprint, cutMode, warnings, arabicShaping, lang, additionalLanguage, capabilities, documentVariant, source);
       default:
-        return formatCompactReceipt(order, bill, biz, cols, useUnicode, isReprint, cutMode, warnings, arabicShaping, lang, additionalLanguage, capabilities);
+        return formatCompactReceipt(order, bill, biz, cols, useUnicode, isReprint, cutMode, warnings, arabicShaping, lang, additionalLanguage, capabilities, documentVariant, source);
     }
   } catch (err) {
     console.error('[Printer] formatReceipt error:', err);
@@ -1901,7 +1911,7 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
 
 
 /** Compact thermal receipt: builds PrintDocument and renders via document-compact pipeline. */
-export function formatCompactReceipt(order: any, bill: any, biz: any, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, lang: string = 'en', additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities): Buffer {
+export function formatCompactReceipt(order: any, bill: any, biz: any, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, lang: string = 'en', additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities, documentVariant?: CustomerDocumentVariant, source?: CustomerDocumentSource): Buffer {
   const result = renderCompactReceiptViaDocument(order, bill, biz, {
     columns: cols,
     language: lang,
@@ -1911,13 +1921,15 @@ export function formatCompactReceipt(order: any, bill: any, biz: any, cols: numb
     arabicShaping,
     cutMode,
     capabilities,
+    documentVariant,
+    source,
   });
   if (warnings && result.warnings.length > 0) warnings.push(...result.warnings);
   return result.data;
 }
 
 /** Classic thermal receipt: builds PrintDocument and renders via document-classic pipeline. */
-export function formatClassicReceipt(order: any, bill: any, biz: any, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, lang: string = 'en', additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities): Buffer {
+export function formatClassicReceipt(order: any, bill: any, biz: any, cols: number = 48, useUnicode: boolean = false, isReprint: boolean = false, cutMode: PrinterCutMode = 'full', warnings?: PrintWarning[], arabicShaping: boolean = false, lang: string = 'en', additionalLanguage?: string, capabilities?: ThermalPrinterCapabilities, documentVariant?: CustomerDocumentVariant, source?: CustomerDocumentSource): Buffer {
   const result = renderClassicReceiptViaDocument(order, bill, biz, {
     columns: cols,
     language: lang,
@@ -1927,6 +1939,8 @@ export function formatClassicReceipt(order: any, bill: any, biz: any, cols: numb
     arabicShaping,
     cutMode,
     capabilities,
+    documentVariant,
+    source,
   });
   if (warnings && result.warnings.length > 0) warnings.push(...result.warnings);
   return result.data;

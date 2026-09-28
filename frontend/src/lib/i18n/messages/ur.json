@@ -837,7 +837,9 @@
     "exitFullscreen": "فل اسکرین POS سے باہر نکلیں",
     "fullscreenUnavailable": "فل اسکرین موڈ دستیاب نہیں",
     "backspaceAmount": "رقم میں بیک اسپیس",
-    "numericKeypad": "عددی کی پیڈ"
+    "numericKeypad": "عددی کی پیڈ",
+    "printPreliminary": "ابتدائی رسید پرنٹ کریں",
+    "printBill": "بل پرنٹ کریں"
   },
   "printTest": {
     "amt": "رقم",
@@ -950,7 +952,13 @@
       "columns": "کالم",
       "wrapHint": "اگر اگلا لائن ایک نئی قطار میں منتقل ہو تو کالم کی کم قدر منتخب کریں۔",
       "success": "اگر آپ یہ پڑھ سکتے ہیں تو آپ کا پرنٹر کام کر رہا ہے!"
-    }
+    },
+    "preliminaryBanner": "ابتدائی رسید — ادا نہیں کی گئی",
+    "preliminaryTitle": "ابتدائی بل",
+    "preliminaryFooterNotice": "یہ ابتدائی رسید ہے — یہ ادائیگی کی حتمی رسید نہیں ہے",
+    "paidSoFar": "اب تک ادا شدہ",
+    "balanceDue": "باقی واجب الادا",
+    "quoteReference": "کوٹیشن #:"
   },
   "products": {
     "addAddon": "ایڈ آن شامل کریں",

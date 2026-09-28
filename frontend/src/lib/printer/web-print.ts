@@ -302,7 +302,7 @@ export function generateBillHtml(
 <html lang="${localeTag}" dir="${dir}">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(invoiceNumberLabel)} ${escapeHtml(meta?.invoiceNumber.text ?? '')}</title>
+  <title>${escapeHtml(meta?.invoiceNumber ? `${invoiceNumberLabel} ${meta.invoiceNumber.text}` : (meta?.quoteReference ? `${meta.quoteReference.label.primary} ${meta.quoteReference.value.text}` : 'Receipt'))}</title>
   <style>
     ${styles}
     @media print {
@@ -313,6 +313,7 @@ export function generateBillHtml(
 </head>
 <body>
   <div class="bill-container">
+    ${meta?.preliminaryBanner ? `<div class="preliminary-banner" style="text-align:center;font-weight:bold;padding:4px;border:1px dashed #333;margin-bottom:8px;">${escapeHtml(meta.preliminaryBanner.primary)}</div>` : ''}
     ${messages?.reprintBanner ? `<div class="reprint-banner">${escapeHtml(messages.reprintBanner.primary)}</div>` : ''}
     ${messages?.onlineOrderBanner ? `<div class="online-order-banner">${escapeHtml(messages.onlineOrderBanner.label.primary)}${messages.onlineOrderBanner.platform.text ? `<div class="online-order-detail">${escapeHtml(messages.onlineOrderBanner.platform.text)}</div>` : ''}${messages.onlineOrderBanner.externalOrderId.text ? `<div class="online-order-detail">#${escapeHtml(messages.onlineOrderBanner.externalOrderId.text)}</div>` : ''}</div>` : ''}
     <!-- Header -->
@@ -327,7 +328,7 @@ export function generateBillHtml(
     <div class="bill-details">
       <table>
         <tr>
-          <td><strong>${escapeHtml(invoiceNumberLabel)}</strong> ${meta ? directionalValue(meta.invoiceNumber, base) : ''}</td>
+          ${meta?.invoiceNumber ? `<td><strong>${escapeHtml(invoiceNumberLabel)}</strong> ${directionalValue(meta.invoiceNumber, base)}</td>` : (meta?.quoteReference ? `<td><strong>${escapeHtml(meta.quoteReference.label.primary)}</strong> ${directionalValue(meta.quoteReference.value, base)}</td>` : '<td></td>')}
           <td class="text-end"><strong>${escapeHtml(L.date)}</strong> ${meta ? escapeHtml(formatReceiptDate(meta.timestamp.text, tenant, LANGUAGES[lang]?.locale ?? lang)) : ''}</td>
         </tr>
         ${meta?.table ? `<tr><td><strong>${escapeHtml(L.table)}</strong> ${escapeHtml(meta.table.name.text)}</td><td></td></tr>` : ''}
@@ -387,6 +388,8 @@ export function generateBillHtml(
       ${totals.deliveryCharge ? `<tr><td>${escapeHtml(L.deliveryCharge)}</td><td class="text-end num">${fmtAmount(totals.deliveryCharge.amount)}</td></tr>` : ''}
       ${totals.packagingCharge ? `<tr><td>${escapeHtml(L.packagingCharge)}</td><td class="text-end num">${fmtAmount(totals.packagingCharge.amount)}</td></tr>` : ''}
       <tr class="total-row"><td><strong>${escapeHtml(L.grandTotal)}</strong></td><td class="text-end num"><strong>${fmtAmount(totals.grandTotal.amount)}</strong></td></tr>
+      ${totals.paidAmountSoFar ? `<tr><td>${escapeHtml(totals.paidAmountSoFar.label.primary)}</td><td class="text-end num">${fmtAmount(totals.paidAmountSoFar.amount)}</td></tr>` : ''}
+      ${totals.balanceDue ? `<tr class="total-row"><td><strong>${escapeHtml(totals.balanceDue.label.primary)}</strong></td><td class="text-end num"><strong>${fmtAmount(totals.balanceDue.amount)}</strong></td></tr>` : ''}
       ${totals.pointsEarned ? `<tr><td>${escapeHtml(totals.pointsEarned.label.primary)}</td><td class="text-end num">${escapeHtml(totals.pointsEarned.points)} pts</td></tr>` : ''}
       ${totals.pointsBalance ? `<tr><td>${escapeHtml(totals.pointsBalance.label.primary)}</td><td class="text-end num">${escapeHtml(totals.pointsBalance.points)} pts</td></tr>` : ''}
       ` : ''}
@@ -410,6 +413,7 @@ export function generateBillHtml(
     <div class="footer">
       ${messages?.footerNote ? `<p>${escapeHtml(messages.footerNote.text)}</p>` : `<p>${escapeHtml(L.thankYou)}</p>`}
       ${hasTax ? `<p>${escapeHtml(L.taxIncluded)}</p>` : ''}
+      ${messages?.nonFinalNotice ? `<p class="non-final-notice" style="font-style:italic;">${escapeHtml(messages.nonFinalNotice.primary)}</p>` : ''}
       <p class="powered-by">${escapeHtml(RECEIPT_BRANDING_NAME)}</p>
     </div>
   </div>

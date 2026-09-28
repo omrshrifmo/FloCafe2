@@ -837,7 +837,9 @@
     "exitFullscreen": "ออกจากโหมด POS เต็มหน้าจอ",
     "fullscreenUnavailable": "ไม่สามารถใช้โหมดเต็มหน้าจอได้",
     "backspaceAmount": "ลบตัวเลขจำนวนเงิน",
-    "numericKeypad": "แป้นตัวเลข"
+    "numericKeypad": "แป้นตัวเลข",
+    "printPreliminary": "พิมพ์ใบเสร็จเบื้องต้น",
+    "printBill": "พิมพ์บิล"
   },
   "printTest": {
     "amt": "จำนวนเงิน",
@@ -950,7 +952,13 @@
       "columns": "จำนวนคอลัมน์",
       "wrapHint": "หากบรรทัดถัดไปตัดบรรทัด ให้เลือกจำนวนคอลัมน์ที่น้อยลง",
       "success": "หากคุณอ่านข้อความนี้ได้ แสดงว่าเครื่องพิมพ์ทำงานปกติ!"
-    }
+    },
+    "preliminaryBanner": "ใบเสร็จเบื้องต้น — ยังไม่ชำระเงิน",
+    "preliminaryTitle": "ใบแจ้งหนี้เบื้องต้น",
+    "preliminaryFooterNotice": "นี่คือใบเสร็จเบื้องต้น — ไม่ใช่ใบเสร็จรับเงิน",
+    "paidSoFar": "ชำระแล้วบางส่วน",
+    "balanceDue": "ยอดคงเหลือที่ต้องชำระ",
+    "quoteReference": "ใบเสนอราคา #:"
   },
   "products": {
     "addAddon": "เพิ่มตัวเลือกเพิ่ม",

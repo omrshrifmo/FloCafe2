@@ -7,6 +7,12 @@
 export const PRINT_CONCEPT_IDS = [
   'print.taxInvoiceTitle',
   'print.invoiceTitle',
+  'print.preliminaryBanner',
+  'print.preliminaryTitle',
+  'print.preliminaryFooterNotice',
+  'print.paidSoFar',
+  'print.balanceDue',
+  'print.quoteReference',
   'print.invoiceNumber',
   'print.time',
   'print.customerShort',

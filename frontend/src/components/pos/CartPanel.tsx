@@ -4,10 +4,11 @@ import { useState } from 'react';
 import {
   ShoppingCart, UtensilsCrossed, Package, Truck, Globe,
   Plus, Minus, Trash2, Pause, MapPin, SquarePen,
-  Users,
+  Users, Printer,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useCartStore } from '@/store/cart';
+import { useCartStore, buildActiveCartPayload } from '@/store/cart';
+import { usePrinterStore } from '@/hooks/usePrinter';
 import { useHeldOrdersStore } from '@/store/held-orders';
 import { useAuthStore } from '@/store/auth';
 import { usePosSettingsStore } from '@/store/pos-settings';
@@ -139,6 +140,28 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
   const isRestaurant = (currentTenant?.business_type ?? 'restaurant') === 'restaurant';
   const fmt = useFormatCurrency();
   const canHold = isRestaurant && cart.orderType === 'dine_in' && cart.tableId && cart.items.length > 0 && billingType === 'postpaid';
+  const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
+  const tPrint = useTranslations('print');
+  const tOrders = useTranslations('orders');
+
+  const handlePrintPreliminary = async () => {
+    if (printingPreliminary || cart.items.length === 0) return;
+    setPrintingPreliminary(true);
+    try {
+      const cartPayload = buildActiveCartPayload(cart);
+      const warnings = await printPreliminaryReceipt({ cart: cartPayload });
+      if (warnings.length > 0) {
+        toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
+      } else {
+        toast.success(tPrint('preliminaryTitle'));
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+    } finally {
+      setPrintingPreliminary(false);
+    }
+  };
 
   const handleHold = async () => {
     if (!cart.tableId) {
@@ -343,6 +366,20 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
             {fmt(cart.subtotal())}
           </span>
         </div>
+        {cart.items.length > 0 && (
+          <div className="mb-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePrintPreliminary}
+              disabled={printingPreliminary || submitting}
+              className="w-full"
+            >
+              <Printer size={15} className="me-2" />
+              {printingPreliminary ? tOrders('printing') : t('printBill')}
+            </Button>
+          </div>
+        )}
         <div className="flex gap-2">
           {canHold && (
             <Button variant="outline" onClick={handleHold} className="flex-1">

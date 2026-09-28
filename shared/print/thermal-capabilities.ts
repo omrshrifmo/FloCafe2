@@ -91,13 +91,14 @@ function codePageCanRepresent(text: string, codePage: ThermalCodePage): boolean 
 
 export function normalizeThermalText(text: string, capabilities: ThermalPrinterCapabilities): string {
   if (!capabilities.transliteration.enabled) return text;
+  const withHyphens = text.replace(/[\u2013\u2014]/g, '-');
   if (capabilities.representability.scripts.includes('latin')) {
     const hasNativeCodePage = capabilities.encoding.codePages.some(
-      (codePage) => codePage !== 'ascii' && codePageCanRepresent(text, codePage),
+      (codePage) => codePage !== 'ascii' && codePageCanRepresent(withHyphens, codePage),
     );
-    if (hasNativeCodePage) return text;
+    if (hasNativeCodePage) return withHyphens;
   }
-  return text.replace(/[À-ÿ]/g, (character) => LATIN_ASCII_MAP[character] ?? character);
+  return withHyphens.replace(/[À-ÿ]/g, (character) => LATIN_ASCII_MAP[character] ?? character);
 }
 
 export function hasArabicScript(text: string): boolean {

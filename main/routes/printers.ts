@@ -24,6 +24,8 @@ import {
   type BrandedFontFamily,
 } from '../printers/branded-receipt-renderer';
 import { getActiveReceiptLogoAsset } from '../services/receipt-assets';
+import { calculateActiveCartQuote } from '../services/quote';
+import type { CustomerDocumentSource, CustomerDocumentVariant, PersistedOrderSource } from '../../shared/print/document';
 
 const router = Router();
 
@@ -416,20 +418,21 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
     return res.status(403).json({ error: 'Bill printing is disabled for the server role. An owner or manager can enable it in Settings.' });
   }
   try {
-    const { billId, orderId, useUnicode = false, isReprint = false, preview = false } = req.body;
+    const {
+      billId,
+      orderId,
+      useUnicode = false,
+      isReprint = false,
+      preview = false,
+      documentVariant = 'final',
+      sourceKind,
+      cart,
+    } = req.body;
+    const isPreliminary = documentVariant === 'preliminary';
     // Renderer's global "Arabic/Persian shaping" setting (#437). Only an
     // explicit boolean overrides the printer profile's declared capability.
     const arabicShapingOverride = typeof req.body?.arabicShaping === 'boolean' ? req.body.arabicShaping : undefined;
-    console.log('[Print Bill] Request received', { useUnicode, isReprint, preview });
-    
-    if (!billId && !orderId) {
-      console.log('[Print Bill] Rejected: missing bill or order reference');
-      return res.status(400).json({ error: 'billId or orderId is required' });
-    }
-    if (billId && orderId) {
-      console.log('[Print Bill] Rejected: conflicting bill and order references');
-      return res.status(400).json({ error: 'Provide either billId or orderId, not both' });
-    }
+    console.log('[Print Bill] Request received', { useUnicode, isReprint, preview, documentVariant, sourceKind });
 
     const db = getDatabase();
     let printer = db.prepare(
@@ -449,55 +452,150 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
       return res.status(400).json({ error: 'No default printer configured. Add a printer in Settings.' });
     }
 
-    // If only orderId is given and no bill exists yet, synthesize an unpaid running bill from the order.
-    let bill: any;
-    if (billId) {
-      bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
-      if (!bill) {
-        console.log('[Print Bill] Error: Bill not found');
-        return res.status(404).json({ error: 'Bill not found' });
-      }
-    } else {
-      bill = db.prepare('SELECT b.* FROM bills b WHERE b.order_id = ?').get(orderId);
-    }
-
     let order: any;
-    if (bill) {
-      order = db.prepare('SELECT * FROM orders WHERE id = ?').get(bill.order_id);
-      if (!order) {
-        console.log('[Print Bill] Rejected: order not found');
-        return res.status(404).json({ error: 'Order not found' });
+    let bill: any;
+
+    if (documentVariant === 'preliminary') {
+      const isCart = sourceKind === 'active_cart' || (!billId && !orderId && !!cart);
+      if (isCart) {
+        if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+          return res.status(400).json({ error: 'At least one item is required in cart' });
+        }
+        let quote: ReturnType<typeof calculateActiveCartQuote>;
+        try {
+          quote = calculateActiveCartQuote(db, cart);
+        } catch (quoteErr: any) {
+          const statusCode = typeof quoteErr.statusCode === 'number' ? quoteErr.statusCode : 400;
+          return res.status(statusCode).json({ error: quoteErr.message });
+        }
+        order = quote.order;
+        bill = quote.bill;
+      } else {
+        if (!billId && !orderId) {
+          return res.status(400).json({ error: 'billId or orderId is required' });
+        }
+        if (billId && orderId) {
+          return res.status(400).json({ error: 'Provide either billId or orderId, not both' });
+        }
+        if (billId) {
+          bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+          if (!bill) {
+            return res.status(404).json({ error: 'Bill not found' });
+          }
+          order = db.prepare('SELECT * FROM orders WHERE id = ?').get(bill.order_id);
+          if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+          }
+          order.items = getOrderWithItems(db, Number(bill.order_id), Number(bill.id))?.items || [];
+        } else {
+          order = getOrderWithItems(db, Number(orderId));
+          if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+          }
+          bill = db.prepare('SELECT b.* FROM bills b WHERE b.order_id = ?').get(orderId);
+          if (!bill) {
+            bill = {
+              id: 0,
+              bill_number: order.order_number,
+              order_id: order.id,
+              customer_id: order.customer_id,
+              subtotal: order.subtotal,
+              tax_amount: order.tax_amount,
+              tax_breakdown: order.tax_breakdown,
+              tax_snapshot: order.tax_snapshot,
+              discount_amount: order.discount_amount || 0,
+              discount_type: order.discount_type || null,
+              discount_value: order.discount_value || null,
+              discount_reason: order.discount_reason || null,
+              service_charge: order.service_charge || 0,
+              delivery_charge: order.delivery_charge || 0,
+              packaging_charge: order.packaging_charge || 0,
+              round_off: order.round_off || 0,
+              total: order.total,
+              paid_amount: 0,
+              balance: order.total,
+              payment_status: 'unpaid',
+              payment_details: null,
+            };
+          }
+        }
+
+        // Server-side status guards for preliminary receipts
+        if (order.status === 'cancelled') {
+          return res.status(400).json({ error: 'Cannot print preliminary receipt for a cancelled order' });
+        }
+        if (order.status === 'completed' || bill.payment_status === 'paid' || Number(bill.balance) <= 0) {
+          return res.status(409).json({ error: 'Cannot print preliminary receipt for a finalized or fully paid order. Use reprint instead.' });
+        }
+
+        const persistedSource: PersistedOrderSource = {
+          kind: 'persisted_order',
+          orderId: order.id,
+          orderNumber: order.order_number,
+          billId: bill.id ? bill.id : null,
+          billNumber: bill.bill_number ? bill.bill_number : null,
+          isPaid: false,
+        };
+        bill.documentVariant = 'preliminary';
+        bill.source = persistedSource;
       }
-      order.items = getOrderWithItems(db, Number(bill.order_id), Number(bill.id))?.items || [];
     } else {
-      order = getOrderWithItems(db, Number(orderId));
-      if (!order) {
-        console.log('[Print Bill] Rejected: order not found');
-        return res.status(404).json({ error: 'Order not found' });
+      if (!billId && !orderId) {
+        console.log('[Print Bill] Rejected: missing bill or order reference');
+        return res.status(400).json({ error: 'billId or orderId is required' });
       }
-      bill = {
-        id: 0,
-        bill_number: order.order_number,
-        order_id: order.id,
-        customer_id: order.customer_id,
-        subtotal: order.subtotal,
-        tax_amount: order.tax_amount,
-        tax_breakdown: order.tax_breakdown,
-        tax_snapshot: order.tax_snapshot,
-        discount_amount: order.discount_amount || 0,
-        discount_type: order.discount_type || null,
-        discount_value: order.discount_value || null,
-        discount_reason: order.discount_reason || null,
-        service_charge: order.service_charge || 0,
-        delivery_charge: order.delivery_charge || 0,
-        packaging_charge: order.packaging_charge || 0,
-        round_off: order.round_off || 0,
-        total: order.total,
-        paid_amount: 0,
-        balance: order.total,
-        payment_status: 'unpaid',
-        payment_details: null,
-      };
+      if (billId && orderId) {
+        console.log('[Print Bill] Rejected: conflicting bill and order references');
+        return res.status(400).json({ error: 'Provide either billId or orderId, not both' });
+      }
+
+      if (billId) {
+        bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+        if (!bill) {
+          console.log('[Print Bill] Error: Bill not found');
+          return res.status(404).json({ error: 'Bill not found' });
+        }
+      } else {
+        bill = db.prepare('SELECT b.* FROM bills b WHERE b.order_id = ?').get(orderId);
+      }
+
+      if (bill) {
+        order = db.prepare('SELECT * FROM orders WHERE id = ?').get(bill.order_id);
+        if (!order) {
+          console.log('[Print Bill] Rejected: order not found');
+          return res.status(404).json({ error: 'Order not found' });
+        }
+        order.items = getOrderWithItems(db, Number(bill.order_id), Number(bill.id))?.items || [];
+      } else {
+        order = getOrderWithItems(db, Number(orderId));
+        if (!order) {
+          console.log('[Print Bill] Rejected: order not found');
+          return res.status(404).json({ error: 'Order not found' });
+        }
+        bill = {
+          id: 0,
+          bill_number: order.order_number,
+          order_id: order.id,
+          customer_id: order.customer_id,
+          subtotal: order.subtotal,
+          tax_amount: order.tax_amount,
+          tax_breakdown: order.tax_breakdown,
+          tax_snapshot: order.tax_snapshot,
+          discount_amount: order.discount_amount || 0,
+          discount_type: order.discount_type || null,
+          discount_value: order.discount_value || null,
+          discount_reason: order.discount_reason || null,
+          service_charge: order.service_charge || 0,
+          delivery_charge: order.delivery_charge || 0,
+          packaging_charge: order.packaging_charge || 0,
+          round_off: order.round_off || 0,
+          total: order.total,
+          paid_amount: 0,
+          balance: order.total,
+          payment_status: 'unpaid',
+          payment_details: null,
+        };
+      }
     }
 
     // Fetch table info
@@ -595,6 +693,8 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
           widthDots,
           fontFamily,
           logoAsset,
+          documentVariant: isPreliminary ? 'preliminary' : 'final',
+          source: bill?.source,
         });
 
         const brandedOutput = await renderBrandedReceipt(brandedRequest);
@@ -609,13 +709,28 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
             printer: { id: printer.id, name: printer.name },
             preview_image_url: brandedOutput.previewDataUrl,
             escpos_base64: brandedOutput.rasterBytes.toString('base64'),
+            document_variant: isPreliminary ? 'preliminary' : 'final',
+            source_kind: bill?.source?.kind || 'persisted_order',
+            quote_id: bill?.source?.kind === 'active_cart' ? bill.source.quoteId : undefined,
             warnings: [],
           });
         }
       }
 
       // Previews and prints share the same document formatting pipeline.
-      const prepared = prepareReceipt(order, bill, business, billTemplate || 'classic', useUnicode, isReprint, arabicShapingOverride, receiptLanguages.primary, receiptLanguages.additional);
+      const prepared = prepareReceipt(
+        order,
+        bill,
+        business,
+        billTemplate || 'classic',
+        useUnicode,
+        isReprint,
+        arabicShapingOverride,
+        receiptLanguages.primary,
+        receiptLanguages.additional,
+        isPreliminary ? 'preliminary' : 'final',
+        bill?.source,
+      );
       return res.json({
         success: true,
         preview: true,
@@ -624,13 +739,29 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
         printer: { id: prepared.printer.id, name: prepared.printer.name },
         text: escPosToText(prepared.data),
         escpos_base64: prepared.data.toString('base64'),
+        document_variant: isPreliminary ? 'preliminary' : 'final',
+        source_kind: bill?.source?.kind || 'persisted_order',
+        quote_id: bill?.source?.kind === 'active_cart' ? bill.source.quoteId : undefined,
         warnings: prepared.warnings,
       });
     }
 
     // Use existing printReceipt function with template support
     console.log('[Print Bill] Calling printReceipt...');
-    const result = await printReceiptDetailed(order, bill, business, billTemplate || 'classic', useUnicode, isReprint, getHttpRequestSignal(req), arabicShapingOverride, receiptLanguages.primary, receiptLanguages.additional);
+    const result = await printReceiptDetailed(
+      order,
+      bill,
+      business,
+      billTemplate || 'classic',
+      useUnicode,
+      isReprint,
+      getHttpRequestSignal(req),
+      arabicShapingOverride,
+      receiptLanguages.primary,
+      receiptLanguages.additional,
+      isPreliminary ? 'preliminary' : 'final',
+      bill?.source,
+    );
     console.log('[Print Bill] Print completed', {
       ok: result.ok,
       code: result.code,
@@ -644,6 +775,9 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
       res.json({
         success: true,
         status: result.status || 'print_submitted',
+        document_variant: isPreliminary ? 'preliminary' : 'final',
+        source_kind: bill?.source?.kind || 'persisted_order',
+        quote_id: bill?.source?.kind === 'active_cart' ? bill.source.quoteId : undefined,
         warnings: result.warnings || [],
       });
     } else {

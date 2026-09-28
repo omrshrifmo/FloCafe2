@@ -837,7 +837,9 @@
     "exitFullscreen": "Volledig scherm POS verlaten",
     "fullscreenUnavailable": "De modus Volledig scherm is niet beschikbaar",
     "backspaceAmount": "Laatste cijfer wissen",
-    "numericKeypad": "Numeriek toetsenbord"
+    "numericKeypad": "Numeriek toetsenbord",
+    "printPreliminary": "Voorlopige bon afdrukken",
+    "printBill": "Rekening afdrukken"
   },
   "printTest": {
     "amt": "Bedrag",
@@ -950,7 +952,13 @@
       "columns": "Kolommen",
       "wrapHint": "Als de volgende regel wordt afgebroken, kiest u een kleinere kolomwaarde.",
       "success": "Als u dit kunt lezen, werkt uw printer!"
-    }
+    },
+    "preliminaryBanner": "VOORLOPIGE BON — NIET BETAALD",
+    "preliminaryTitle": "VOORLOPIGE REKENING",
+    "preliminaryFooterNotice": "DIT IS EEN VOORLOPIGE BON — GEEN BETALINGSBEWIJS",
+    "paidSoFar": "Reeds betaald",
+    "balanceDue": "Resterend saldo",
+    "quoteReference": "Offerte #:"
   },
   "products": {
     "addAddon": "Add-on toevoegen",

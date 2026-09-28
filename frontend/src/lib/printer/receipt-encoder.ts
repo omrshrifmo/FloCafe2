@@ -103,6 +103,38 @@ function printReprintBanner(
     .align('left');
 }
 
+function printPreliminaryBanner(
+  enc: ReceiptPrinterEncoder,
+  bannerLabel: SemanticLabel,
+  warnings: PrintWarning[] | undefined,
+  arabicShaping: boolean,
+  cols: number,
+  language?: string,
+): void {
+  const layout = layoutStyledUnit({
+    label: {
+      primary: `** ${bannerLabel.primary} **`,
+      ...(bannerLabel.secondary ? { secondary: `** ${bannerLabel.secondary} **` } : {}),
+    },
+    widthMultiplier: 2,
+    field: 'preliminary banner',
+  }, { logicalColumns: cols, direction: 'ltr', languages: ['en'] });
+  warnings?.push(...layout.warnings);
+  enc
+    .align('center')
+    .bold(true)
+    .width(layout.widthMultiplier)
+    .height(2);
+  for (const line of layout.lines) {
+    writeSafePrinterText(enc, line, warnings, false, arabicShaping, cols, undefined, language).newline();
+  }
+  enc
+    .width(1)
+    .height(1)
+    .bold(false)
+    .align('left');
+}
+
 function printOnlineOrderBanner(
   enc: ReceiptPrinterEncoder,
   bannerLabel: SemanticLabel,
@@ -430,6 +462,7 @@ export function buildClassicReceiptBytes(
   const enc = new ReceiptPrinterEncoder({ columns: cols });
 
   enc.initialize();
+  if (meta?.preliminaryBanner) printPreliminaryBanner(enc, meta.preliminaryBanner, warnings, arabicShaping, cols, primaryLang);
   if (messages?.reprintBanner) printReprintBanner(enc, messages.reprintBanner, warnings, arabicShaping, cols, primaryLang);
   if (messages?.onlineOrderBanner) {
     printOnlineOrderBanner(
@@ -465,11 +498,16 @@ export function buildClassicReceiptBytes(
   }
 
   if (meta) {
+    const docIdText = meta.invoiceNumber
+      ? `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`
+      : meta.quoteReference
+        ? `${labelOf(meta.quoteReference.label)} ${meta.quoteReference.value.text}`
+        : '';
     enc.size('small');
     safePrinterText(
       enc,
       padRow(
-        `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`,
+        docIdText,
         formatThermalTimestamp(meta.timestamp.text, locale, tenant.timezone),
         cols,
       ),
@@ -556,6 +594,12 @@ export function buildClassicReceiptBytes(
       .bold(false)
       .newline();
     enc.rule({ style: 'single' });
+    if (totals.paidAmountSoFar) {
+      safePrinterText(enc, padRow(labelOf(totals.paidAmountSoFar.label), formatAmount(totals.paidAmountSoFar.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
+    if (totals.balanceDue) {
+      safePrinterText(enc, padRow(labelOf(totals.balanceDue.label), formatAmount(totals.balanceDue.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
   }
 
   // Payment methods
@@ -596,7 +640,12 @@ export function buildClassicReceiptBytes(
   // Footer
   if (showFooter) {
     if (header?.taxId && meta) {
-      safePrinterText(enc, padRow(`${labelOf(header.taxId.label)}: ${header.taxId.value.text}`, `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`, cols), warnings, false, arabicShaping).newline();
+      const docIdText = meta.invoiceNumber
+        ? `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`
+        : meta.quoteReference
+          ? `${labelOf(meta.quoteReference.label)} ${meta.quoteReference.value.text}`
+          : '';
+      safePrinterText(enc, padRow(`${labelOf(header.taxId.label)}: ${header.taxId.value.text}`, docIdText, cols), warnings, false, arabicShaping).newline();
     }
     if (header?.address) {
       enc.align('center');
@@ -614,6 +663,9 @@ export function buildClassicReceiptBytes(
     enc.newline();
     if (messages?.footerNote) {
       safePrinterText(enc, truncate(messages.footerNote.text, cols), warnings, false, arabicShaping, cols).newline();
+    }
+    if (messages?.nonFinalNotice) {
+      safePrinterText(enc, truncate(messages.nonFinalNotice.primary, cols), warnings, false, arabicShaping, cols).newline();
     }
   }
   printPoweredByFooter(enc, cols);
@@ -657,6 +709,7 @@ export function buildCompactReceiptBytes(
   const enc = new ReceiptPrinterEncoder({ columns: cols });
 
   enc.initialize();
+  if (meta?.preliminaryBanner) printPreliminaryBanner(enc, meta.preliminaryBanner, warnings, arabicShaping, cols, primaryLang);
   if (messages?.reprintBanner) printReprintBanner(enc, messages.reprintBanner, warnings, arabicShaping, cols, primaryLang);
   if (messages?.onlineOrderBanner) {
     printOnlineOrderBanner(
@@ -681,10 +734,15 @@ export function buildCompactReceiptBytes(
 
   // Invoice number and timestamp on one line (document-meta block)
   if (meta) {
+    const docIdText = meta.invoiceNumber
+      ? `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`
+      : meta.quoteReference
+        ? `${labelOf(meta.quoteReference.label)} ${meta.quoteReference.value.text}`
+        : '';
     safePrinterText(
       enc,
       padRow(
-        `${labelOf(meta.invoiceNumberLabel)} ${meta.invoiceNumber.text}`,
+        docIdText,
         formatThermalTimestamp(meta.timestamp.text, locale, tenant.timezone),
         cols,
       ),
@@ -777,6 +835,12 @@ export function buildCompactReceiptBytes(
     enc
       .bold(false)
       .newline();
+    if (totals.paidAmountSoFar) {
+      safePrinterText(enc, padRow(labelOf(totals.paidAmountSoFar.label), formatAmount(totals.paidAmountSoFar.amount, currency, locale, trim, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
+    if (totals.balanceDue) {
+      safePrinterText(enc, padRow(labelOf(totals.balanceDue.label), formatAmount(totals.balanceDue.amount, currency, locale, trim, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
   }
 
   for (const line of payments?.lines ?? []) {
@@ -794,6 +858,9 @@ export function buildCompactReceiptBytes(
   safePrinterText(enc, printLabelResolver('print.thankYouShort', primaryLang), warnings, false, arabicShaping, cols).newline();
   if (messages?.footerNote) {
     safePrinterText(enc, truncate(messages.footerNote.text, cols), warnings, false, arabicShaping, cols).newline();
+  }
+  if (messages?.nonFinalNotice) {
+    safePrinterText(enc, truncate(messages.nonFinalNotice.primary, cols), warnings, false, arabicShaping, cols).newline();
   }
   printPoweredByFooter(enc, cols);
 

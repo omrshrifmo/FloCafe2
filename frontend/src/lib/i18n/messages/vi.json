@@ -837,7 +837,9 @@
     "exitFullscreen": "Thoát POS toàn màn hình",
     "fullscreenUnavailable": "Không có chế độ toàn màn hình",
     "backspaceAmount": "Xóa lùi số tiền",
-    "numericKeypad": "Bàn phím số"
+    "numericKeypad": "Bàn phím số",
+    "printPreliminary": "In hóa đơn tạm tính",
+    "printBill": "In hóa đơn"
   },
   "printTest": {
     "amt": "Số tiền",
@@ -950,7 +952,13 @@
       "columns": "Số cột",
       "wrapHint": "Nếu dòng tiếp theo xuống dòng, hãy chọn số cột nhỏ hơn.",
       "success": "Nếu bạn đọc được nội dung này, máy in đang hoạt động!"
-    }
+    },
+    "preliminaryBanner": "HÓA ĐƠN TẠM TÍNH — CHƯA THANH TOÁN",
+    "preliminaryTitle": "HÓA ĐƠN TẠM TÍNH",
+    "preliminaryFooterNotice": "ĐÂY LÀ HÓA ĐƠN TẠM TÍNH — KHÔNG PHẢI BIÊN LAI THANH TOÁN",
+    "paidSoFar": "Đã thanh toán",
+    "balanceDue": "Số dư còn lại",
+    "quoteReference": "Báo giá #:"
   },
   "products": {
     "addAddon": "Thêm tuỳ chọn",

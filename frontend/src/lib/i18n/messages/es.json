@@ -837,7 +837,9 @@
     "exitFullscreen": "Salir del POS en pantalla completa",
     "fullscreenUnavailable": "El modo de pantalla completa no está disponible",
     "backspaceAmount": "Borrar último dígito",
-    "numericKeypad": "Teclado numérico"
+    "numericKeypad": "Teclado numérico",
+    "printPreliminary": "Imprimir recibo preliminar",
+    "printBill": "Imprimir cuenta"
   },
   "printTest": {
     "amt": "Total",
@@ -950,7 +952,13 @@
       "columns": "Columnas",
       "wrapHint": "Si la siguiente línea se corta, elija un valor de columnas menor.",
       "success": "¡Si puede leer esto, su impresora funciona!"
-    }
+    },
+    "preliminaryBanner": "RECIBO PRELIMINAR — NO PAGADO",
+    "preliminaryTitle": "CUENTA PRELIMINAR",
+    "preliminaryFooterNotice": "ESTE ES UN RECIBO PRELIMINAR — NO ES UN COMPROBANTE DE PAGO",
+    "paidSoFar": "Pagado hasta ahora",
+    "balanceDue": "Saldo pendiente",
+    "quoteReference": "Presupuesto #:"
   },
   "products": {
     "addAddon": "Agregar adicional",

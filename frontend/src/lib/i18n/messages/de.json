@@ -837,7 +837,9 @@
     "exitFullscreen": "Vollbildmodus beenden",
     "fullscreenUnavailable": "Vollbildmodus nicht verfügbar",
     "backspaceAmount": "Ziffer löschen",
-    "numericKeypad": "Ziffernblock"
+    "numericKeypad": "Ziffernblock",
+    "printPreliminary": "Vorläufigen Beleg drucken",
+    "printBill": "Rechnung drucken"
   },
   "printTest": {
     "amt": "Betrag",
@@ -950,7 +952,13 @@
       "columns": "Spalten",
       "wrapHint": "Wenn die nächste Zeile umbricht, wählen Sie eine kleinere Spaltenanzahl.",
       "success": "Wenn Sie dies lesen können, funktioniert Ihr Drucker!"
-    }
+    },
+    "preliminaryBanner": "VORLÄUFIGER BELEG — NICHT BEZAHLT",
+    "preliminaryTitle": "VORLÄUFIGE RECHNUNG",
+    "preliminaryFooterNotice": "DIES IST EIN VORLÄUFIGER BELEG — KEINE ZAHLUNGSBESTÄTIGUNG",
+    "paidSoFar": "Bisher bezahlt",
+    "balanceDue": "Restbetrag",
+    "quoteReference": "Angebot #:"
   },
   "products": {
     "addAddon": "Zusatz hinzufügen",
