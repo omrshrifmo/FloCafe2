@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase, now, attachEffectiveAddons, isKotPrintingEnabled, isServerBillPrintingEnabled, parseItemJson } from '../db';
 import { getOrderWithItems } from './bills';
 import { randomUUID } from 'node:crypto';
-import { printViaNetwork, printViaUSB, buildTestPage, printReceiptDetailed, printKOTDetailed, detectConnectedPrinters, prepareReceipt, escPosToText } from '../printers/thermal';
+import { printViaNetwork, printViaUSB, buildTestPage, printReceiptDetailed, printKOTDetailed, printBrandedDiagnosticDetailed, detectConnectedPrinters, prepareReceipt, escPosToText } from '../printers/thermal';
 import { BILL_LANGUAGE_POLICY_KEY, KOT_LANGUAGE_POLICY_KEY, parseStoredLanguagePolicy } from '../lib/print-language-settings';
 import {
   resolveKotLanguage,
@@ -11,11 +11,19 @@ import {
   type ReceiptLanguagePolicy,
   isKotItemPending,
 } from '../../shared/print';
-import { getSupportedPrinterProfiles, resolvePrinterProfile, capabilitiesForPrinter } from '../printers/profiles';
+import { getSupportedPrinterProfiles, resolvePrinterProfile, capabilitiesForPrinter, dotsForPaperWidth } from '../printers/profiles';
 import { requirePermission } from '../services/authorization';
 import { getCountryByCode, getCurrencySymbol, resolveTenantCurrency } from '../countries';
 import { asyncHandler } from '../middleware/async-handler';
 import { getHttpRequestSignal } from '../shutdown';
+import {
+  buildBrandedReceiptRequest,
+  renderBrandedReceipt,
+  DEFAULT_RASTER_WIDTH_80MM,
+  DEFAULT_RASTER_WIDTH_58MM,
+  type BrandedFontFamily,
+} from '../printers/branded-receipt-renderer';
+import { getActiveReceiptLogoAsset } from '../services/receipt-assets';
 
 const router = Router();
 
@@ -340,6 +348,66 @@ router.post('/:id/test', requirePermission('printers.manage'), asyncHandler(asyn
   }
 }));
 
+// POST /api/printers/diagnostic-branded — manually triggered non-financial branded diagnostic print
+router.post('/diagnostic-branded', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const printerId = req.body?.printer_id;
+    const fontFamily = req.body?.font_family;
+    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req));
+
+    if (result.ok) {
+      return res.json({
+        success: true,
+        status: result.status || 'print_submitted',
+        correlation_id: result.correlationId,
+      });
+    }
+
+    return res.status(502).json({
+      error: result.userMessageEn || result.detail || 'Diagnostic print failed. Check printer connection.',
+      status: result.status || 'failed',
+      canRetryManually: result.canRetryManually || false,
+      userMessageEn: result.userMessageEn || result.detail || 'Diagnostic print failed. Check printer connection.',
+      userMessageAr: result.userMessageAr || result.detail || 'فشل طباعة الإيصال التجريبي. تحقق من توصيل الطابعة.',
+      detail: result.detail,
+      correlation_id: result.correlationId,
+    });
+  } catch (error: any) {
+    console.error('[API] Diagnostic print error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}));
+
+// POST /api/printers/:id/diagnostic-branded — route with explicit printer ID parameter
+router.post('/:id/diagnostic-branded', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const printerId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const fontFamily = req.body?.font_family;
+    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req));
+
+    if (result.ok) {
+      return res.json({
+        success: true,
+        status: result.status || 'print_submitted',
+        correlation_id: result.correlationId,
+      });
+    }
+
+    return res.status(502).json({
+      error: result.userMessageEn || result.detail || 'Diagnostic print failed. Check printer connection.',
+      status: result.status || 'failed',
+      canRetryManually: result.canRetryManually || false,
+      userMessageEn: result.userMessageEn || result.detail || 'Diagnostic print failed. Check printer connection.',
+      userMessageAr: result.userMessageAr || result.detail || 'فشل طباعة الإيصال التجريبي. تحقق من توصيل الطابعة.',
+      detail: result.detail,
+      correlation_id: result.correlationId,
+    });
+  } catch (error: any) {
+    console.error('[API] Diagnostic print error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}));
+
 // POST /api/printers/print-bill — print bill via backend (desktop app).
 // `sales` gets the server role past this gate; the setting check below decides if it's actually allowed.
 router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
@@ -513,11 +581,45 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
     console.log('[Print Bill] Preparing receipt', { template: billTemplate || 'classic' });
 
     if (preview === true) {
+      const renderMode = settings.receipt_render_mode || 'legacy_text';
+      if (renderMode === 'branded_raster') {
+        const logoAsset = getActiveReceiptLogoAsset();
+        const fontFamily = (settings.receipt_branded_font_family || 'almarai') as BrandedFontFamily;
+        const paperWidth = typeof printer?.paper_width === 'string' ? printer.paper_width : '80mm';
+        const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+
+        const brandedRequest = buildBrandedReceiptRequest({
+          order,
+          bill,
+          business,
+          widthDots,
+          fontFamily,
+          logoAsset,
+        });
+
+        const brandedOutput = await renderBrandedReceipt(brandedRequest);
+        if (brandedOutput.ok) {
+          return res.json({
+            success: true,
+            preview: true,
+            render_mode: 'branded_raster',
+            columns: widthDots,
+            width_dots: widthDots,
+            height_dots: brandedOutput.dimensions.heightDots,
+            printer: { id: printer.id, name: printer.name },
+            preview_image_url: brandedOutput.previewDataUrl,
+            escpos_base64: brandedOutput.rasterBytes.toString('base64'),
+            warnings: [],
+          });
+        }
+      }
+
       // Previews and prints share the same document formatting pipeline.
       const prepared = prepareReceipt(order, bill, business, billTemplate || 'classic', useUnicode, isReprint, arabicShapingOverride, receiptLanguages.primary, receiptLanguages.additional);
       return res.json({
         success: true,
         preview: true,
+        render_mode: 'legacy_text',
         columns: prepared.columns,
         printer: { id: prepared.printer.id, name: prepared.printer.name },
         text: escPosToText(prepared.data),
@@ -539,9 +641,30 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
     });
 
     if (result.ok) {
-      res.json({ success: true, warnings: result.warnings || [] });
+      res.json({
+        success: true,
+        status: result.status || 'print_submitted',
+        warnings: result.warnings || [],
+      });
     } else {
-      res.status(502).json({ error: result.detail || 'Print failed. Check printer connection and settings.', detail: result.detail, failure_class: result.failureClass, code: result.code, correlation_id: result.correlationId, stage: result.stage, warnings: result.warnings || [] });
+      res.status(502).json({
+        error: result.detail || 'Print failed. Check printer connection and settings.',
+        status: result.status || 'failed',
+        canRetryManually: result.canRetryManually || false,
+        userMessage: result.status === 'print_may_be_incomplete'
+          ? (req.headers['accept-language']?.includes('ar')
+              ? 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.'
+              : 'Receipt may be incomplete. Check the printer before reprinting.')
+          : undefined,
+        userMessageEn: result.userMessageEn || 'Receipt may be incomplete. Check the printer before reprinting.',
+        userMessageAr: result.userMessageAr || 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.',
+        detail: result.detail,
+        failure_class: result.failureClass,
+        code: result.code,
+        correlation_id: result.correlationId,
+        stage: result.stage,
+        warnings: result.warnings || [],
+      });
     }
   } catch (error: any) {
     console.error('[Print Bill] Error:', error);

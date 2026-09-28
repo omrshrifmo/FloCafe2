@@ -22,6 +22,15 @@ import { correlationId, type FloErrorCode } from '../errors';
 import { sendEvent } from '../services/telemetry';
 import { cloudSync } from '../services/cloud-sync';
 import { randomUUID } from 'crypto';
+import {
+  buildBrandedReceiptRequest,
+  buildBrandedDiagnosticRequest,
+  renderBrandedReceipt,
+  DEFAULT_RASTER_WIDTH_80MM,
+  DEFAULT_RASTER_WIDTH_58MM,
+  type BrandedFontFamily,
+} from './branded-receipt-renderer';
+import { getActiveReceiptLogoAsset } from '../services/receipt-assets';
 import { printLabel } from '../print/print-labels.generated';
 import type { PrintConceptId } from '../../shared/print/concepts';
 import {
@@ -119,6 +128,10 @@ export function makeFinancialPrintRefusalMessage(warnings: readonly PrintWarning
 export type PrintResult = {
   ok: boolean;
   code?: FloErrorCode;
+  status?: 'print_submitted' | 'print_may_be_incomplete' | 'dispatched' | 'prepared' | 'failed';
+  canRetryManually?: boolean;
+  userMessageEn?: string;
+  userMessageAr?: string;
   correlationId: string;
   stage: 'prepare' | 'dispatch';
   detail?: string;
@@ -135,6 +148,10 @@ const FINANCIAL_PRINT_REFUSAL_DIAGNOSTIC = 'Receipt not printed: unsupported fin
 /** Low-level dispatch result — carries the actual OS/driver reason, not just ok/fail. */
 export type DispatchResult = {
   ok: boolean;
+  status?: 'print_submitted' | 'print_may_be_incomplete' | 'dispatched' | 'prepared' | 'failed';
+  canRetryManually?: boolean;
+  userMessageEn?: string;
+  userMessageAr?: string;
   detail?: string;
   failureClass?: PrintFailureClass;
   platformErrorCode?: number;
@@ -819,6 +836,63 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
       console.log('[Printer] No printer configured');
       return { ok: false, detail: 'No printer configured' };
     }
+    const renderMode = getSettingValue('receipt_render_mode') || 'legacy_text';
+    if (renderMode === 'branded_raster') {
+      const logoAsset = getActiveReceiptLogoAsset();
+      const fontFamily = (getSettingValue('receipt_branded_font_family') || 'almarai') as BrandedFontFamily;
+      const paperWidth = printer.paper_width || '80mm';
+      const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+
+      const brandedRequest = buildBrandedReceiptRequest({
+        order,
+        bill,
+        business,
+        widthDots,
+        fontFamily,
+        logoAsset,
+      });
+
+      let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
+      try {
+        brandedOutput = await renderBrandedReceipt(brandedRequest);
+      } catch (renderErr) {
+        console.warn('[Printer] Branded raster pre-dispatch render error:', renderErr);
+      }
+
+      if (brandedOutput && brandedOutput.ok) {
+        const pulseSetting = getSettingValue('cash_drawer_pulse_enabled');
+        const shouldPulse = pulseSetting === null
+          ? printer.cash_drawer_pulse_enabled === 1
+          : pulseSetting === 'true' && shouldPulseForPayment(bill);
+        const receiptData = shouldPulse ? appendCashDrawerPulse(brandedOutput.rasterBytes) : brandedOutput.rasterBytes;
+
+        console.log('[Printer] Dispatching branded raster receipt, bytes:', receiptData.length);
+        const dispatch = await dispatchPrint(printer, receiptData, signal);
+        if (!dispatch.ok) {
+          return {
+            ok: false,
+            status: 'print_may_be_incomplete',
+            detail: dispatch.detail ? `${dispatch.detail} (Receipt may be incomplete. Check the printer before reprinting.)` : 'Receipt may be incomplete. Check the printer before reprinting.',
+            canRetryManually: true,
+            userMessageEn: 'Receipt may be incomplete. Check the printer before reprinting.',
+            userMessageAr: 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.',
+            failureClass: dispatch.failureClass,
+            platformErrorCode: dispatch.platformErrorCode,
+            jobId: dispatch.jobId,
+            driverName: dispatch.driverName,
+            printerStatus: dispatch.printerStatus,
+            warnings: dispatch.warnings,
+          };
+        }
+        return {
+          ...dispatch,
+          status: 'print_submitted',
+        };
+      } else {
+        console.warn('[Printer] Branded raster pre-dispatch rendering failed, falling back to legacy text');
+      }
+    }
+
     const prepared = prepareReceipt(order, bill, business, template, useUnicode, isReprint, arabicShapingOverride, language, additionalLanguage);
     const { data, warnings, columns } = await rasterizeReceiptIfEnabled(
       prepared,
@@ -1024,10 +1098,12 @@ export async function printReceiptDetailed(...args: Parameters<typeof printRecei
     const dispatch = await printReceipt(...args);
     const stage = !dispatch.ok && hasFinancialPrintWarning(dispatch.warnings || []) ? 'prepare' : 'dispatch';
     const result: PrintResult = dispatch.ok
-      ? { ok: true, correlationId: id, stage: 'dispatch', warnings: dispatch.warnings }
+      ? { ok: true, correlationId: id, stage: 'dispatch', warnings: dispatch.warnings, status: dispatch.status }
       : {
         ok: false,
         code: 'print.receipt.failed',
+        status: dispatch.status,
+        canRetryManually: dispatch.canRetryManually,
         correlationId: id,
         stage,
         detail: dispatch.detail,
@@ -1045,6 +1121,146 @@ export async function printReceiptDetailed(...args: Parameters<typeof printRecei
     const result: PrintResult = { ok: false, code: 'print.receipt.failed', correlationId: id, stage: 'dispatch', detail, failureClass: classifyPrintFailure(detail), platformErrorCode: extractPlatformErrorCode(detail) };
     reportPrintFailure('receipt', result);
     return result;
+  }
+}
+
+/** Non-financial branded diagnostic print executing exact branded raster pipeline. */
+export async function printBrandedDiagnosticDetailed(
+  printerId?: string | number,
+  fontFamilyOverride?: BrandedFontFamily,
+  signal?: AbortSignal,
+): Promise<PrintResult> {
+  const id = correlationId();
+  try {
+    if (signal?.aborted) {
+      return { ok: false, correlationId: id, stage: 'prepare', detail: 'Print cancelled during shutdown', code: 'print.diagnostic.cancelled' };
+    }
+
+    const db = getDatabase();
+    let printer: any;
+    if (printerId) {
+      printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId);
+    }
+    if (!printer) {
+      printer = getPrinterConfig();
+    }
+    if (!printer) {
+      return {
+        ok: false,
+        correlationId: id,
+        stage: 'prepare',
+        code: 'print.diagnostic.failed',
+        detail: 'No printer configured',
+        status: 'failed',
+        userMessageEn: 'No physical printer configured. Please add and select a printer in Settings > Printers.',
+        userMessageAr: 'لا توجد طابعة معرّفة. يرجى إضافة واختيار طابعة من الإعدادات > الطابعات.',
+      };
+    }
+
+    const profile = resolvePrinterProfile(printer);
+    const paperWidth = printer.paper_width || profile.defaultPaperWidth || '80mm';
+    const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+
+    const logoAsset = getActiveReceiptLogoAsset();
+    const fontFamily = fontFamilyOverride || (getSettingValue('receipt_branded_font_family') || 'almarai') as BrandedFontFamily;
+
+    const business = {
+      name: getSettingValue('store_name') || 'FloCafe',
+      address: getSettingValue('store_address') || '',
+      phone: getSettingValue('store_phone') || '',
+      currency_symbol: getSettingValue('currency_symbol') || '$',
+    };
+
+    const diagnosticRequest = buildBrandedDiagnosticRequest({
+      business,
+      printer,
+      widthDots,
+      fontFamily,
+      logoAsset,
+    });
+
+    let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
+    try {
+      brandedOutput = await renderBrandedReceipt(diagnosticRequest);
+    } catch (renderErr: any) {
+      return {
+        ok: false,
+        correlationId: id,
+        code: 'print.diagnostic.failed',
+        detail: `Branded raster render failed: ${renderErr?.message || String(renderErr)}`,
+        status: 'failed',
+        stage: 'prepare',
+      };
+    }
+
+    if (!brandedOutput || !brandedOutput.ok) {
+      return {
+        ok: false,
+        correlationId: id,
+        code: 'print.diagnostic.failed',
+        detail: brandedOutput ? (brandedOutput as any).error : 'Render failed',
+        status: 'failed',
+        stage: 'prepare',
+      };
+    }
+
+    // Diagnostic printing is strictly non-financial:
+    // Never pulses cash drawer; never modifies orders, bills, payments, inventory, or shifts.
+    const receiptData = brandedOutput.rasterBytes;
+
+    console.log('[Printer] Dispatching branded diagnostic receipt to', printer.name, 'bytes:', receiptData.length);
+    const dispatch = await dispatchPrint(printer, receiptData, signal);
+    if (!dispatch.ok) {
+      const errDetail = dispatch.detail || '';
+      let userMessageEn = `Diagnostic print failed: ${errDetail || 'Printer unreachable'}`;
+      let userMessageAr = `فشل طباعة الإيصال التجريبي: ${errDetail || 'تعذر الوصول إلى الطابعة'}`;
+
+      if (/does not exist|not found|no destination/i.test(errDetail)) {
+        userMessageEn = `Printer "${printer.name}" does not exist in operating system print queues. Check printer name in Settings > Printers.`;
+        userMessageAr = `الطابعة "${printer.name}" غير معرّفة أو غير موجودة في نظام التشغيل. تحقق من اسم الطابعة في الإعدادات > الطابعات.`;
+      } else if (/ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|timeout/i.test(errDetail)) {
+        userMessageEn = `Cannot connect to network printer "${printer.name}" at ${printer.ip_address || ''}:${printer.port || 9100}. Check network and power.`;
+        userMessageAr = `تعذر الاتصال بطابعة الشبكة "${printer.name}". يرجى التحقق من اتصال الشبكة وتشغيل الطابعة.`;
+      } else if (/disabled|not accepting/i.test(errDetail)) {
+        userMessageEn = `Printer queue "${printer.name}" is disabled or not accepting jobs.`;
+        userMessageAr = `طابور طباعة "${printer.name}" معطّل أو لا يقبل مهام الطباعة.`;
+      }
+
+      return {
+        ok: false,
+        status: 'failed',
+        detail: dispatch.detail || 'Diagnostic print failed. Check printer connection.',
+        canRetryManually: true,
+        userMessageEn,
+        userMessageAr,
+        failureClass: dispatch.failureClass,
+        platformErrorCode: dispatch.platformErrorCode,
+        jobId: dispatch.jobId,
+        driverName: dispatch.driverName,
+        printerStatus: dispatch.printerStatus,
+        code: 'print.diagnostic.failed',
+        correlationId: id,
+        stage: 'dispatch',
+      };
+    }
+
+    return {
+      ok: true,
+      status: 'print_submitted',
+      correlationId: id,
+      jobId: dispatch.jobId,
+      driverName: dispatch.driverName,
+      stage: 'dispatch',
+    };
+  } catch (error: any) {
+    const detail = error?.message || String(error);
+    return {
+      ok: false,
+      code: 'print.diagnostic.failed',
+      correlationId: id,
+      stage: 'dispatch',
+      detail,
+    };
   }
 }
 

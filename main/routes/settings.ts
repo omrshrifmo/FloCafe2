@@ -28,6 +28,7 @@ import {
   validateLanguagePolicySetting,
 } from '../lib/print-language-settings';
 import { isThemeMode } from '../title-bar-theme';
+import { receiptAssetsRouter } from './receipt-assets';
 
 const router = Router();
 const settingsReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
@@ -96,6 +97,9 @@ const OPTIONAL_SETTING_DEFAULTS: Record<string, string> = {
   calendar: 'locale',
   // Returns 'system' if not yet explicitly saved by the user.
   theme_mode: 'system',
+  receipt_render_mode: 'legacy_text',
+  receipt_branded_font_family: 'almarai',
+  receipt_logo_asset_id: '',
 };
 
 function maskSetting(key: string, value: string): string {
@@ -884,6 +888,7 @@ const ALLOWED_WILDCARD_KEYS = new Set([
   BILL_LANGUAGE_POLICY_KEY, KOT_LANGUAGE_POLICY_KEY, Z_REPORT_LANGUAGE_POLICY_KEY,
   'currency_display', 'number_digits', 'calendar',
   'theme_mode',
+  'receipt_render_mode', 'receipt_branded_font_family',
 ]);
 
 function isAllowedWildcardKey(key: string): boolean {
@@ -960,6 +965,8 @@ const PRINTING_BATCH_KEYS = new Set<string>([
   Z_REPORT_LANGUAGE_POLICY_KEY,
   'cash_drawer_pulse_enabled',
   'cash_drawer_pulse_methods',
+  'receipt_render_mode',
+  'receipt_branded_font_family',
 ]);
 
 router.put('/printing', settingsWriteRateLimit, requirePermission('printers.manage'), (req: Request, res: Response) => {
@@ -1013,6 +1020,24 @@ router.put('/printing', settingsWriteRateLimit, requirePermission('printers.mana
       return res.status(400).json({ error: 'cash_drawer_pulse_methods must be a non-empty string array' });
     }
 
+    const hasReceiptRenderMode = Object.prototype.hasOwnProperty.call(values, 'receipt_render_mode');
+    if (
+      hasReceiptRenderMode
+      && values.receipt_render_mode !== 'legacy_text'
+      && values.receipt_render_mode !== 'branded_raster'
+    ) {
+      return res.status(400).json({ error: 'receipt_render_mode must be legacy_text or branded_raster' });
+    }
+    const hasReceiptBrandedFontFamily = Object.prototype.hasOwnProperty.call(values, 'receipt_branded_font_family');
+    if (
+      hasReceiptBrandedFontFamily
+      && values.receipt_branded_font_family !== 'system'
+      && values.receipt_branded_font_family !== 'cairo'
+      && values.receipt_branded_font_family !== 'almarai'
+    ) {
+      return res.status(400).json({ error: 'receipt_branded_font_family must be system, cairo, or almarai' });
+    }
+
     const entries: Record<string, string> = {
       printer_trim_decimals: values.printer_trim_decimals ? 'true' : 'false',
       [BILL_LANGUAGE_POLICY_KEY]: billLanguagePolicy.stored,
@@ -1028,6 +1053,12 @@ router.put('/printing', settingsWriteRateLimit, requirePermission('printers.mana
       entries.cash_drawer_pulse_enabled = values.cash_drawer_pulse_enabled ? 'true' : 'false';
       entries.cash_drawer_pulse_methods = JSON.stringify(values.cash_drawer_pulse_methods);
     }
+    if (hasReceiptRenderMode) {
+      entries.receipt_render_mode = String(values.receipt_render_mode);
+    }
+    if (hasReceiptBrandedFontFamily) {
+      entries.receipt_branded_font_family = String(values.receipt_branded_font_family);
+    }
 
     upsertSettings(getDatabase(), entries);
     res.json({ settings: entries });
@@ -1036,6 +1067,8 @@ router.put('/printing', settingsWriteRateLimit, requirePermission('printers.mana
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+router.use('/', receiptAssetsRouter);
 
 router.get('/:key', settingsReadRateLimit, requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
@@ -1074,6 +1107,17 @@ router.put('/:key', settingsWriteRateLimit, requirePermission('settings.manage')
     }
     if (req.params.key === 'theme_mode' && !isThemeMode(value)) {
       return res.status(400).json({ error: 'Invalid theme_mode value' });
+    }
+    if (req.params.key === 'receipt_render_mode' && value !== 'legacy_text' && value !== 'branded_raster') {
+      return res.status(400).json({ error: 'Invalid receipt_render_mode value' });
+    }
+    if (
+      req.params.key === 'receipt_branded_font_family' &&
+      value !== 'system' &&
+      value !== 'cairo' &&
+      value !== 'almarai'
+    ) {
+      return res.status(400).json({ error: 'Invalid receipt_branded_font_family value' });
     }
     let valueToPersist: unknown = value;
     if (req.params.key === 'currency') {

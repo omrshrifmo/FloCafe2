@@ -59,7 +59,12 @@ export interface PosSettingsState {
   // Print language policies synced from backend settings.
   billLanguagePolicy: ReceiptLanguagePolicy;
   kotLanguagePolicy: KotLanguagePolicy;
+  // Receipt branding settings
+  receiptRenderMode: 'legacy_text' | 'branded_raster';
+  receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai';
   // Actions
+  setReceiptRenderMode: (mode: 'legacy_text' | 'branded_raster') => void;
+  setReceiptBrandedFontFamily: (font: 'system' | 'cairo' | 'almarai') => void;
   setShowProductImages: (show: boolean) => void;
   setCustomerMandatory: (mandatory: boolean) => void;
   setEnforcePhoneLength: (enabled: boolean) => void;
@@ -142,6 +147,8 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       // the backend settings API (#441).
       billLanguagePolicy: defaultPrintLanguagePolicy(),
       kotLanguagePolicy: defaultPrintLanguagePolicy(),
+      receiptRenderMode: 'legacy_text',
+      receiptBrandedFontFamily: 'almarai',
       // Actions
       setShowProductImages: (show) => set({ showProductImages: show }),
       setCustomerMandatory: (mandatory) => set({ customerMandatory: mandatory }),
@@ -178,6 +185,8 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       setWhatsappEnabled: (v: boolean) => set({ whatsappEnabled: v }),
       setBillLanguagePolicy: (billLanguagePolicy) => set({ billLanguagePolicy }),
       setKotLanguagePolicy: (kotLanguagePolicy) => set({ kotLanguagePolicy }),
+      setReceiptRenderMode: (receiptRenderMode: 'legacy_text' | 'branded_raster') => set({ receiptRenderMode }),
+      setReceiptBrandedFontFamily: (receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai') => set({ receiptBrandedFontFamily }),
     }),
     {
       name: 'pos-settings',

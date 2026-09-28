@@ -948,6 +948,10 @@ export function initDatabase(recoverInterruptedReplacement = true, allowDuringSh
   repairSequences();
   autoRepairPaymentDetails();
   autoRepairDefaultPrinter();
+  try {
+    const { rehydrateReceiptAssets } = require('./services/receipt-assets');
+    rehydrateReceiptAssets();
+  } catch { }
 
   if (app.isPackaged && !process.env.FLO_E2E_DB_PATH) {
     const markerPath = getDbInitializedMarkerPath();
@@ -2531,6 +2535,10 @@ export function restoreBackup(backupPath: string, forceDirect: boolean = false, 
         baselineForeignKeyViolations: [...baselineForeignKeyViolations],
         driveInvalidationRequired: true,
       });
+      try {
+        const { rehydrateReceiptAssets } = require('./services/receipt-assets');
+        rehydrateReceiptAssets();
+      } catch { }
       return {
         success: true,
         mode: 'direct',
@@ -2546,6 +2554,10 @@ export function restoreBackup(backupPath: string, forceDirect: boolean = false, 
         // The replacement is authoritative once the committed journal is durable.
         // Do not roll it back after a post-commit error; Drive invalidation and
         // artifact cleanup must finish from the durable boundary.
+        try {
+          const { rehydrateReceiptAssets } = require('./services/receipt-assets');
+          rehydrateReceiptAssets();
+        } catch { }
         return {
           success: true,
           mode: 'direct',
@@ -2596,7 +2608,14 @@ export function restoreBackup(backupPath: string, forceDirect: boolean = false, 
   }
 
   console.log('[DB] restoreBackup: Data-only restore (schema version mismatch)');
-  return dataOnlyRestore(backupPath, backupSchemaVersion, currentVersion, preservedRevocations, preservedUserSecurity, preservedUserStations, preservedStationSecurity, preservedKdsEnabled, preservedProtectedSettings, preservedOutboxes, signal);
+  const dataResult = dataOnlyRestore(backupPath, backupSchemaVersion, currentVersion, preservedRevocations, preservedUserSecurity, preservedUserStations, preservedStationSecurity, preservedKdsEnabled, preservedProtectedSettings, preservedOutboxes, signal);
+  if (dataResult.success) {
+    try {
+      const { rehydrateReceiptAssets } = require('./services/receipt-assets');
+      rehydrateReceiptAssets();
+    } catch { }
+  }
+  return dataResult;
 }
 
 /** Return stable keys for existing FK violations so legacy dirty data can be preserved without accepting new damage. */
@@ -5257,6 +5276,32 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ON authorization_audit_log(created_at, id);
         CREATE INDEX IF NOT EXISTS idx_authorization_audit_target
           ON authorization_audit_log(target_type, target_id, id);
+      `);
+    },
+  },
+  {
+    version: 94,
+    name: 'receipt_assets_and_branding',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS receipt_assets (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL DEFAULT 'receipt_logo',
+          filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          width INTEGER NOT NULL,
+          height INTEGER NOT NULL,
+          sha256 TEXT NOT NULL,
+          data BLOB NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_receipt_assets_kind
+          ON receipt_assets(kind, id);
+
+        INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES
+          ('receipt_render_mode', 'legacy_text', CURRENT_TIMESTAMP),
+          ('receipt_branded_font_family', 'almarai', CURRENT_TIMESTAMP);
       `);
     },
   },

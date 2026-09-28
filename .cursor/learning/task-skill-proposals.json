@@ -1,14 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-26T14:33:05.250Z",
-  "taskSummary": "Branch origin (general)",
+  "generatedAt": "2026-09-27T14:33:07.663Z",
+  "taskSummary": "Workspace-detected skills",
   "proposals": [
-    {
-      "name": "cross-platform-scripting",
-      "reason": "Branch bootstrap (general)",
-      "confidence": 80,
-      "installed": true
-    },
     {
       "name": "cursor-kiro-extension-publishing",
       "reason": "Workspace files match **/.github/workflows/publish*.yml; repo stack match (+15)",
@@ -31,12 +25,6 @@
       "successRate": -1,
       "successScore": 15,
       "trend": "new"
-    },
-    {
-      "name": "file-style-conventions",
-      "reason": "Branch bootstrap (general)",
-      "confidence": 80,
-      "installed": true
     },
     {
       "name": "github-actions-ci",
@@ -63,24 +51,6 @@
       "successRate": -1,
       "successScore": 15,
       "trend": "new"
-    },
-    {
-      "name": "self-learning",
-      "reason": "Branch bootstrap (general)",
-      "confidence": 80,
-      "installed": true
-    },
-    {
-      "name": "skill-creator",
-      "reason": "Branch bootstrap (general)",
-      "confidence": 80,
-      "installed": true
-    },
-    {
-      "name": "skill-official-updater",
-      "reason": "Branch bootstrap (general)",
-      "confidence": 80,
-      "installed": true
     },
     {
       "name": "deployment-practical",
@@ -195,6 +165,29 @@
       },
       "whyText": "detected: **/.claude/learning/task-skill-proposals.json, **/.claude/learning/skill-adoption.jsonl",
       "estimatedMinutes": 8,
+      "acceptanceRate": -1,
+      "successRate": -1,
+      "successScore": 15,
+      "trend": "new"
+    },
+    {
+      "name": "skill-usage-insights",
+      "reason": "Workspace files match **/.claude/skills/**",
+      "confidence": 60,
+      "installed": true,
+      "matchedGlobs": [
+        "**/.claude/skills/**"
+      ],
+      "confidenceBreakdown": {
+        "semanticMatch": 60,
+        "workspaceAffinity": 0,
+        "repositoryAffinity": 0,
+        "adoptionSuccess": 0,
+        "enrichment": 0,
+        "penalty": 0
+      },
+      "whyText": "detected: **/.claude/skills/**",
+      "estimatedMinutes": 5,
       "acceptanceRate": -1,
       "successRate": -1,
       "successScore": 15,

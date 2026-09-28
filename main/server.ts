@@ -40,6 +40,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   if (req.path === '/api/auth' || req.path.startsWith('/api/auth/')) { next(); return; }
   // Allow unauthenticated GET requests for product images (so <img> tags work)
   if (req.path.startsWith('/api/products/') && req.path.endsWith('/image') && req.method === 'GET') { next(); return; }
+  // Allow unauthenticated GET requests for receipt logo (so <img> tags work)
+  if (req.path === '/api/settings/receipt-logo/image' && req.method === 'GET') { next(); return; }
   // Login-screen support-ticket paths, rate-limited in support-ticket.ts.
   // Matched exactly (not by prefix) so a lookalike path can't skip auth.
   if (req.method === 'POST' && req.path === '/api/support-ticket/pre-login') { next(); return; }

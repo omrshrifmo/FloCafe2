@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-26T14:33:08.647Z",
-  "proposalsGeneratedAt": "2026-09-26T14:33:05.250Z",
-  "source": "task-skill-proposals",
+  "generatedAt": "2026-09-27T14:33:08.133Z",
+  "proposalsGeneratedAt": "2026-09-27T14:33:07.663Z",
+  "source": "session-apply",
   "activeSkills": [
     "self-learning",
     "file-style-conventions",
@@ -10,12 +10,14 @@
     "skill-usage-insights",
     "skill-feedback-adaptation",
     "skill-official-updater",
-    "cross-platform-scripting",
     "cursor-kiro-extension-publishing",
     "deployment-practical",
     "doc-coauthoring",
     "drawio-diagrams",
-    "extension-value-audit"
+    "extension-value-audit",
+    "github-actions-ci"
   ],
-  "ignoredSkills": []
+  "ignoredSkills": [
+    "cross-platform-scripting"
+  ]
 }

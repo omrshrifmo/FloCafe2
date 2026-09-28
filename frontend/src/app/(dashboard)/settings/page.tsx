@@ -1063,6 +1063,8 @@ export default function SettingsPage() {
     billShowCustomerName: posSettings.billShowCustomerName,
     billShowCustomerPhone: posSettings.billShowCustomerPhone,
     billShowTableNumber: posSettings.billShowTableNumber,
+    receiptRenderMode: posSettings.receiptRenderMode || 'legacy_text',
+    receiptBrandedFontFamily: posSettings.receiptBrandedFontFamily || 'almarai',
   });
   const [printingForm, setPrintingForm] = useState<PrintingForm>(initPrinting);
   const [savedPrinting, setSavedPrinting] = useState<PrintingForm>(initPrinting);
@@ -1125,6 +1127,8 @@ export default function SettingsPage() {
         bill_show_customer_name: formSnapshot.billShowCustomerName,
         bill_show_customer_phone: formSnapshot.billShowCustomerPhone,
         bill_show_table_number: formSnapshot.billShowTableNumber,
+        receipt_render_mode: formSnapshot.receiptRenderMode,
+        receipt_branded_font_family: formSnapshot.receiptBrandedFontFamily,
         ...(formSnapshot.cashDrawerPulseEnabled !== undefined ? {
           cash_drawer_pulse_enabled: formSnapshot.cashDrawerPulseEnabled,
           cash_drawer_pulse_methods: formSnapshot.cashDrawerPulseMethods,
@@ -1150,6 +1154,8 @@ export default function SettingsPage() {
       posSettings.setBillShowCustomerName(formSnapshot.billShowCustomerName);
       posSettings.setBillShowCustomerPhone(formSnapshot.billShowCustomerPhone);
       posSettings.setBillShowTableNumber(formSnapshot.billShowTableNumber);
+      posSettings.setReceiptRenderMode(formSnapshot.receiptRenderMode);
+      posSettings.setReceiptBrandedFontFamily(formSnapshot.receiptBrandedFontFamily);
       setSavedPrinting(formSnapshot);
       if (!silent) toast.success(t('printingSettingsSaved'));
     } finally {
@@ -1754,12 +1760,14 @@ export default function SettingsPage() {
     };
 
     const loadPrinting = async (printingAtHydrationStart: PrintingForm, billFormAtHydrationStart: BillTemplateForm) => {
-      const [trimResponse, cashEnabledResponse, cashMethodsResponse, billLanguageResponse, kotLanguageResponse] = await Promise.all([
+      const [trimResponse, cashEnabledResponse, cashMethodsResponse, billLanguageResponse, kotLanguageResponse, renderModeResponse, brandedFontResponse] = await Promise.all([
         readOptional('/settings/printer_trim_decimals'),
         readOptional('/settings/cash_drawer_pulse_enabled'),
         readOptional('/settings/cash_drawer_pulse_methods'),
         readOptional('/settings/bill_language_policy'),
         readOptional('/settings/kot_language_policy'),
+        readOptional('/settings/receipt_render_mode'),
+        readOptional('/settings/receipt_branded_font_family'),
       ]);
       if (!active()) return;
 
@@ -1768,6 +1776,22 @@ export default function SettingsPage() {
         posSettings.setPrinterTrimDecimals(enabled);
         mergeHydratedPrinting({ printerTrimDecimals: enabled }, printingAtHydrationStart, hydrationTouchSnapshot);
         setSavedPrinting((p) => ({ ...p, printerTrimDecimals: enabled }));
+      }
+      if (renderModeResponse) {
+        const val = renderModeResponse.data.setting?.value;
+        if (val === 'legacy_text' || val === 'branded_raster') {
+          posSettings.setReceiptRenderMode(val);
+          mergeHydratedPrinting({ receiptRenderMode: val }, printingAtHydrationStart, hydrationTouchSnapshot);
+          setSavedPrinting((p) => ({ ...p, receiptRenderMode: val }));
+        }
+      }
+      if (brandedFontResponse) {
+        const val = brandedFontResponse.data.setting?.value;
+        if (val === 'system' || val === 'cairo' || val === 'almarai') {
+          posSettings.setReceiptBrandedFontFamily(val);
+          mergeHydratedPrinting({ receiptBrandedFontFamily: val }, printingAtHydrationStart, hydrationTouchSnapshot);
+          setSavedPrinting((p) => ({ ...p, receiptBrandedFontFamily: val }));
+        }
       }
       if (cashEnabledResponse) {
         const raw = cashEnabledResponse.data.setting?.value;

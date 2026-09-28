@@ -25,3 +25,10 @@ if (driveClientId && driveClientSecret) {
     'utf8',
   );
 }
+
+// Copy bundled runtime assets (e.g. Arabic thermal receipt fonts) to dist/main/assets
+const assetsSource = path.join(__dirname, '../main/assets');
+const assetsDest = path.join(__dirname, '../dist/main/assets');
+if (fs.existsSync(assetsSource)) {
+  fs.cpSync(assetsSource, assetsDest, { recursive: true });
+}

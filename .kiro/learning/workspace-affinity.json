@@ -1,5 +1,114 @@
 {
   "version": 1,
-  "computedAt": "2026-09-26T14:22:49.522Z",
-  "skills": {}
+  "computedAt": "2026-09-27T14:33:07.647Z",
+  "skills": {
+    "cursor-kiro-extension-publishing": {
+      "skill": "cursor-kiro-extension-publishing",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "github-actions-ci": {
+      "skill": "github-actions-ci",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "deployment-practical": {
+      "skill": "deployment-practical",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "doc-coauthoring": {
+      "skill": "doc-coauthoring",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "drawio-diagrams": {
+      "skill": "drawio-diagrams",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "skill-feedback-adaptation": {
+      "skill": "skill-feedback-adaptation",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "cross-platform-scripting": {
+      "skill": "cross-platform-scripting",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "file-style-conventions": {
+      "skill": "file-style-conventions",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "self-learning": {
+      "skill": "self-learning",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "skill-creator": {
+      "skill": "skill-creator",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "skill-official-updater": {
+      "skill": "skill-official-updater",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    },
+    "extension-value-audit": {
+      "skill": "extension-value-audit",
+      "observations": 0,
+      "manualInvocations": 0,
+      "recommendationInvocations": 0,
+      "successCount": 0,
+      "reuseCount": 0,
+      "affinityScore": 0
+    }
+  }
 }

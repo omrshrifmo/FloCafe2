@@ -26,6 +26,7 @@ import { LANGUAGES, type Language } from '@/lib/i18n';
 import { isTemplateCardSelected, type BillTemplateSelectionSource } from '@/lib/bill-template-picker';
 import { type PaperSize, type BillTemplate } from '@/store/pos-settings';
 import { usePrinterStore } from '@/hooks/usePrinter';
+import { ReceiptBrandingSettings } from './ReceiptBrandingSettings';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -93,6 +94,8 @@ export type PrintingForm = {
   billShowCustomerName: boolean;
   billShowCustomerPhone: boolean;
   billShowTableNumber: boolean;
+  receiptRenderMode: 'legacy_text' | 'branded_raster';
+  receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai';
 };
 
 export type BillTemplateForm = {
@@ -1067,6 +1070,14 @@ export function PrintersSettingsTab({
             </div>
           </div>
         </div>
+
+        <ReceiptBrandingSettings
+          printingForm={printingForm}
+          setPrintingForm={setPrintingForm}
+          markHydrationTouched={markHydrationTouched}
+          confirm={confirm}
+          hwPrinters={hwPrinters}
+        />
 
         <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center gap-2 mb-4">
