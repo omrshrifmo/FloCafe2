@@ -42,7 +42,7 @@ const PRINT_LABELS: Record<PrintLabelLanguage, PrintLabelTable> = {
     'print.invoiceTitle': "INVOICE",
     'print.preliminaryBanner': "PRELIMINARY RECEIPT — NOT PAID",
     'print.preliminaryTitle': "PRELIMINARY BILL",
-    'print.preliminaryFooterNotice': "THIS IS A PRELIMINARY RECEIPT — NOT A PAYMENT RECEIPT",
+    'print.preliminaryFooterNotice': "THIS IS A PRELIMINARY RECEIPT — NOT A PROOF OF PAYMENT",
     'print.paidSoFar': "Paid So Far",
     'print.balanceDue': "Balance Due",
     'print.quoteReference': "Quote #:",

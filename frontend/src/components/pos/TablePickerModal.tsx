@@ -1,11 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, ArrowUp, ArrowDown, Layers } from 'lucide-react';
 import type { Table } from '@/lib/types';
 import { useHeldOrdersStore } from '@/store/held-orders';
 import { useTranslations, type AppConfig } from 'use-intl';
 import { TableTurnoverBadge } from '@/components/tables/TableTurnoverBadge';
+import {
+  naturalSort,
+  UNASSIGNED_FLOOR,
+  filterAndSortTables,
+  groupTablesByFloor,
+  loadTablePickerPrefs,
+  saveTablePickerPrefs,
+  type StatusFilter,
+  type TableSortField,
+  type TablePickerPrefs,
+} from '@/lib/table-picker';
 
 interface Props {
   tables: Table[];
@@ -28,35 +39,42 @@ const statusStyles: Record<string, { border: string; badge: string; badgeKey: Po
   held: { border: 'border-blue-400 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40', badge: 'bg-blue-500', badgeKey: 'tableHeld' },
 };
 
-type StatusFilter = 'all' | 'available' | 'occupied' | 'reserved' | 'held' | 'cleaning';
-type SortMode = 'name' | 'status';
+export const STATUS_FILTERS: { key: StatusFilter; labelKey: PosKey }[] = [
+  { key: 'all', labelKey: 'tableFilterAll' },
+  { key: 'available', labelKey: 'tableFilterAvailable' },
+  { key: 'occupied', labelKey: 'tableFilterOccupied' },
+  { key: 'reserved', labelKey: 'tableFilterReserved' },
+  { key: 'held', labelKey: 'tableFilterHeld' },
+  { key: 'cleaning', labelKey: 'tableFilterCleaning' },
+];
 
-/** Natural sort for table names that may contain numbers (e.g. T1, T2, T10). */
-function naturalSort(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
-
-const STATUS_ORDER: Record<string, number> = {
-  occupied: 0, held: 1, reserved: 2, available: 3, cleaning: 4,
-};
-
-const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'available', label: 'Available' },
-  { key: 'occupied', label: 'Occupied' },
-  { key: 'reserved', label: 'Reserved' },
-  { key: 'held', label: 'Held' },
-  { key: 'cleaning', label: 'Cleaning' },
+export const SORT_FIELDS: { key: TableSortField; labelKey: PosKey }[] = [
+  { key: 'number', labelKey: 'tableSortByNumber' },
+  { key: 'name', labelKey: 'tableSortByName' },
+  { key: 'status', labelKey: 'tableSortByStatus' },
+  { key: 'floor', labelKey: 'tableSortByFloor' },
 ];
 
 export default function TablePickerModal({
-  tables, selectedTableId, onSelectAvailable, onSelectOccupied, onSelectHeld, onPlaceOrder, onHoldTable, onClose,
+  tables,
+  selectedTableId,
+  onSelectAvailable,
+  onSelectOccupied,
+  onSelectHeld,
+  onPlaceOrder,
+  onHoldTable,
+  onClose,
 }: Props) {
   const heldOrders = useHeldOrdersStore();
   const t = useTranslations('pos');
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [sortMode, setSortMode] = useState<SortMode>('name');
+  const [prefs, setPrefs] = useState<TablePickerPrefs>(loadTablePickerPrefs);
+
+  useEffect(() => {
+    saveTablePickerPrefs(prefs);
+  }, [prefs]);
+
+  const { sortField, sortDirection, statusFilter, floorFilter, groupByFloor } = prefs;
 
   const handleClick = (table: Table) => {
     if (heldOrders.hasHeldOrder(table.id)) {
@@ -79,80 +97,156 @@ export default function TablePickerModal({
   const effectiveStatus = (table: Table): StatusFilter =>
     heldOrders.hasHeldOrder(table.id) ? 'held' : (table.status as StatusFilter);
 
-  // 1. Filter by status.
-  const filtered = statusFilter === 'all'
-    ? tables
-    : tables.filter((tbl) => effectiveStatus(tbl) === statusFilter);
+  // Distinct halls/floors from tables list
+  const distinctFloors = Array.from(
+    new Set(
+      tables
+        .map((tbl) => tbl.floor || tbl.section)
+        .filter((f): f is string => Boolean(f && f.trim()))
+    )
+  ).sort(naturalSort);
+  const hasUnassigned = tables.some((tbl) => !(tbl.floor || tbl.section));
 
-  // 2. Sort.
-  const sorted = [...filtered].sort((a, b) => {
-    if (sortMode === 'status') {
-      const sa = STATUS_ORDER[effectiveStatus(a)] ?? 99;
-      const sb = STATUS_ORDER[effectiveStatus(b)] ?? 99;
-      if (sa !== sb) return sa - sb;
-    }
-    return naturalSort(a.name, b.name);
-  });
-
-  // 3. Group by floor/section when any table has a floor label.
-  const hasFloors = tables.some((tbl) => tbl.floor || tbl.section);
-  const NO_FLOOR_KEY = '\x00';
-  const groupedTables: { label: string | null; items: Table[] }[] = hasFloors
-    ? (() => {
-        const groups = new Map<string, Table[]>();
-        for (const tbl of sorted) {
-          const key = tbl.floor || tbl.section || NO_FLOOR_KEY;
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key)!.push(tbl);
-        }
-        return [...groups.entries()].map(([key, items]) => ({
-          label: key === NO_FLOOR_KEY ? null : key,
-          items,
-        }));
-      })()
-    : [{ label: null, items: sorted }];
-
+  const sorted = filterAndSortTables(tables, prefs, effectiveStatus);
+  const groupedTables = groupTablesByFloor(sorted, groupByFloor, t('tableFloorUnassigned'));
   const isEmpty = groupedTables.every((g) => g.items.length === 0);
 
+  const toggleSortField = (field: TableSortField) => {
+    if (sortField === field) {
+      setPrefs((prev) => ({
+        ...prev,
+        sortDirection: prev.sortDirection === 'asc' ? 'desc' : 'asc',
+      }));
+    } else {
+      setPrefs((prev) => ({
+        ...prev,
+        sortField: field,
+        sortDirection: 'asc',
+      }));
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-card rounded-2xl p-6 w-full max-w-lg max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" dir="auto">
+      <div className="bg-card rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex justify-between items-center mb-3 flex-shrink-0">
-          <h2 className="text-lg font-bold">{t('selectTable')}</h2>
           <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold">{t('selectTable')}</h2>
             <button
-              id="table-picker-sort-toggle"
-              onClick={() => setSortMode((m) => m === 'name' ? 'status' : 'name')}
-              className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-              title={sortMode === 'name' ? 'Sort by status' : 'Sort by name'}
+              id="table-group-by-floor-toggle"
+              type="button"
+              onClick={() => setPrefs((prev) => ({ ...prev, groupByFloor: !prev.groupByFloor }))}
+              className={`text-xs px-2.5 py-1 rounded-lg border flex items-center gap-1 transition-colors ${
+                groupByFloor
+                  ? 'bg-brand text-white border-brand'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+              }`}
+              title={t('tableGroupByFloor')}
+              aria-pressed={groupByFloor}
             >
-              {sortMode === 'name' ? 'A→Z' : 'Status'}
-            </button>
-            <button
-              onClick={onClose}
-              className="touch-target rounded-full text-gray-400 hover:text-muted-foreground active:bg-muted"
-              aria-label={t('close')}
-            >
-              <X size={20} />
+              <Layers size={14} />
+              <span>{t('tableGroupByFloor')}</span>
             </button>
           </div>
+          <button
+            onClick={onClose}
+            className="touch-target rounded-full text-gray-400 hover:text-muted-foreground active:bg-muted"
+            aria-label={t('close')}
+          >
+            <X size={20} />
+          </button>
         </div>
+
+        {/* Sort Controls */}
+        <div className="flex flex-wrap items-center gap-1.5 pb-2 mb-1 border-b border-border flex-shrink-0 text-xs">
+          <span className="text-muted-foreground font-medium me-1">{t('tableSortByStatus')}:</span>
+          {SORT_FIELDS.map(({ key, labelKey }) => {
+            const isActive = sortField === key;
+            return (
+              <button
+                key={key}
+                id={`table-sort-${key}`}
+                type="button"
+                onClick={() => toggleSortField(key)}
+                className={`px-2.5 py-1 rounded-lg border font-medium flex items-center gap-1 transition-colors ${
+                  isActive
+                    ? 'bg-brand/10 border-brand text-brand dark:bg-brand/20'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+                aria-pressed={isActive}
+              >
+                <span>{t(labelKey)}</span>
+                {isActive && (
+                  sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Hall / Floor Filter (visible when distinct floors exist or unassigned tables) */}
+        {(distinctFloors.length > 0 || hasUnassigned) && (
+          <div className="flex gap-1.5 overflow-x-auto pb-2 flex-shrink-0 -mx-1 px-1">
+            <button
+              id="table-floor-all"
+              type="button"
+              onClick={() => setPrefs((prev) => ({ ...prev, floorFilter: 'all' }))}
+              className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                floorFilter === 'all'
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {t('tableFilterAllFloors')}
+            </button>
+            {distinctFloors.map((floor) => (
+              <button
+                key={floor}
+                id={`table-floor-${floor}`}
+                type="button"
+                onClick={() => setPrefs((prev) => ({ ...prev, floorFilter: floor }))}
+                className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                  floorFilter === floor
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {floor}
+              </button>
+            ))}
+            {hasUnassigned && (
+              <button
+                id="table-floor-unassigned"
+                type="button"
+                onClick={() => setPrefs((prev) => ({ ...prev, floorFilter: UNASSIGNED_FLOOR }))}
+                className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                  floorFilter === UNASSIGNED_FLOOR
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {t('tableFloorUnassigned')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Status filter pills */}
         <div className="flex gap-1.5 overflow-x-auto pb-2 flex-shrink-0 -mx-1 px-1">
-          {STATUS_FILTERS.map(({ key, label }) => (
+          {STATUS_FILTERS.map(({ key, labelKey }) => (
             <button
               key={key}
               id={`table-filter-${key}`}
-              onClick={() => setStatusFilter(key)}
+              type="button"
+              onClick={() => setPrefs((prev) => ({ ...prev, statusFilter: key }))}
               className={`flex-shrink-0 text-xs px-3 py-1 rounded-full border font-medium transition-colors ${
                 statusFilter === key
                   ? 'bg-brand text-white border-brand'
                   : 'border-border text-muted-foreground hover:bg-muted'
               }`}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </div>
@@ -186,7 +280,7 @@ export default function TablePickerModal({
                           isSelected
                             ? 'border-brand bg-brand-light'
                             : isHeld
-                              ? 'border-blue-400 bg-blue-50'
+                              ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/40'
                               : style.border
                         } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                       >

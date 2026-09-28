@@ -122,9 +122,11 @@ export function hasFinancialPrintWarning(warnings: readonly PrintWarning[]): boo
   return warnings.some((warning) => warning.kind === 'financial');
 }
 
-export function makeFinancialPrintRefusalMessage(warnings: readonly PrintWarning[]): string {
-  const row = warnings.find((warning) => warning.kind === 'financial');
-  return `Receipt not printed: a financial row contains unsupported printer text${row?.text ? `: ${row.text}` : '.'} Use a supported printer profile or system/browser printing.`;
+export function makeFinancialPrintRefusalMessage(_warnings: readonly PrintWarning[]): string {
+  return (
+    'Financial report could not be rendered safely. No partial report was printed.\n' +
+    'تعذر تجهيز التقرير المالي للطباعة بأمان. لم تتم طباعة تقرير جزئي.'
+  );
 }
 
 export type PrintResult = {

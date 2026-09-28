@@ -839,7 +839,23 @@
     "backspaceAmount": "Backspace amount",
     "numericKeypad": "Numeric keypad",
     "printPreliminary": "Print Preliminary Receipt",
-    "printBill": "Print Bill"
+    "printBill": "Print Bill",
+    "tableFilterAll": "All",
+    "tableFilterAvailable": "Available",
+    "tableFilterOccupied": "Occupied",
+    "tableFilterReserved": "Reserved",
+    "tableFilterHeld": "Held",
+    "tableFilterCleaning": "Cleaning",
+    "tableSortByNumber": "Number",
+    "tableSortByName": "Name",
+    "tableSortByStatus": "Status",
+    "tableSortByFloor": "Hall / Floor",
+    "tableGroupUngrouped": "Unassigned",
+    "tableSortAsc": "Ascending",
+    "tableSortDesc": "Descending",
+    "tableFilterAllFloors": "All Halls",
+    "tableFloorUnassigned": "Unassigned",
+    "tableGroupByFloor": "Group by Hall"
   },
   "printTest": {
     "amt": "Amt",
@@ -955,7 +971,7 @@
     },
     "preliminaryBanner": "PRELIMINARY RECEIPT — NOT PAID",
     "preliminaryTitle": "PRELIMINARY BILL",
-    "preliminaryFooterNotice": "THIS IS A PRELIMINARY RECEIPT — NOT A PAYMENT RECEIPT",
+    "preliminaryFooterNotice": "THIS IS A PRELIMINARY RECEIPT — NOT A PROOF OF PAYMENT",
     "paidSoFar": "Paid So Far",
     "balanceDue": "Balance Due",
     "quoteReference": "Quote #:"
