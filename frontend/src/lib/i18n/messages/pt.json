@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Tipografia avançada e molduras gráficas requerem o modo Raster. Em texto ESC/POS clássico usam-se fontes padrão da impressora.",
     "kotSafeNotice": "Comandas de cozinha nunca imprimem formas de pagamento, troco, impostos ou agradecimentos.",
     "printKotDiagnostic": "Imprimir Comanda de Diagnóstico",
-    "printKotDiagnosticDesc": "Imprime uma comanda de teste para verificar a impressora da cozinha."
+    "printKotDiagnosticDesc": "Imprime uma comanda de teste para verificar a impressora da cozinha.",
+    "brandedRasterTransport": "Transporte de imagem com marca",
+    "brandedRasterTransportHelp": "Escolha o modo de compatibilidade ESC * se as imagens com marca forem impressas distorcidas na sua impressora térmica.",
+    "brandedRasterTransportGsV0": "Modo raster GS v 0",
+    "brandedRasterTransportEscStar": "Compatibilidade ESC *",
+    "brandedRasterTransportAuto": "Automático (padrão do perfil)",
+    "printGsV0Test": "Imprimir teste de marca GS v 0",
+    "printEscStarTest": "Imprimir teste de compatibilidade ESC *",
+    "currentTransport": "Transporte atual",
+    "transportSaved": "Configuração de transporte da impressora salva",
+    "transportHelperTitle": "Guia de configuração de compatibilidade:",
+    "transportHelperStep1": "1. Clique em 'Imprimir teste de marca GS v 0'.",
+    "transportHelperStep2": "2. Clique em 'Imprimir teste de compatibilidade ESC *'.",
+    "transportHelperStep3": "3. Inspecione as impressões e selecione o transporte que imprimiu perfeitamente.",
+    "transportHelperStep4": "4. Salve para aplicar este transporte a todos os recibos e pedidos."
   },
   "setup": {
     "alreadyCompleted": "A configuração já foi concluída nesta instalação. Redirecionando para o login…",

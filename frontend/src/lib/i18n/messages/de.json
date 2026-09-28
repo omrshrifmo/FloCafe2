@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Erweiterte Typografie, Logos und Rahmen erfordern den Grafik-Raster-Modus. Im ESC/POS-Textmodus werden Standardschriftarten verwendet.",
     "kotSafeNotice": "Küchenbons drucken niemals Zahlungsarten, Rückgeld, Steuernummern oder Dankesgrüße.",
     "printKotDiagnostic": "Küchen-Diagnosebon drucken",
-    "printKotDiagnosticDesc": "Druckt einen Testbon zur Überprüfung der Küchenausgabe."
+    "printKotDiagnosticDesc": "Druckt einen Testbon zur Überprüfung der Küchenausgabe.",
+    "brandedRasterTransport": "Bildübertragungsmodus mit Branding",
+    "brandedRasterTransportHelp": "Wählen Sie den ESC * Kompatibilitätsmodus, wenn Grafiken auf Ihrem Thermodrucker fehlerhaft gedruckt werden.",
+    "brandedRasterTransportGsV0": "GS v 0 Raster-Modus",
+    "brandedRasterTransportEscStar": "ESC * Kompatibilität",
+    "brandedRasterTransportAuto": "Automatisch (Profil-Standard)",
+    "printGsV0Test": "GS v 0 Branding-Test drucken",
+    "printEscStarTest": "ESC * Kompatibilitätstest drucken",
+    "currentTransport": "Aktueller Übertragungsmodus",
+    "transportSaved": "Druckerübertragungseinstellung gespeichert",
+    "transportHelperTitle": "Kompatibilitäts-Anleitung:",
+    "transportHelperStep1": "1. Klicken Sie auf 'GS v 0 Branding-Test drucken'.",
+    "transportHelperStep2": "2. Klicken Sie auf 'ESC * Kompatibilitätstest drucken'.",
+    "transportHelperStep3": "3. Prüfen Sie die Ausdrucke und wählen Sie den Modus, der fehlerfrei gedruckt hat.",
+    "transportHelperStep4": "4. Speichern Sie, um diesen Modus für alle Belege zu übernehmen."
   },
   "setup": {
     "alreadyCompleted": "Die Ersteinrichtung wurde bereits abgeschlossen. Weiterleitung zur Anmeldung…",

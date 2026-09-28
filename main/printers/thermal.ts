@@ -30,6 +30,7 @@ import {
   DEFAULT_RASTER_WIDTH_58MM,
   type BrandedFontFamily,
 } from './branded-receipt-renderer';
+import { resolveRasterTransport, type RasterImageTransport } from '../../shared/print/raster';
 import { getActiveReceiptLogoAsset } from '../services/receipt-assets';
 import { printLabel } from '../print/print-labels.generated';
 import type { PrintConceptId } from '../../shared/print/concepts';
@@ -862,11 +863,13 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
         borderInsetDots: resolvedReceiptStyle.frame.borderPadding,
         documentVariant: isPreliminary ? 'preliminary' : (isReprint ? 'reprint' : 'final'),
         source: resolvedSource,
+        transport: resolveRasterTransport(printer.branded_raster_transport),
       });
 
+      const receiptTransport = resolveRasterTransport(printer.branded_raster_transport);
       let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
       try {
-        brandedOutput = await renderBrandedReceipt(brandedRequest);
+        brandedOutput = await renderBrandedReceipt(brandedRequest, receiptTransport);
       } catch (renderErr) {
         console.warn('[Printer] Branded raster pre-dispatch render error:', renderErr);
       }
@@ -1027,6 +1030,7 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         capabilities: nativeCapabilities,
         style: resolvedKotStyle,
       });
+      const kotTransport = resolveRasterTransport(targetPrinter?.branded_raster_transport);
       const rasterized = await rasterizeDocumentLines(documentResult.lines, documentResult.warnings, {
         useUnicode,
         cutMode: profile.cutMode,
@@ -1035,6 +1039,7 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         language: normalizePrintLanguage(language ?? biz?.language),
         capabilities,
         requestPrefix: 'kot',
+        transport: kotTransport,
       }, documentResult.rasterGroups);
       data = rasterized.rasterSelected && !rasterized.rasterFailed
         ? rasterized.data
@@ -1146,6 +1151,7 @@ export async function printBrandedDiagnosticDetailed(
   printerId?: string | number,
   fontFamilyOverride?: BrandedFontFamily,
   signal?: AbortSignal,
+  transportOverride?: 'gs_v_0' | 'esc_star_24',
 ): Promise<PrintResult> {
   const id = correlationId();
   try {
@@ -1188,17 +1194,19 @@ export async function printBrandedDiagnosticDetailed(
       currency_symbol: getSettingValue('currency_symbol') || '$',
     };
 
+    const transport = transportOverride || resolveRasterTransport(printer.branded_raster_transport);
     const diagnosticRequest = buildBrandedDiagnosticRequest({
       business,
       printer,
       widthDots,
       fontFamily,
       logoAsset,
+      transport,
     });
 
     let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
     try {
-      brandedOutput = await renderBrandedReceipt(diagnosticRequest);
+      brandedOutput = await renderBrandedReceipt(diagnosticRequest, transport);
     } catch (renderErr: any) {
       return {
         ok: false,
@@ -1472,6 +1480,7 @@ async function rasterizeDocumentLines(
     language: string;
     capabilities: ThermalPrinterCapabilities;
     requestPrefix: string;
+    transport?: RasterImageTransport;
   },
   rasterGroups?: readonly RasterSemanticLineGroup[],
 ): Promise<{ data: Buffer; warnings: PrintWarning[]; rasterSelected: boolean; rasterFailed: boolean }> {
@@ -1511,6 +1520,7 @@ async function rasterizeDocumentLines(
       capabilities: options.capabilities,
       rasterUnits: raster.units,
       rasterFailures: raster.failures,
+      transport: options.transport,
     }, warnings);
     for (const failure of raster.failures) {
       warnings.push({
@@ -1639,6 +1649,7 @@ async function rasterizeReceiptIfEnabled(
     capabilities,
   );
   if (!document) return prepared;
+  const receiptTransport = resolveRasterTransport(prepared.printer?.branded_raster_transport);
   const result = await rasterizeDocumentLines(document.lines, document.warnings, {
     useUnicode,
     cutMode: profile.cutMode,
@@ -1647,6 +1658,7 @@ async function rasterizeReceiptIfEnabled(
     language: normalizePrintLanguage(language),
     capabilities,
     requestPrefix: 'receipt',
+    transport: receiptTransport,
   }, document.rasterGroups);
   if (result.rasterFailed) {
     return { ...prepared, warnings: [...prepared.warnings, ...result.warnings] };
@@ -2503,6 +2515,7 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         lineCount: sections.length,
         financial: true,
       };
+      const zTransport = resolveRasterTransport(printer?.branded_raster_transport);
       const rasterized = await rasterizeDocumentLines(sections, probeWarnings, {
         useUnicode: false,
         cutMode: 'full',
@@ -2511,6 +2524,7 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         language: lang,
         capabilities: capabilities ?? { shaping: { arabic: false }, codePage: { native: false, ascii: true } },
         requestPrefix: 'z-report',
+        transport: zTransport,
       }, [rasterGroup]);
       if (!rasterized.rasterFailed) {
         baseBody = rasterized.data;

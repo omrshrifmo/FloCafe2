@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "اعلی درجے کی خطاطی اور بارڈرز کے لیے گرافک راسٹر موڈ درکار ہے۔ عام ٹیکسٹ موڈ میں پرنٹر کے بنیادی فونٹس استعمال ہوتے ہیں۔",
     "kotSafeNotice": "کچن آرڈر پر ادائیگی کا طریقہ، بقایا رقم، ٹیکس اور تشکراتی جملے کبھی پرنٹ نہیں ہوتے۔",
     "printKotDiagnostic": "کچن تشخیصی پرچی پرنٹ کریں",
-    "printKotDiagnosticDesc": "کچن پرنٹر پر فارمیٹ کی جانچ کے لیے ٹیسٹ ٹکٹ پرنٹ کرتا ہے۔"
+    "printKotDiagnosticDesc": "کچن پرنٹر پر فارمیٹ کی جانچ کے لیے ٹیسٹ ٹکٹ پرنٹ کرتا ہے۔",
+    "brandedRasterTransport": "برانڈڈ امیج ٹرانسپورٹ موڈ",
+    "brandedRasterTransportHelp": "اگر تھرمل پرنٹر پر برانڈڈ تصاویر مسخ شدہ پرنٹ ہوتی ہیں تو ESC * مطابقت پذیری موڈ منتخب کریں۔",
+    "brandedRasterTransportGsV0": "GS v 0 راسٹر موڈ",
+    "brandedRasterTransportEscStar": "ESC * مطابقت پذیری",
+    "brandedRasterTransportAuto": "خودکار (پروفائل ڈیفالٹ)",
+    "printGsV0Test": "GS v 0 برانڈنگ ٹیسٹ پرنٹ کریں",
+    "printEscStarTest": "ESC * مطابقت پذیری ٹیسٹ پرنٹ کریں",
+    "currentTransport": "موجودہ ٹرانسپورٹ",
+    "transportSaved": "پرنٹر ٹرانسپورٹ کی ترتیب محفوظ ہوگئی",
+    "transportHelperTitle": "مطابقت پذیری سیٹ اپ گائیڈ:",
+    "transportHelperStep1": "۱۔ 'GS v 0 برانڈنگ ٹیسٹ پرنٹ کریں' پر کلک کریں۔",
+    "transportHelperStep2": "۲۔ 'ESC * مطابقت پذیری ٹیسٹ پرنٹ کریں' پر کلک کریں۔",
+    "transportHelperStep3": "۳۔ پرنٹ شدہ رسیدیں دیکھیں اور صاف پرنٹ ہونے والا موڈ منتخب کریں۔",
+    "transportHelperStep4": "۴۔ تمام رسیدوں اور کچن آرڈرز پر لاگو کرنے کے لیے محفوظ کریں۔"
   },
   "setup": {
     "alreadyCompleted": "اس انسٹال کا سیٹ اپ پہلے ہی مکمل ہو چکا ہے۔ سائن ان پر بھیج رہا ہے…",

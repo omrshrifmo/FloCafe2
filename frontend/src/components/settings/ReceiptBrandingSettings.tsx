@@ -190,7 +190,7 @@ export function ReceiptBrandingSettings({
   };
 
   // Hardware diagnostic test print
-  const handlePrintDiagnostic = async () => {
+  const handlePrintDiagnostic = async (transportOverride?: 'gs_v_0' | 'esc_star_24') => {
     if (effectivePrinter?.connection_type === 'webusb') {
       toast.error(
         'WebUSB printers are managed in the browser (via POS toolbar). For desktop print tests, click "Print / Save as PDF" or configure a USB or Network printer in Settings > Printers.',
@@ -205,6 +205,7 @@ export function ReceiptBrandingSettings({
         printer_id: effectivePrinter?.id,
         font_family: activeResolvedStyle.typography.fontFamily,
         document_type: activeDoc,
+        transport: transportOverride,
       });
 
       if (res.data?.success) {
@@ -1043,62 +1044,115 @@ export function ReceiptBrandingSettings({
             </div>
           </div>
 
-          {/* Diagnostic Test Print Action */}
-          <div className="pt-4 border-t border-border space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                  <Printer size={14} className="text-brand" />
-                  {activeDoc === 'kot' ? t('printKotDiagnostic') : t('printBrandedDiagnostic')}
-                </label>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {activeDoc === 'kot' ? t('printKotDiagnosticDesc') : t('printBrandedDiagnosticDesc')}
-                </p>
+          {/* Branded Raster Image Transport Configuration & Focused Diagnostics */}
+          <div className="pt-4 border-t border-border space-y-4">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Printer size={14} className="text-brand" />
+                {t('brandedRasterTransport')}
+              </label>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {t('brandedRasterTransportHelp')}
+              </p>
+            </div>
+
+            {/* Target Printer selector & transport dropdown */}
+            <div className="bg-muted/30 p-3 rounded-xl border border-border/70 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground font-medium">Target Printer:</span>
+                  {hwPrinters && hwPrinters.length > 1 ? (
+                    <select
+                      value={selectedPrinterId || defaultPrinter?.id || ''}
+                      onChange={(e) => setSelectedPrinterId(e.target.value)}
+                      className="bg-card text-foreground px-2 py-1 rounded border border-border text-[11px] font-mono"
+                    >
+                      {hwPrinters.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.connection_type.toUpperCase()}){p.is_default ? ' [Default]' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : effectivePrinter ? (
+                    <span className="font-mono font-medium text-foreground bg-card px-2 py-0.5 rounded border border-border">
+                      {effectivePrinter.name} ({effectivePrinter.connection_type.toUpperCase()})
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground italic">No printer configured in Settings &gt; Printers</span>
+                  )}
+                </div>
+
+                {effectivePrinter && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground font-medium">{t('currentTransport')}:</span>
+                    <select
+                      value={effectivePrinter.branded_raster_transport || 'gs_v_0'}
+                      onChange={async (e) => {
+                        const newTransport = e.target.value as 'gs_v_0' | 'esc_star_24' | 'auto';
+                        try {
+                          await api.patch(`/printers/${effectivePrinter.id}/transport`, {
+                            branded_raster_transport: newTransport,
+                          });
+                          effectivePrinter.branded_raster_transport = newTransport;
+                          toast.success(t('transportSaved'));
+                          setRefreshCount((c) => c + 1);
+                        } catch {
+                          toast.error(t('actionFailed'));
+                        }
+                      }}
+                      className="bg-card text-foreground px-2.5 py-1 rounded border border-border text-xs font-semibold"
+                    >
+                      <option value="gs_v_0">{t('brandedRasterTransportGsV0')}</option>
+                      <option value="esc_star_24">{t('brandedRasterTransportEscStar')}</option>
+                      <option value="auto">{t('brandedRasterTransportAuto')}</option>
+                    </select>
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={handlePrintBrowser}
-                  className="px-3.5 py-2 rounded-xl bg-card hover:bg-muted text-foreground font-medium text-xs flex items-center gap-2 border border-border shadow-sm transition-all whitespace-nowrap cursor-pointer"
-                  title="Open system print dialog to preview, print, or save as PDF"
-                >
-                  <FileDown size={14} className="text-muted-foreground" />
-                  <span>Print / Save as PDF</span>
-                </button>
+
+              {/* Step-by-step diagnostic helper */}
+              <div className="text-[11px] bg-card p-3 rounded-lg border border-border text-foreground space-y-1">
+                <span className="font-semibold block text-brand">{t('transportHelperTitle')}</span>
+                <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
+                  <li>{t('transportHelperStep1')}</li>
+                  <li>{t('transportHelperStep2')}</li>
+                  <li>{t('transportHelperStep3')}</li>
+                  <li>{t('transportHelperStep4')}</li>
+                </ol>
+              </div>
+
+              {/* Two focused diagnostic test buttons */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
                   disabled={diagnosticPrinting}
-                  onClick={handlePrintDiagnostic}
-                  className="px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground font-medium text-xs flex items-center gap-2 border border-border shadow-sm transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                  onClick={() => handlePrintDiagnostic('gs_v_0')}
+                  className="px-3 py-2 rounded-lg bg-card hover:bg-muted text-foreground font-medium text-xs flex items-center gap-1.5 border border-border shadow-sm transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  <Printer size={14} className={diagnosticPrinting ? 'animate-pulse' : ''} />
-                  <span>{diagnosticPrinting ? t('printBrandedDiagnosticPrinting') : (activeDoc === 'kot' ? t('printKotDiagnostic') : t('printBrandedDiagnostic'))}</span>
+                  <Printer size={13} className={diagnosticPrinting ? 'animate-pulse' : ''} />
+                  <span>{t('printGsV0Test')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={diagnosticPrinting}
+                  onClick={() => handlePrintDiagnostic('esc_star_24')}
+                  className="px-3 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 font-medium text-xs flex items-center gap-1.5 border border-brand/50 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles size={13} className={diagnosticPrinting ? 'animate-pulse' : ''} />
+                  <span>{t('printEscStarTest')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrintBrowser}
+                  className="px-3 py-2 rounded-lg bg-card hover:bg-muted text-muted-foreground font-medium text-xs flex items-center gap-1.5 border border-border shadow-sm transition-all cursor-pointer ms-auto"
+                  title="Open system print dialog to preview, print, or save as PDF"
+                >
+                  <FileDown size={13} />
+                  <span>Print / Save as PDF</span>
                 </button>
               </div>
-            </div>
-
-            {/* Target Printer selector */}
-            <div className="flex flex-wrap items-center gap-2 text-[11px] bg-muted/30 p-2.5 rounded-lg border border-border/60">
-              <span className="text-muted-foreground font-medium">Target Printer:</span>
-              {hwPrinters && hwPrinters.length > 1 ? (
-                <select
-                  value={selectedPrinterId || defaultPrinter?.id || ''}
-                  onChange={(e) => setSelectedPrinterId(e.target.value)}
-                  className="bg-card text-foreground px-2 py-0.5 rounded border border-border text-[11px] font-mono"
-                >
-                  {hwPrinters.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.connection_type.toUpperCase()}){p.is_default ? ' [Default]' : ''}
-                    </option>
-                  ))}
-                </select>
-              ) : effectivePrinter ? (
-                <span className="font-mono font-medium text-foreground bg-card px-2 py-0.5 rounded border border-border">
-                  {effectivePrinter.name} ({effectivePrinter.connection_type.toUpperCase()})
-                </span>
-              ) : (
-                <span className="text-muted-foreground italic">No printer configured in Settings &gt; Printers</span>
-              )}
             </div>
 
             {effectivePrinter?.connection_type === 'webusb' && (

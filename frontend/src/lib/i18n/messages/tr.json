@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Özel yazı tipleri ve çerçeveler Grafik Raster modunu gerektirir. Standart metin modunda yerel yazıcı karakterleri kullanılır.",
     "kotSafeNotice": "Mutfak fişlerinde ödeme yöntemi, para üstü, vergi numarası veya teşekkür mesajları asla basılmaz.",
     "printKotDiagnostic": "Mutfak Test Fişi Yazdır",
-    "printKotDiagnosticDesc": "Mutfak yazıcısında yerleşimi doğrulamak için bir test fişi yazdırır."
+    "printKotDiagnosticDesc": "Mutfak yazıcısında yerleşimi doğrulamak için bir test fişi yazdırır.",
+    "brandedRasterTransport": "Markalı Görüntü Aktarım Modu",
+    "brandedRasterTransportHelp": "Termal yazıcınızda markalı görseller bozuk veya hatalı basılıyorsa ESC * Uyumluluk Modunu seçin.",
+    "brandedRasterTransportGsV0": "GS v 0 Raster Modu",
+    "brandedRasterTransportEscStar": "ESC * Uyumluluğu",
+    "brandedRasterTransportAuto": "Otomatik (Profil Varsayılanı)",
+    "printGsV0Test": "GS v 0 Marka Testi Yazdır",
+    "printEscStarTest": "ESC * Uyumluluk Testi Yazdır",
+    "currentTransport": "Mevcut Aktarım",
+    "transportSaved": "Yazıcı aktarım ayarı kaydedildi",
+    "transportHelperTitle": "Uyumluluk Kurulum Kılavuzu:",
+    "transportHelperStep1": "1. 'GS v 0 Marka Testi Yazdır' butonuna tıklayın.",
+    "transportHelperStep2": "2. 'ESC * Uyumluluk Testi Yazdır' butonuna tıklayın.",
+    "transportHelperStep3": "3. Çıktıları inceleyin ve pikselleri bozulmadan temiz basılan modu seçin.",
+    "transportHelperStep4": "4. Tüm fiş ve sipariş biletlerine uygulamak için kaydedin."
   },
   "setup": {
     "alreadyCompleted": "Kurulum bu cihazda zaten tamamlandı. Giriş ekranına yönlendiriliyorsunuz…",

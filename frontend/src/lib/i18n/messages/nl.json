@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Geavanceerde typografie en kaders vereisen grafische rastermodus. In tekstmodus worden standaardprinterlettertypen gebruikt.",
     "kotSafeNotice": "Op keukenbonnen worden nooit betaalmethoden, wisselgeld, btw-nummers of bedankjes afgedrukt.",
     "printKotDiagnostic": "Diagnostische keukenbon afdrukken",
-    "printKotDiagnosticDesc": "Drukt een proefbon af om de lay-out op de keukenprinter te controleren."
+    "printKotDiagnosticDesc": "Drukt een proefbon af om de lay-out op de keukenprinter te controleren.",
+    "brandedRasterTransport": "Transportmodus voor merkafbeeldingen",
+    "brandedRasterTransportHelp": "Kies ESC * Compatibiliteitsmodus als afbeeldingen met branding verminkt worden afgedrukt op uw thermische printer.",
+    "brandedRasterTransportGsV0": "GS v 0 Raster-modus",
+    "brandedRasterTransportEscStar": "ESC * Compatibiliteit",
+    "brandedRasterTransportAuto": "Automatisch (profielstandaard)",
+    "printGsV0Test": "GS v 0 Branding-test afdrukken",
+    "printEscStarTest": "ESC * Compatibiliteitstest afdrukken",
+    "currentTransport": "Huidig transport",
+    "transportSaved": "Printertransportinstelling opgeslagen",
+    "transportHelperTitle": "Compatibiliteitshandleiding:",
+    "transportHelperStep1": "1. Klik op 'GS v 0 Branding-test afdrukken'.",
+    "transportHelperStep2": "2. Klik op 'ESC * Compatibiliteitstest afdrukken'.",
+    "transportHelperStep3": "3. Controleer de afdrukken en selecteer de modus die zonder fouten afdrukt.",
+    "transportHelperStep4": "4. Sla op om dit toe te passen op alle bonnen en keukenbonnen."
   },
   "setup": {
     "alreadyCompleted": "De installatie is bij deze installatie al voltooid. Omleiden naar inloggen…",

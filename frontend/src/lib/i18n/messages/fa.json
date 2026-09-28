@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "قلم‌های پیشرفته و قاب‌ها نیاز به حالت شطرنجی تصویری دارند. در حالت متنی ساده از قلم‌های پیش‌فرض چاپگر استفاده می‌شود.",
     "kotSafeNotice": "در فیش‌های آشپزخانه هیچ‌گاه روش پرداخت، باقیمانده، شماره مالیاتی و پیام‌های تشکر مشتری چاپ نمی‌شود.",
     "printKotDiagnostic": "چاپ آزمایشی فیش آشپزخانه",
-    "printKotDiagnosticDesc": "چاپ یک نمونه فیش آشپزخانه برای بررسی چیدمان روی چاپگر آشپزخانه."
+    "printKotDiagnosticDesc": "چاپ یک نمونه فیش آشپزخانه برای بررسی چیدمان روی چاپگر آشپزخانه.",
+    "brandedRasterTransport": "حالت انتقال تصویر با هویت بصری",
+    "brandedRasterTransportHelp": "اگر تصاویر با هویت بصری روی چاپگر حرارتی شما مخدوش یا ناخوانا چاپ می‌شوند، حالت سازگاری * ESC را انتخاب کنید.",
+    "brandedRasterTransportGsV0": "شطرنجی GS v 0",
+    "brandedRasterTransportEscStar": "حالت سازگاری * ESC",
+    "brandedRasterTransportAuto": "خودکار (پیش‌فرض نمایه)",
+    "printGsV0Test": "چاپ آزمایشی هویت بصری GS v 0",
+    "printEscStarTest": "چاپ آزمایشی سازگاری * ESC",
+    "currentTransport": "حالت انتقال فعلی",
+    "transportSaved": "تنظیمات انتقال چاپگر ذخیره شد",
+    "transportHelperTitle": "راهنمای تنظیم سازگاری چاپگر:",
+    "transportHelperStep1": "۱. روی «چاپ آزمایشی هویت بصری GS v 0» کلیک کنید.",
+    "transportHelperStep2": "۲. روی «چاپ آزمایشی سازگاری * ESC» کلیک کنید.",
+    "transportHelperStep3": "۳. برگه چاپی را بررسی کنید و حالتی را که بدون خطوط مخدوش چاپ شده انتخاب نمایید.",
+    "transportHelperStep4": "۴. ذخیره کنید تا این حالت برای تمام رسیدها و فیش‌ها اعمال شود."
   },
   "setup": {
     "alreadyCompleted": "راه‌اندازی در این نصب پیش‌تر انجام شده است. در حال بازگشت به ورود…",

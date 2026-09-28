@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "高级字体与图形边框需要图形光栅模式。在传统文本模式下，打印机使用内置字符和简易分隔符。",
     "kotSafeNotice": "厨房小票绝不打印支付方式、找零、税号或感谢致谢语。",
     "printKotDiagnostic": "打印厨房测试小票",
-    "printKotDiagnosticDesc": "在厨房打印机上打印测试小票以验证排版效果。"
+    "printKotDiagnosticDesc": "在厨房打印机上打印测试小票以验证排版效果。",
+    "brandedRasterTransport": "品牌图像传输模式",
+    "brandedRasterTransportHelp": "如果热敏打印机上的品牌图像打印乱码或损坏，请选择 ESC * 兼容模式。",
+    "brandedRasterTransportGsV0": "GS v 0 光栅",
+    "brandedRasterTransportEscStar": "ESC * 兼容模式",
+    "brandedRasterTransportAuto": "自动（配置文件默认）",
+    "printGsV0Test": "打印 GS v 0 品牌测试",
+    "printEscStarTest": "打印 ESC * 兼容测试",
+    "currentTransport": "当前传输模式",
+    "transportSaved": "打印机传输设置已保存",
+    "transportHelperTitle": "兼容性配置指南：",
+    "transportHelperStep1": "1. 点击“打印 GS v 0 品牌测试”。",
+    "transportHelperStep2": "2. 点击“打印 ESC * 兼容测试”。",
+    "transportHelperStep3": "3. 检查打印结果，选择没有乱码且清晰的传输模式。",
+    "transportHelperStep4": "4. 保存设置以应用到所有收据和厨房小票。"
   },
   "setup": {
     "alreadyCompleted": "此安装已完成设置。正在跳转到登录…",

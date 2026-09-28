@@ -27,12 +27,15 @@ import { getActiveReceiptLogoAsset } from '../services/receipt-assets';
 import { calculateActiveCartQuote } from '../services/quote';
 import type { CustomerDocumentSource, CustomerDocumentVariant, PersistedOrderSource } from '../../shared/print/document';
 
+import { type BrandedRasterTransport } from '../../shared/print/raster';
+
 const router = Router();
 
 // Allows standard OS printer queue characters while rejecting control characters.
 const PRINTER_NAME_REGEX = /^[^\x00-\x1f\x7f]{1,128}$/;
 const CONNECTION_TYPES = ['network', 'usb', 'webusb'] as const;
 const PRINTER_COLUMN_WIDTHS = ['cols-32', 'cols-36', 'cols-40', 'cols-42', 'cols-44', 'cols-48'] as const;
+const BRANDED_RASTER_TRANSPORTS = ['gs_v_0', 'esc_star_24', 'auto'] as const;
 
 function isValidPort(port: unknown): port is number {
   return typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535;
@@ -56,6 +59,9 @@ function validatePrinterFields(body: any, existing?: any): string | null {
   }
   if (body.paper_width !== undefined && !PRINTER_COLUMN_WIDTHS.includes(body.paper_width)) {
     return 'paper_width must be cols-32, cols-36, cols-40, cols-42, cols-44, or cols-48';
+  }
+  if (body.branded_raster_transport !== undefined && !BRANDED_RASTER_TRANSPORTS.includes(body.branded_raster_transport)) {
+    return 'branded_raster_transport must be gs_v_0 | esc_star_24 | auto';
   }
 
   const connectionType = body.connection_type !== undefined ? body.connection_type : existing?.connection_type;
@@ -87,6 +93,7 @@ function printerShape(printer: any) {
     is_default: printer.is_default,
     cash_drawer_pulse_enabled: printer.cash_drawer_pulse_enabled,
     paper_width: printer.paper_width,
+    branded_raster_transport: printer.branded_raster_transport || 'gs_v_0',
     created_at: printer.created_at,
     updated_at: printer.updated_at,
     profile_id: profile.id,
@@ -154,7 +161,7 @@ router.get('/:id', requirePermission('printers.manage'), (req: Request, res: Res
 // POST /api/printers — create
 router.post('/', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
-    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled } = req.body;
+    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport } = req.body;
     // Trim accidental whitespace so the name matches the OS print queue exactly.
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : req.body.name;
 
@@ -184,8 +191,8 @@ router.post('/', requirePermission('printers.manage'), (req: Request, res: Respo
       const shouldBeDefault = Boolean(is_default) || isFirstPrinter;
       if (shouldBeDefault) db.prepare('UPDATE printers SET is_default = 0').run();
       db.prepare(`
-        INSERT INTO printers (id, name, connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO printers (id, name, connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, name, connection_type,
         ip_address ?? null,
@@ -193,6 +200,7 @@ router.post('/', requirePermission('printers.manage'), (req: Request, res: Respo
         paper_width ?? 'cols-42',
         shouldBeDefault ? 1 : 0,
         cash_drawer_pulse_enabled === true ? 1 : 0,
+        branded_raster_transport || 'gs_v_0',
         now(), now()
       );
       ensureDefaultPrinter(db);
@@ -213,7 +221,7 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
     const existing = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Printer not found' });
 
-    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled } = req.body;
+    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport } = req.body;
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : req.body.name;
 
     const fieldError = validatePrinterFields({ ...req.body, name }, existing);
@@ -226,7 +234,8 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
       db.prepare(`
         UPDATE printers SET
           name = ?, connection_type = ?, ip_address = ?, port = ?,
-          paper_width = ?, is_default = ?, cash_drawer_pulse_enabled = ?, updated_at = ?
+          paper_width = ?, is_default = ?, cash_drawer_pulse_enabled = ?,
+          branded_raster_transport = ?, updated_at = ?
         WHERE id = ?
       `).run(
         name !== undefined ? name : existing.name,
@@ -236,6 +245,7 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
         paper_width !== undefined ? paper_width : existing.paper_width,
         becameDefault ? 1 : (is_default === false ? 0 : existing.is_default),
         cash_drawer_pulse_enabled !== undefined ? (cash_drawer_pulse_enabled ? 1 : 0) : existing.cash_drawer_pulse_enabled,
+        branded_raster_transport !== undefined ? branded_raster_transport : (existing.branded_raster_transport || 'gs_v_0'),
         now(), req.params.id
       );
       if (becameDefault) db.prepare('UPDATE printers SET is_default = 0 WHERE id != ?').run(req.params.id);
@@ -252,6 +262,29 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
   } catch (error: any) {
     console.error("[API] Internal error:", error);
     if (error?.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /api/printers/:id/transport — update branded raster transport preference directly
+router.patch('/:id/transport', requirePermission('printers.manage'), (req: Request, res: Response) => {
+  try {
+    const { branded_raster_transport } = req.body;
+    if (!branded_raster_transport || !BRANDED_RASTER_TRANSPORTS.includes(branded_raster_transport)) {
+      return res.status(400).json({ error: 'branded_raster_transport must be gs_v_0 | esc_star_24 | auto' });
+    }
+
+    const db = getDatabase();
+    const existing = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
+    if (!existing) return res.status(404).json({ error: 'Printer not found' });
+
+    db.prepare('UPDATE printers SET branded_raster_transport = ?, updated_at = ? WHERE id = ?')
+      .run(branded_raster_transport, now(), req.params.id);
+
+    const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
+    res.json({ printer: printerShape(printer) });
+  } catch (error: any) {
+    console.error("[API] Internal error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -355,7 +388,8 @@ router.post('/diagnostic-branded', requirePermission('printing.execute'), asyncH
   try {
     const printerId = req.body?.printer_id;
     const fontFamily = req.body?.font_family;
-    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req));
+    const transport = req.body?.transport;
+    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req), transport);
 
     if (result.ok) {
       return res.json({
@@ -385,7 +419,8 @@ router.post('/:id/diagnostic-branded', requirePermission('printing.execute'), as
   try {
     const printerId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const fontFamily = req.body?.font_family;
-    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req));
+    const transport = req.body?.transport;
+    const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req), transport);
 
     if (result.ok) {
       return res.json({
@@ -408,6 +443,28 @@ router.post('/:id/diagnostic-branded', requirePermission('printing.execute'), as
     console.error('[API] Diagnostic print error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+}));
+
+// POST /api/printers/:id/test-branding-gsv0 — Convenience endpoint for GS v 0 branding test
+router.post('/:id/test-branding-gsv0', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
+  const printerId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const fontFamily = req.body?.font_family;
+  const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req), 'gs_v_0');
+  if (result.ok) {
+    return res.json({ success: true, status: result.status || 'print_submitted', transport: 'gs_v_0' });
+  }
+  return res.status(502).json({ error: result.userMessageEn || result.detail, detail: result.detail });
+}));
+
+// POST /api/printers/:id/test-branding-escstar — Convenience endpoint for ESC * 24-dot compatibility test
+router.post('/:id/test-branding-escstar', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
+  const printerId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const fontFamily = req.body?.font_family;
+  const result = await printBrandedDiagnosticDetailed(printerId, fontFamily, getHttpRequestSignal(req), 'esc_star_24');
+  if (result.ok) {
+    return res.json({ success: true, status: result.status || 'print_submitted', transport: 'esc_star_24' });
+  }
+  return res.status(502).json({ error: result.userMessageEn || result.detail, detail: result.detail });
 }));
 
 // POST /api/printers/print-bill — print bill via backend (desktop app).
@@ -695,6 +752,7 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
           logoAsset,
           documentVariant: isPreliminary ? 'preliminary' : 'final',
           source: bill?.source,
+          transport: (printer as any)?.branded_raster_transport || 'gs_v_0',
         });
 
         const brandedOutput = await renderBrandedReceipt(brandedRequest);

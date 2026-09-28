@@ -20,6 +20,7 @@ import {
   encodeRasterUnits,
   rasterCapabilityEnabled,
   type RasterSemanticUnit,
+  type RasterImageTransport,
 } from '../../shared/print/raster';
 import { isGeneratedPrintLanguage } from '../print/print-labels.generated';
 import type { PrinterCutMode } from './profiles';
@@ -264,7 +265,7 @@ export interface RasterLineUnit {
   readonly unit: RasterSemanticUnit;
 }
 
-export function buildEscPos(lines: string[], _useUnicode: boolean = false, options: { cutMode?: PrinterCutMode; arabicShaping?: boolean; columns?: number; language?: string; capabilities?: ThermalPrinterCapabilities; rasterUnits?: readonly RasterLineUnit[]; rasterFailures?: readonly { lineIndex: number; lineCount: number; financial: boolean }[]; financialLineRanges?: readonly { lineIndex: number; lineCount: number }[] } = {}, warnings?: PrintWarning[]): Buffer<ArrayBuffer> {
+export function buildEscPos(lines: string[], _useUnicode: boolean = false, options: { cutMode?: PrinterCutMode; arabicShaping?: boolean; columns?: number; language?: string; capabilities?: ThermalPrinterCapabilities; rasterUnits?: readonly RasterLineUnit[]; rasterFailures?: readonly { lineIndex: number; lineCount: number; financial: boolean }[]; financialLineRanges?: readonly { lineIndex: number; lineCount: number }[]; transport?: RasterImageTransport } = {}, warnings?: PrintWarning[]): Buffer<ArrayBuffer> {
   const buf: number[] = [];
   const useLegacyUnicode = options.capabilities === undefined && _useUnicode;
   const capabilities = mergeThermalCapabilities(options.capabilities, options.arabicShaping);
@@ -304,7 +305,7 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
     }
     try {
       if (!rasterCapabilityEnabled(capabilities)) throw new Error('Raster output is not enabled for this printer profile');
-      encodedRasterByLine.set(entry.lineIndex, encodeRasterUnits([entry.unit], capabilities));
+      encodedRasterByLine.set(entry.lineIndex, encodeRasterUnits([entry.unit], capabilities, 'mixed', options.transport ?? 'gs_v_0'));
       rasterByLine.set(entry.lineIndex, entry.unit);
       rasterRanges.push({ start: entry.lineIndex, end: entry.lineIndex + lineCount });
     } catch (error) {

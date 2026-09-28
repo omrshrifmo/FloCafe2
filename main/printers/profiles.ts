@@ -20,6 +20,7 @@ export interface SupportedPrinterProfile {
   fontBColumns: number;
   printWidthMm?: number;
   cutMode: PrinterCutMode;
+  defaultRasterTransport?: 'gs_v_0' | 'esc_star_24';
   /** Legacy override for Arabic shaping capability. @deprecated Use capabilities.shaping.arabic. */
   arabicShaping?: boolean;
   /** Text encoding, shaping, representability, transliteration, and warning policy. */
@@ -28,6 +29,30 @@ export interface SupportedPrinterProfile {
 }
 
 export const SUPPORTED_PRINTER_PROFILES: SupportedPrinterProfile[] = [
+  {
+    id: 'xprinter-xp-k200l',
+    make: 'Xprinter',
+    model: 'XP-K200L',
+    aliases: ['xprinter xp-k200l', 'xp-k200l', 'k200l', 'xprinter k200l'],
+    commandSet: 'escpos',
+    defaultPaperWidth: 'cols-48',
+    defaultPort: 9100,
+    fontAColumns: 48,
+    fontBColumns: 64,
+    printWidthMm: 72,
+    cutMode: 'full',
+    defaultRasterTransport: 'gs_v_0',
+    capabilities: {
+      ...LATIN_THERMAL_CAPABILITIES,
+      raster: {
+        enabled: true,
+        widthDots: 576,
+        maxBandHeight: 200,
+        modes: ['mixed', 'whole-receipt'],
+      },
+    },
+    notes: '80mm thermal receipt printer. Defaults to GS v 0 raster with optional ESC * 24-dot compatibility mode selectable after physical diagnostic test.',
+  },
   {
     id: 'xprinter-xp-v320m-v330m',
     make: 'Xprinter',

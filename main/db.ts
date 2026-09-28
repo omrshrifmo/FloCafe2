@@ -5360,6 +5360,15 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 96,
+    name: 'add_printer_branded_raster_transport',
+    up: () => {
+      if (!getColumns(db, 'printers').includes('branded_raster_transport')) {
+        db.exec(`ALTER TABLE printers ADD COLUMN branded_raster_transport TEXT NOT NULL DEFAULT 'gs_v_0'`);
+      }
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5765,6 +5774,7 @@ function createSchema(): void {
       is_default INTEGER DEFAULT 0,
       cash_drawer_pulse_enabled INTEGER NOT NULL DEFAULT 0,
       paper_width TEXT DEFAULT '80mm',
+      branded_raster_transport TEXT NOT NULL DEFAULT 'gs_v_0',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );

@@ -42,6 +42,7 @@ export type HwPrinter = {
   port?: number;
   cash_drawer_pulse_enabled: number;
   paper_width: string;
+  branded_raster_transport?: 'gs_v_0' | 'esc_star_24' | 'auto';
   is_default: number;
   profile_id?: string;
   profile_name?: string;
@@ -67,6 +68,7 @@ export type PrinterForm = {
   ip_address: string;
   port: string;
   paper_width: string;
+  branded_raster_transport: 'gs_v_0' | 'esc_star_24' | 'auto';
 };
 
 export type PrintingForm = {
@@ -124,6 +126,7 @@ const emptyPrinterForm: PrinterForm = {
   ip_address: '',
   port: '9100',
   paper_width: 'cols-42',
+  branded_raster_transport: 'gs_v_0',
 };
 
 export interface PrintersSettingsTabProps {
@@ -267,6 +270,7 @@ export function PrintersSettingsTab({
       ip_address: p.ip_address || '',
       port: String(p.port || 9100),
       paper_width: normalizePrinterWidthValue(p.paper_width),
+      branded_raster_transport: p.branded_raster_transport || 'gs_v_0',
     });
     setEditingPrinterId(p.id);
     setShowPrinterForm(true);
@@ -285,6 +289,7 @@ export function PrintersSettingsTab({
         ip_address: printerForm.connection_type === 'network' ? printerForm.ip_address : undefined,
         port: printerForm.connection_type === 'network' ? Number(printerForm.port) : undefined,
         paper_width: printerForm.paper_width,
+        branded_raster_transport: printerForm.branded_raster_transport,
       };
       if (editingPrinterId) {
         await api.put(`/printers/${editingPrinterId}`, payload);
@@ -659,6 +664,19 @@ export function PrintersSettingsTab({
                     <option value="cols-42">{t('printColumns42')}</option>
                     <option value="cols-44">{t('printColumns44')}</option>
                     <option value="cols-48">{t('printColumns48')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">{t('brandedRasterTransport')}</label>
+                  <select
+                    value={printerForm.branded_raster_transport || 'gs_v_0'}
+                    onChange={(e) => setPrinterForm((p) => ({ ...p, branded_raster_transport: e.target.value as 'gs_v_0' | 'esc_star_24' | 'auto' }))}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="gs_v_0">{t('brandedRasterTransportGsV0')}</option>
+                    <option value="esc_star_24">{t('brandedRasterTransportEscStar')}</option>
+                    <option value="auto">{t('brandedRasterTransportAuto')}</option>
                   </select>
                 </div>
               </div>

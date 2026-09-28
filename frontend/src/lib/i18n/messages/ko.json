@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "고급 서체와 테두리는 그래픽 래스터 모드가 필요합니다. 일반 텍스트 모드에서는 프린터 기본 글꼴이 사용됩니다.",
     "kotSafeNotice": "주방 주문서에는 결제 수단, 거스름돈, 세금 번호, 감사 문구가 절대 인쇄되지 않습니다.",
     "printKotDiagnostic": "주방 주문서 시험 인쇄",
-    "printKotDiagnosticDesc": "주방 프린터의 레이아웃을 확인하기 위한 샘플 주문서를 인쇄합니다."
+    "printKotDiagnosticDesc": "주방 프린터의 레이아웃을 확인하기 위한 샘플 주문서를 인쇄합니다.",
+    "brandedRasterTransport": "브랜드 이미지 전송 모드",
+    "brandedRasterTransportHelp": "감열 프린터에서 브랜드 이미지가 깨져 출력되는 경우 ESC * 호환 모드를 선택하세요.",
+    "brandedRasterTransportGsV0": "GS v 0 래스터",
+    "brandedRasterTransportEscStar": "ESC * 호환 모드",
+    "brandedRasterTransportAuto": "자동 (프로필 기본값)",
+    "printGsV0Test": "GS v 0 브랜드 테스트 인쇄",
+    "printEscStarTest": "ESC * 호환 테스트 인쇄",
+    "currentTransport": "현재 전송 모드",
+    "transportSaved": "프린터 전송 설정이 저장되었습니다",
+    "transportHelperTitle": "호환성 설정 가이드:",
+    "transportHelperStep1": "1. 'GS v 0 브랜드 테스트 인쇄'를 클릭합니다.",
+    "transportHelperStep2": "2. 'ESC * 호환 테스트 인쇄'를 클릭합니다.",
+    "transportHelperStep3": "3. 출력물을 확인하고 깨짐 없이 깨끗하게 출력된 모드를 선택합니다.",
+    "transportHelperStep4": "4. 저장하여 모든 영수증 및 주문서에 적용합니다."
   },
   "setup": {
     "alreadyCompleted": "이 설치에서는 초기 설정이 이미 완료되었습니다. 로그인으로 이동합니다…",

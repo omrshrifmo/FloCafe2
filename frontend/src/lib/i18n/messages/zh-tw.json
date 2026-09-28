@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "高級字型與圖形外框需要圖形光柵模式。在傳統文字模式下，印表機使用內建字元與簡易分隔線。",
     "kotSafeNotice": "廚房出單票絕下列印付款方式、找零、統一編號或感謝詞語。",
     "printKotDiagnostic": "列印廚房診斷測試單",
-    "printKotDiagnosticDesc": "在廚房印表機上列印測試單以驗證排版外觀。"
+    "printKotDiagnosticDesc": "在廚房印表機上列印測試單以驗證排版外觀。",
+    "brandedRasterTransport": "品牌影像傳輸模式",
+    "brandedRasterTransportHelp": "如果感熱印表機上的品牌影像列印亂碼或損毀，請選擇 ESC * 相容模式。",
+    "brandedRasterTransportGsV0": "GS v 0 點陣",
+    "brandedRasterTransportEscStar": "ESC * 相容模式",
+    "brandedRasterTransportAuto": "自動（設定檔預設）",
+    "printGsV0Test": "列印 GS v 0 品牌測試",
+    "printEscStarTest": "列印 ESC * 相容測試",
+    "currentTransport": "目前傳輸模式",
+    "transportSaved": "印表機傳輸設定已儲存",
+    "transportHelperTitle": "相容性設定指南：",
+    "transportHelperStep1": "1. 點擊「列印 GS v 0 品牌測試」。",
+    "transportHelperStep2": "2. 點擊「列印 ESC * 相容測試」。",
+    "transportHelperStep3": "3. 檢查列印結果，選擇沒有亂碼且清晰的傳輸模式。",
+    "transportHelperStep4": "4. 儲存設定以套用到所有收據與廚房小票。"
   },
   "setup": {
     "alreadyCompleted": "此安裝已完成設定。正在跳轉到登入…",

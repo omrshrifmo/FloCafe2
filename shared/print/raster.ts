@@ -121,6 +121,19 @@ export function validateRasterBand(band: RasterBand, maxBandHeight = DEFAULT_RAS
   if (!Number.isSafeInteger(expectedLength)) throw new Error('Raster dimensions are too large');
 }
 
+export type BrandedRasterTransport = 'gs_v_0' | 'esc_star_24' | 'auto';
+export type RasterImageTransport = 'gs_v_0' | 'esc_star_24';
+
+export function resolveRasterTransport(
+  preference?: string | null,
+  profileDefault?: RasterImageTransport,
+): RasterImageTransport {
+  if (preference === 'esc_star_24') return 'esc_star_24';
+  if (preference === 'gs_v_0') return 'gs_v_0';
+  if (preference === 'auto' && profileDefault) return profileDefault;
+  return 'gs_v_0';
+}
+
 /** Encode exactly one validated band using GS v 0, m=0 (normal density). */
 export function encodeGsV0Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT): Uint8Array {
   validateRasterBand(band, maxBandHeight);
@@ -139,6 +152,79 @@ export function encodeGsV0Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_
   command.set([0x1D, 0x76, 0x30, GS_V_0_MODE, widthBytes & 0xFF, (widthBytes >> 8) & 0xFF, band.heightDots & 0xFF, (band.heightDots >> 8) & 0xFF]);
   command.set(payload, 8);
   return command;
+}
+
+/**
+ * Encode exactly one validated band using ESC * m=33 (24-dot double density).
+ *
+ * Slices are 24 dots high. Line spacing is set to 24 dots (ESC 3 24) during
+ * printing, and restored to standard 1/6-inch (ESC 2) after completion.
+ * Any final partial slice with height h < 24 sets ESC 3 h before its LF to
+ * maintain exact vertical dot advance without vertical gaps or overlaps.
+ */
+export function encodeEscStar24Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT): Uint8Array {
+  validateRasterBand(band, maxBandHeight);
+  const widthDots = band.widthDots;
+  const heightDots = band.heightDots;
+  const nL = widthDots & 0xFF;
+  const nH = (widthDots >> 8) & 0xFF;
+
+  const parts: Uint8Array[] = [];
+
+  // Reset alignment to left: ESC a 0 (0x1B, 0x61, 0x00)
+  // Set line spacing to 24 dots: ESC 3 24 (0x1B, 0x33, 0x18)
+  parts.push(new Uint8Array([0x1B, 0x61, 0x00, 0x1B, 0x33, 24]));
+
+  for (let sliceY = 0; sliceY < heightDots; sliceY += 24) {
+    const sliceHeight = Math.min(24, heightDots - sliceY);
+
+    if (sliceHeight < 24) {
+      parts.push(new Uint8Array([0x1B, 0x33, sliceHeight]));
+    }
+
+    const sliceHeader = new Uint8Array([0x1B, 0x2A, 33, nL, nH]);
+    const sliceData = new Uint8Array(widthDots * 3);
+
+    for (let x = 0; x < widthDots; x += 1) {
+      const colOffset = x * 3;
+      let b0 = 0;
+      let b1 = 0;
+      let b2 = 0;
+
+      for (let bit = 0; bit < 8; bit += 1) {
+        const y = sliceY + bit;
+        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+          b0 |= 0x80 >> bit;
+        }
+      }
+
+      for (let bit = 0; bit < 8; bit += 1) {
+        const y = sliceY + 8 + bit;
+        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+          b1 |= 0x80 >> bit;
+        }
+      }
+
+      for (let bit = 0; bit < 8; bit += 1) {
+        const y = sliceY + 16 + bit;
+        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+          b2 |= 0x80 >> bit;
+        }
+      }
+
+      sliceData[colOffset] = b0;
+      sliceData[colOffset + 1] = b1;
+      sliceData[colOffset + 2] = b2;
+    }
+
+    parts.push(sliceHeader, sliceData, new Uint8Array([0x0A]));
+  }
+
+  // Restore default line spacing: ESC 2 (0x1B, 0x32)
+  // Left alignment: ESC a 0 (0x1B, 0x61, 0x00)
+  parts.push(new Uint8Array([0x1B, 0x32, 0x1B, 0x61, 0x00]));
+
+  return concatBytes(parts);
 }
 
 export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
@@ -160,6 +246,7 @@ export function encodeRasterUnits(
   units: readonly RasterSemanticUnit[],
   capabilities: ThermalPrinterCapabilities,
   mode: 'mixed' | 'whole-receipt' = 'mixed',
+  transport: RasterImageTransport = 'gs_v_0',
 ): Uint8Array {
   if (!rasterCapabilityEnabled(capabilities, mode)) throw new Error(`Raster ${mode} output is not enabled for this printer profile`);
   const parts: Uint8Array[] = [];
@@ -171,7 +258,11 @@ export function encodeRasterUnits(
       if (band.widthDots !== capabilities.raster.widthDots) {
         throw new Error(`Raster width ${band.widthDots} does not match profile width ${capabilities.raster.widthDots}`);
       }
-      parts.push(encodeGsV0Band(band, capabilities.raster.maxBandHeight));
+      if (transport === 'esc_star_24') {
+        parts.push(encodeEscStar24Band(band, capabilities.raster.maxBandHeight));
+      } else {
+        parts.push(encodeGsV0Band(band, capabilities.raster.maxBandHeight));
+      }
     }
   }
   return concatBytes(parts);
@@ -210,8 +301,9 @@ export function encodeWholeReceiptRaster(
   unit: RasterSemanticUnit,
   capabilities: ThermalPrinterCapabilities,
   cutMode: 'full' | 'partial',
+  transport: RasterImageTransport = 'gs_v_0',
 ): Uint8Array {
-  return concatBytes([encodeRasterUnits([unit], capabilities, 'whole-receipt'), encodeRasterFeedAndCut(cutMode)]);
+  return concatBytes([encodeRasterUnits([unit], capabilities, 'whole-receipt', transport), encodeRasterFeedAndCut(cutMode)]);
 }
 
 export type MixedPrintPart =
@@ -226,10 +318,11 @@ export function encodeMixedPrintParts(
   parts: readonly MixedPrintPart[],
   capabilities: ThermalPrinterCapabilities,
   cutMode: 'full' | 'partial',
+  transport: RasterImageTransport = 'gs_v_0',
 ): Uint8Array {
   const encoded: Uint8Array[] = [];
   for (const part of parts) {
-    encoded.push(part.kind === 'native' ? new Uint8Array(part.bytes) : encodeRasterUnits([part.unit], capabilities));
+    encoded.push(part.kind === 'native' ? new Uint8Array(part.bytes) : encodeRasterUnits([part.unit], capabilities, 'mixed', transport));
   }
   encoded.push(encodeRasterFeedAndCut(cutMode));
   return concatBytes(encoded);

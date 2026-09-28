@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Tipografia e avancuar dhe kornizat kërkojnë mënyrën Raster Grafik. Në mënyrën standarde përdoren fontet bazë të printerit.",
     "kotSafeNotice": "Në biletat e kuzhinës nuk printohen kurrë mënyrat e pagesës, kusuri, numri i taksave apo mesazhet e falënderimit.",
     "printKotDiagnostic": "Printo Biletë Testuese Kuzhine",
-    "printKotDiagnosticDesc": "Printon një biletë testuese për të verifikuar formatin në printerin e kuzhinës."
+    "printKotDiagnosticDesc": "Printon një biletë testuese për të verifikuar formatin në printerin e kuzhinës.",
+    "brandedRasterTransport": "Mënyra e transportit të imazhit të markës",
+    "brandedRasterTransportHelp": "Zgjidhni mënyrën e përputhshmërisë ESC * nëse imazhet e markës printohen të shtrembëruara në printerin tuaj termik.",
+    "brandedRasterTransportGsV0": "Raster GS v 0",
+    "brandedRasterTransportEscStar": "Përputhshmëria ESC *",
+    "brandedRasterTransportAuto": "Automatik (paracaktuar nga profili)",
+    "printGsV0Test": "Printo provën e markës GS v 0",
+    "printEscStarTest": "Printo provën e përputhshmërisë ESC *",
+    "currentTransport": "Transporti aktual",
+    "transportSaved": "Cilësimi i transportit të printerit u ruajt",
+    "transportHelperTitle": "Udhëzuesi i konfigurimit të përputhshmërisë:",
+    "transportHelperStep1": "1. Klikoni 'Printo provën e markës GS v 0'.",
+    "transportHelperStep2": "2. Klikoni 'Printo provën e përputhshmërisë ESC *'.",
+    "transportHelperStep3": "3. Kontrolloni fletët e printuara dhe zgjidhni mënyrën që printoi pa gabime.",
+    "transportHelperStep4": "4. Ruani për ta zbatuar në të gjitha faturat dhe porositë."
   },
   "setup": {
     "alreadyCompleted": "Konfigurimi në këtë instalim është përfunduar. Po ridrejtohemi te hyrja...",

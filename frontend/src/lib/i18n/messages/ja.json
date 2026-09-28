@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "フォントや枠線の装飾にはグラフィックラスタモードが必要です。テキストモードではプリンター内蔵フォントが使用されます。",
     "kotSafeNotice": "キッチン伝票には決済方法やお釣り、税金番号、お礼メッセージは一切印刷されません。",
     "printKotDiagnostic": "キッチン伝票のテスト印刷",
-    "printKotDiagnosticDesc": "厨房プリンターでレイアウトを確認するためのテスト伝票を印刷します。"
+    "printKotDiagnosticDesc": "厨房プリンターでレイアウトを確認するためのテスト伝票を印刷します。",
+    "brandedRasterTransport": "ブランド画像転送モード",
+    "brandedRasterTransportHelp": "サーマルプリンターでブランド画像が文字化けや乱れで印刷される場合は、ESC * 互換モードを選択してください。",
+    "brandedRasterTransportGsV0": "GS v 0 ラスター",
+    "brandedRasterTransportEscStar": "ESC * 互換モード",
+    "brandedRasterTransportAuto": "自動 (プロファイル標準)",
+    "printGsV0Test": "GS v 0 ブランドテスト印刷",
+    "printEscStarTest": "ESC * 互換テスト印刷",
+    "currentTransport": "現在の転送モード",
+    "transportSaved": "プリンター転送設定を保存しました",
+    "transportHelperTitle": "互換性設定ガイド:",
+    "transportHelperStep1": "1. 「GS v 0 ブランドテスト印刷」をクリックします。",
+    "transportHelperStep2": "2. 「ESC * 互換テスト印刷」をクリックします。",
+    "transportHelperStep3": "3. 印刷物を確認し、乱れなくきれいに印刷されたモードを選択します。",
+    "transportHelperStep4": "4. 保存してすべてのレシートと伝票に適用します。"
   },
   "setup": {
     "alreadyCompleted": "このインストールではセットアップが完了しています。ログインへ移動します…",

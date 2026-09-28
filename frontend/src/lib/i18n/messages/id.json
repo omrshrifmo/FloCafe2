@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Tipografi kustom dan bingkai memerlukan mode Raster Grafis. Mode teks standar menggunakan font bawaan printer.",
     "kotSafeNotice": "Tiket dapur tidak pernah mencetak metode pembayaran, uang kembalian, NPWP, atau ucapan terima kasih.",
     "printKotDiagnostic": "Cetak Tiket Uji Dapur",
-    "printKotDiagnosticDesc": "Mencetak tiket contoh untuk memeriksa tata letak pada printer dapur."
+    "printKotDiagnosticDesc": "Mencetak tiket contoh untuk memeriksa tata letak pada printer dapur.",
+    "brandedRasterTransport": "Mode Transport Gambar Bermerek",
+    "brandedRasterTransportHelp": "Pilih Mode Kompatibilitas ESC * jika gambar bermerek tercetak rusak atau acak pada printer termal Anda.",
+    "brandedRasterTransportGsV0": "Raster GS v 0",
+    "brandedRasterTransportEscStar": "Kompatibilitas ESC *",
+    "brandedRasterTransportAuto": "Otomatis (Bawaan Profil)",
+    "printGsV0Test": "Cetak Uji Merek GS v 0",
+    "printEscStarTest": "Cetak Uji Kompatibilitas ESC *",
+    "currentTransport": "Transport Saat Ini",
+    "transportSaved": "Pengaturan transport printer disimpan",
+    "transportHelperTitle": "Panduan Pengaturan Kompatibilitas:",
+    "transportHelperStep1": "1. Klik 'Cetak Uji Merek GS v 0'.",
+    "transportHelperStep2": "2. Klik 'Cetak Uji Kompatibilitas ESC *'.",
+    "transportHelperStep3": "3. Periksa hasil cetak fisik dan pilih mode yang tercetak jelas tanpa piksel rusak.",
+    "transportHelperStep4": "4. Simpan untuk menerapkan ke semua struk dan tiket dapur."
   },
   "setup": {
     "alreadyCompleted": "Pengaturan awal sudah selesai dilakukan pada instalasi ini. Mengalihkan ke layar masuk…",

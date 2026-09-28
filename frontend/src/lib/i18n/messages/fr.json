@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "La typographie avancée, les logos et les bordures nécessitent le mode Raster Graphique. En texte ESC/POS classique, l'imprimante utilise ses polices internes.",
     "kotSafeNotice": "Les tickets de cuisine n'impriment jamais les paiements, la monnaie, la TVA ou les messages de remerciement.",
     "printKotDiagnostic": "Imprimer Ticket de Diagnostic Cuisine",
-    "printKotDiagnosticDesc": "Imprime un ticket test pour vérifier la disposition sur l'imprimante de cuisine."
+    "printKotDiagnosticDesc": "Imprime un ticket test pour vérifier la disposition sur l'imprimante de cuisine.",
+    "brandedRasterTransport": "Mode de transport de l'image de marque",
+    "brandedRasterTransportHelp": "Choisissez le mode de compatibilité ESC * si les images de marque s'impriment de manière brouillée ou illisible sur votre imprimante thermique.",
+    "brandedRasterTransportGsV0": "Trame GS v 0",
+    "brandedRasterTransportEscStar": "Compatibilité ESC *",
+    "brandedRasterTransportAuto": "Auto (profil par défaut)",
+    "printGsV0Test": "Imprimer le test de marque GS v 0",
+    "printEscStarTest": "Imprimer le test de compatibilité ESC *",
+    "currentTransport": "Transport actuel",
+    "transportSaved": "Paramètre de transport de l'imprimante enregistré",
+    "transportHelperTitle": "Guide de configuration de la compatibilité :",
+    "transportHelperStep1": "1. Cliquez sur 'Imprimer le test de marque GS v 0'.",
+    "transportHelperStep2": "2. Cliquez sur 'Imprimer le test de compatibilité ESC *'.",
+    "transportHelperStep3": "3. Inspectez les impressions physiques et sélectionnez le transport imprimé proprement.",
+    "transportHelperStep4": "4. Enregistrez pour appliquer ce transport à tous les reçus et tickets."
   },
   "setup": {
     "alreadyCompleted": "La configuration a déjà été effectuée sur cette installation. Redirection vers la connexion…",

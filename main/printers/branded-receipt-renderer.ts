@@ -4,9 +4,12 @@ import * as zlib from 'node:zlib';
 import {
   DEFAULT_RASTER_MAX_BAND_HEIGHT,
   encodeWholeReceiptRaster,
+  resolveRasterTransport,
   validateRasterBand,
   type RasterBand,
   type RasterSemanticUnit,
+  type RasterImageTransport,
+  type BrandedRasterTransport,
 } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { CustomerDocumentSource, CustomerDocumentVariant, ResolvedPrintStyle } from '../../shared/print';
@@ -59,6 +62,7 @@ export interface BrandedReceiptRequest {
   readonly requestId: string;
   readonly widthDots: number;
   readonly maxBandHeight: number;
+  readonly transport?: BrandedRasterTransport;
   readonly fontFamily: BrandedFontFamily;
   readonly style?: ResolvedPrintStyle;
   readonly bundledFonts?: readonly { readonly family: string; readonly dataUrl: string; readonly weight?: string }[];
@@ -371,6 +375,7 @@ export function buildBrandedReceiptRequest(options: {
   requestId?: string;
   documentVariant?: CustomerDocumentVariant;
   source?: CustomerDocumentSource;
+  transport?: BrandedRasterTransport;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? DEFAULT_RASTER_WIDTH_80MM;
   const geometry = computeBrandedGeometry({
@@ -467,6 +472,7 @@ export function buildBrandedReceiptRequest(options: {
     requestId: options.requestId || `branded-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     widthDots,
     maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
+    transport: options.transport,
     fontFamily,
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     logo: logoPayload,
@@ -513,6 +519,7 @@ export function buildBrandedDiagnosticRequest(options: {
   fontFamily?: BrandedFontFamily;
   logoAsset?: BrandedLogoAsset | null;
   requestId?: string;
+  transport?: BrandedRasterTransport;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
   const geometry = computeBrandedGeometry({ widthDots });
@@ -532,6 +539,12 @@ export function buildBrandedDiagnosticRequest(options: {
 
   const printerName = options.printer?.name || 'Thermal Receipt Printer';
   const paperSpec = `${widthDots} dots (${widthDots >= 500 ? '80mm' : '58mm'})`;
+
+  const isEscStar = options.transport === 'esc_star_24';
+  const transportBanner = isEscStar
+    ? 'TRANSPORT: ESC * 24-DOT COMPATIBILITY / وضع التوافق ESC *\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT\nاختبار طابعة FloCafe — ليست فاتورة بيع'
+    : 'TRANSPORT: GS v 0 RASTER / نمط الصور النقطية GS v 0\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT\nاختبار طابعة FloCafe — ليست فاتورة بيع';
+  const transportLabel = isEscStar ? 'ESC * 24-Dot Mode' : 'GS v 0 Raster Mode';
 
   const items: BrandedReceiptItem[] = [
     {
@@ -588,6 +601,7 @@ export function buildBrandedDiagnosticRequest(options: {
     requestId: options.requestId || `diag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     widthDots,
     maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
+    transport: options.transport,
     fontFamily,
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     logo: logoPayload,
@@ -598,12 +612,12 @@ export function buildBrandedDiagnosticRequest(options: {
       businessName: business.name || 'FloCafe POS',
       address: business.address || undefined,
       phone: business.phone || undefined,
-      banner: 'FLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT\nاختبار طابعة FloCafe — ليست فاتورة بيع',
+      banner: transportBanner,
     },
     meta: {
       orderNumber: 'DIAG-RASTER-PROBE',
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      tableName: `Printer: ${printerName}`,
+      tableName: `Printer: ${printerName} | ${transportLabel}`,
       customerName: `Format: ${paperSpec}`,
       customerPhone: `Margin: [|<-- ${widthDots} dots -->|]`,
     },
@@ -842,6 +856,7 @@ function decodePngDataUrlToMonochrome(
 
 export function renderBrandedReceiptSoftware(
   request: BrandedReceiptRequest,
+  transportOverride?: RasterImageTransport,
 ): BrandedReceiptOutput {
   const startTime = Date.now();
   const width = request.widthDots || DEFAULT_RASTER_WIDTH_80MM;
@@ -1150,7 +1165,8 @@ export function renderBrandedReceiptSoftware(
     },
   };
 
-  const rasterBytes = Buffer.from(encodeWholeReceiptRaster(unit, capabilities, 'full'));
+  const transport: RasterImageTransport = transportOverride || resolveRasterTransport(request.transport);
+  const rasterBytes = Buffer.from(encodeWholeReceiptRaster(unit, capabilities, 'full', transport));
 
   return {
     ok: true,
@@ -1240,9 +1256,13 @@ function calculatePngCrc(buf: Buffer): number {
 
 export async function renderBrandedReceipt(
   request: BrandedReceiptRequest,
-  renderer?: { render: (req: any) => Promise<any> },
+  rendererOrTransport?: { render: (req: any) => Promise<any> } | RasterImageTransport,
+  maybeRenderer?: { render: (req: any) => Promise<any> },
 ): Promise<BrandedReceiptRenderResult> {
   const startTime = Date.now();
+  const transportOverride: RasterImageTransport | undefined = typeof rendererOrTransport === 'string' ? rendererOrTransport : undefined;
+  const renderer = typeof rendererOrTransport === 'object' && rendererOrTransport !== null ? rendererOrTransport : maybeRenderer;
+  const transport: RasterImageTransport = transportOverride || resolveRasterTransport(request.transport);
 
   try {
     // If a Chromium raster renderer is provided, attempt Chromium-based canvas rendering
@@ -1284,7 +1304,7 @@ export async function renderBrandedReceipt(
             modes: ['whole-receipt'],
           },
         };
-        const rasterBytes = Buffer.from(encodeWholeReceiptRaster(result.unit, capabilities, 'full'));
+        const rasterBytes = Buffer.from(encodeWholeReceiptRaster(result.unit, capabilities, 'full', transport));
 
         return {
           ok: true,
@@ -1304,7 +1324,7 @@ export async function renderBrandedReceipt(
     }
 
     // Default: use software compositor (100% reliable, zero native dependencies)
-    const output = renderBrandedReceiptSoftware(request);
+    const output = renderBrandedReceiptSoftware(request, transport);
     return output;
   } catch (error: any) {
     return {

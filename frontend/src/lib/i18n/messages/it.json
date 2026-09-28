@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "La tipografia avanzata e i bordi grafici richiedono la modalità Raster. In modalità testo ESC/POS si usano i caratteri hardware.",
     "kotSafeNotice": "Le comande di cucina non stampano mai pagamenti, resto, partita IVA o ringraziamenti.",
     "printKotDiagnostic": "Stampa Comanda di Diagnostica",
-    "printKotDiagnosticDesc": "Stampa una comanda di prova sulla stampante comande."
+    "printKotDiagnosticDesc": "Stampa una comanda di prova sulla stampante comande.",
+    "brandedRasterTransport": "Trasporto immagine con marchio",
+    "brandedRasterTransportHelp": "Selezionare la modalità di compatibilità ESC * se le immagini con marchio vengono stampate in modo illeggibile sulla stampante termica.",
+    "brandedRasterTransportGsV0": "Raster GS v 0",
+    "brandedRasterTransportEscStar": "Compatibilità ESC *",
+    "brandedRasterTransportAuto": "Automatico (predefinito del profilo)",
+    "printGsV0Test": "Stampa test marchio GS v 0",
+    "printEscStarTest": "Stampa test compatibilità ESC *",
+    "currentTransport": "Trasporto corrente",
+    "transportSaved": "Impostazione di trasporto della stampante salvata",
+    "transportHelperTitle": "Guida alla configurazione della compatibilità:",
+    "transportHelperStep1": "1. Fare clic su 'Stampa test marchio GS v 0'.",
+    "transportHelperStep2": "2. Fare clic su 'Stampa test compatibilità ESC *'.",
+    "transportHelperStep3": "3. Ispezionare le stampe fisiche e selezionare la modalità stampata correttamente.",
+    "transportHelperStep4": "4. Salvare per applicare questo trasporto a tutti gli scontrini e comande."
   },
   "setup": {
     "alreadyCompleted": "La configurazione è già stata completata su questa installazione. Reindirizzamento all'accesso…",

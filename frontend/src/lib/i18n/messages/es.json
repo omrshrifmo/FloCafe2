@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "La tipografía completa, logos y marcos requieren modo Raster Gráfico. En texto clásico ESC/POS se usan fuentes nativas y divisores básicos.",
     "kotSafeNotice": "Los tickets de cocina nunca imprimen formas de pago, cambio, datos fiscales o agradecimientos.",
     "printKotDiagnostic": "Imprimir Ticket de Cocina de Prueba",
-    "printKotDiagnosticDesc": "Imprime una prueba para verificar formato en la impresora de cocina."
+    "printKotDiagnosticDesc": "Imprime una prueba para verificar formato en la impresora de cocina.",
+    "brandedRasterTransport": "Transporte de imagen con marca",
+    "brandedRasterTransportHelp": "Elija el modo de compatibilidad ESC * si las imágenes con marca se imprimen distorsionadas en su impresora térmica.",
+    "brandedRasterTransportGsV0": "Modo raster GS v 0",
+    "brandedRasterTransportEscStar": "Compatibilidad ESC *",
+    "brandedRasterTransportAuto": "Automático (predeterminado del perfil)",
+    "printGsV0Test": "Imprimir prueba de marca GS v 0",
+    "printEscStarTest": "Imprimir prueba de compatibilidad ESC *",
+    "currentTransport": "Transporte actual",
+    "transportSaved": "Configuración de transporte de impresora guardada",
+    "transportHelperTitle": "Guía de configuración de compatibilidad:",
+    "transportHelperStep1": "1. Haga clic en 'Imprimir prueba de marca GS v 0'.",
+    "transportHelperStep2": "2. Haga clic en 'Imprimir prueba de compatibilidad ESC *'.",
+    "transportHelperStep3": "3. Inspeccione las impresiones y seleccione el transporte que se imprimió correctamente.",
+    "transportHelperStep4": "4. Guarde para aplicar este transporte a todos los recibos y pedidos."
   },
   "setup": {
     "alreadyCompleted": "La configuración ya se completó en esta instalación. Redirigiendo al inicio de sesión…",

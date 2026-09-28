@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Full typography styling (Cairo/Almarai), logos, and graphic frame borders require Branded Graphic Raster mode. In Legacy ESC/POS Text mode, the printer uses built-in hardware character fonts and text dividers.",
     "kotSafeNotice": "Kitchen Order Tickets never print payment methods, amounts paid, change, tax registration numbers, customer info, or customer thank-you footers.",
     "printKotDiagnostic": "Print Diagnostic Kitchen Ticket",
-    "printKotDiagnosticDesc": "Prints a sample kitchen ticket to verify formatting, Arabic instructions, and layout on your kitchen printer."
+    "printKotDiagnosticDesc": "Prints a sample kitchen ticket to verify formatting, Arabic instructions, and layout on your kitchen printer.",
+    "brandedRasterTransport": "Branded Image Transport",
+    "brandedRasterTransportHelp": "Choose ESC * Compatibility Mode if branded images print as garbled output on your thermal printer.",
+    "brandedRasterTransportGsV0": "GS v 0 Raster",
+    "brandedRasterTransportEscStar": "ESC * Compatibility",
+    "brandedRasterTransportAuto": "Auto (Profile Default)",
+    "printGsV0Test": "Print GS v 0 Branding Test",
+    "printEscStarTest": "Print ESC * Compatibility Test",
+    "currentTransport": "Current Transport",
+    "transportSaved": "Printer transport setting saved",
+    "transportHelperTitle": "Compatibility Setup Guide:",
+    "transportHelperStep1": "1. Click 'Print GS v 0 Branding Test'.",
+    "transportHelperStep2": "2. Click 'Print ESC * Compatibility Test'.",
+    "transportHelperStep3": "3. Inspect physical prints and select the transport that printed cleanly without garbled pixels.",
+    "transportHelperStep4": "4. Save to apply this transport to all receipts, preliminary bills, and KOTs."
   },
   "setup": {
     "alreadyCompleted": "Setup has already been completed on this install. Redirecting to login…",

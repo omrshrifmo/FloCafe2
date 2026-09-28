@@ -2113,7 +2113,21 @@
     "legacyTextNotice": "Phông chữ đẹp và khung viền cần chế độ Đồ họa Raster. Chế độ văn bản thông thường sẽ dùng phông chữ mặc định của máy in.",
     "kotSafeNotice": "Phiếu bếp không bao giờ in phương thức thanh toán, tiền thừa, mã số thuế hoặc lời cảm ơn.",
     "printKotDiagnostic": "In Phiếu Bếp Kiểm Tra",
-    "printKotDiagnosticDesc": "In một phiếu mẫu để kiểm tra cách bố trí trên máy in bếp."
+    "printKotDiagnosticDesc": "In một phiếu mẫu để kiểm tra cách bố trí trên máy in bếp.",
+    "brandedRasterTransport": "Chế độ truyền hình ảnh thương hiệu",
+    "brandedRasterTransportHelp": "Chọn Chế độ tương thích ESC * nếu hình ảnh thương hiệu bị in lỗi hoặc sọc trên máy in nhiệt của bạn.",
+    "brandedRasterTransportGsV0": "Raster GS v 0",
+    "brandedRasterTransportEscStar": "Tương thích ESC *",
+    "brandedRasterTransportAuto": "Tự động (Mặc định cấu hình)",
+    "printGsV0Test": "In thử nghiệm thương hiệu GS v 0",
+    "printEscStarTest": "In thử nghiệm tương thích ESC *",
+    "currentTransport": "Chế độ truyền hiện tại",
+    "transportSaved": "Đã lưu cài đặt truyền hình ảnh cho máy in",
+    "transportHelperTitle": "Hướng dẫn thiết lập tính tương thích:",
+    "transportHelperStep1": "1. Nhấp vào 'In thử nghiệm thương hiệu GS v 0'.",
+    "transportHelperStep2": "2. Nhấp vào 'In thử nghiệm tương thích ESC *'.",
+    "transportHelperStep3": "3. Kiểm tra bản in thực tế và chọn chế độ in rõ ràng, không bị lỗi.",
+    "transportHelperStep4": "4. Lưu để áp dụng cho tất cả hóa đơn và phiếu bếp."
   },
   "setup": {
     "alreadyCompleted": "Bản cài đặt này đã hoàn tất thiết lập. Đang chuyển đến đăng nhập…",
