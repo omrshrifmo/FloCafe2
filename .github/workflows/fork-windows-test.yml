@@ -54,10 +54,19 @@ jobs:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
 
+      - name: Resolve Version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME:-$VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flocafe-3.11.1-win-x64
+          name: flocafe-${{ steps.version.outputs.version }}-win-x64
           path: |
             release/*.exe
             release/*.exe.blockmap
@@ -65,17 +74,15 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Windows executable to Releases
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: 3.11.1
-          name: 3.11.1
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.version }}
           body: |
-            ## Flo Cafe 3.11.1
+            ## Flo Cafe ${{ steps.version.outputs.version }}
 
-            Flo Cafe Windows Installer v3.11.1 with Arabic localization support.
-
-            ### Downloads
-            - **Windows x64 Installer (.exe):** [flocafe-3.11.1-win-x64.exe](https://github.com/omrshrifmo/FloCafe2/releases/download/3.11.1/flocafe-3.11.1-win-x64.exe)
+            Flo Cafe Windows Installer v${{ steps.version.outputs.version }} with complete financial report print safety, POS table picker sorting/filtering/grouping, and preliminary receipt support.
           files: |
             release/*.exe
             release/*.exe.blockmap
