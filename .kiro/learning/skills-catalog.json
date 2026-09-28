@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-26T14:32:13.061Z",
+  "generatedAt": "2026-09-28T14:39:56.988Z",
   "workspacePath": "/home/omrshrifmo/FloCafe2",
-  "branch": "main",
+  "branch": "origin",
   "skills": [
     {
       "name": "task-evidence-report",
@@ -236,7 +236,7 @@
         "**/*.ps1",
         "**/*.sh"
       ],
-      "installedInWorkspace": false,
+      "installedInWorkspace": true,
       "availableInGlobal": false,
       "inLibrary": true,
       "requiredForProfileInit": false
@@ -284,7 +284,7 @@
         "**/.claude/learning/task-skill-proposals.json",
         "**/.claude/learning/skill-adoption.jsonl"
       ],
-      "installedInWorkspace": false,
+      "installedInWorkspace": true,
       "availableInGlobal": false,
       "inLibrary": true,
       "requiredForProfileInit": false

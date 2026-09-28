@@ -796,6 +796,8 @@ export interface KotAddonSnapshot {
 export interface KotItemSnapshot {
   readonly productName: string;
   readonly quantity: number;
+  readonly unitPrice?: number;
+  readonly totalPrice?: number;
   readonly addons: readonly KotAddonSnapshot[];
   readonly specialInstructions: string;
 }
@@ -850,6 +852,8 @@ export interface KotItemsBlock {
   readonly rows: readonly {
     readonly quantity: number;
     readonly name: DirectionalText;
+    readonly unitPrice?: number;
+    readonly totalPrice?: number;
     readonly addons: readonly KotAddonValue[];
     readonly specialInstructions: DirectionalText | null;
   }[];
@@ -1024,6 +1028,8 @@ function isKotDocumentBlock(value: unknown): value is KotDocumentBlock {
   return value.rows.every((row) => isRecord(row)
     && isFiniteNumber(row.quantity)
     && isDirectionalText(row.name)
+    && (row.unitPrice === undefined || isFiniteNumber(row.unitPrice))
+    && (row.totalPrice === undefined || isFiniteNumber(row.totalPrice))
     && Array.isArray(row.addons)
     && row.addons.every((addon) => isRecord(addon) && isDirectionalText(addon)
       && (addon.quantity === undefined || isFiniteNumber(addon.quantity)))
@@ -1094,6 +1100,8 @@ export function buildKotDocument(printData: KotPrintData, printContext: PrintCon
     rows: Object.freeze((Array.isArray(printData.items) ? printData.items : []).map((item) => Object.freeze({
       quantity: Number(item?.quantity) || 0,
       name: directionalText(String(item?.productName ?? ''), base),
+      ...(typeof item?.unitPrice === 'number' && Number.isFinite(item.unitPrice) ? { unitPrice: item.unitPrice } : {}),
+      ...(typeof item?.totalPrice === 'number' && Number.isFinite(item.totalPrice) ? { totalPrice: item.totalPrice } : {}),
       addons: Object.freeze((item?.addons ?? new Array<KotAddonSnapshot>())
         .filter((addon: KotAddonSnapshot) => typeof addon?.name === 'string' && addon.name.length > 0)
         .map((addon: KotAddonSnapshot) => Object.freeze({

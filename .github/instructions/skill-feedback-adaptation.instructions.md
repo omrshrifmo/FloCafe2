@@ -5,7 +5,7 @@ applyTo:
   - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/learning/task-skill-proposals.json
   - **/.claude/learning/**
-deployedAt: "2026-09-28T07:51:28.787Z"
+deployedAt: "2026-09-28T14:41:57.691Z"
 ---
 
 # skill-feedback-adaptation

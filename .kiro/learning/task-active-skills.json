@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-27T14:33:08.133Z",
-  "proposalsGeneratedAt": "2026-09-27T14:33:07.663Z",
-  "source": "session-apply",
+  "generatedAt": "2026-09-28T14:41:57.618Z",
+  "proposalsGeneratedAt": "2026-09-28T14:33:34.955Z",
+  "source": "task-skill-proposals",
   "activeSkills": [
     "self-learning",
     "file-style-conventions",
@@ -17,7 +17,5 @@
     "extension-value-audit",
     "github-actions-ci"
   ],
-  "ignoredSkills": [
-    "cross-platform-scripting"
-  ]
+  "ignoredSkills": []
 }

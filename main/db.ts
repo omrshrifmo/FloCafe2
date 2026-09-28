@@ -10,7 +10,7 @@ import * as crypto from 'crypto';
 import { BUNDLED_COUNTRY_PACKS, bundledPackVersionId } from './tax-packs/bundled';
 import { SHUTDOWN_TIMEOUT_MS } from './shutdown';
 import { resolveContainedPath } from './lib/path-containment';
-import { serializeMerchantTemplatePayload, validateMerchantTemplateText } from '../shared/print';
+import { serializeMerchantTemplatePayload, validateMerchantTemplateText, DEFAULT_PRINT_STYLE_PREFERENCES } from '../shared/print';
 import { ROLE_KEYS } from '../shared/role-permissions';
 import { businessDateForInstant, dayBoundsInTimezone, normalizeBusinessDayStartTime, utcDayBounds } from '../shared/business-date';
 import { getCurrencyFractionDigits, resolveRegionalSnapshot } from './countries';
@@ -5305,6 +5305,61 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 95,
+    name: 'unified_print_style_preferences',
+    up: () => {
+      const existing = db.prepare(`SELECT value FROM settings WHERE key = 'print_style_preferences'`).get() as { value: string } | undefined;
+      if (!existing) {
+        const renderModeRow = db.prepare(`SELECT value FROM settings WHERE key = 'receipt_render_mode'`).get() as { value: string } | undefined;
+        const fontRow = db.prepare(`SELECT value FROM settings WHERE key = 'receipt_branded_font_family'`).get() as { value: string } | undefined;
+        const renderMode = renderModeRow?.value === 'branded_raster' ? 'branded_raster' : 'legacy_text';
+        const font = (fontRow?.value === 'cairo' || fontRow?.value === 'system') ? fontRow.value : 'almarai';
+
+        const initialPrefs = {
+          version: 1,
+          receipt: {
+            renderMode,
+            typography: {
+              fontFamily: font,
+              storeNameSize: 'large',
+              headerMetaSize: 'small',
+              itemNamesSize: 'medium',
+              itemModifiersSize: 'small',
+              itemNotesSize: 'small',
+              totalsSize: 'large',
+              footerSize: 'small',
+            },
+            frame: {
+              borderStyle: 'none',
+              borderThickness: 1,
+              borderPadding: 8,
+              borderRadius: 0,
+              dividerStyle: 'dashed',
+            },
+            logo: {
+              showLogo: true,
+              maxWidthPercent: 60,
+              spacingBottomDots: 12,
+              alignment: 'center',
+            },
+            direction: 'auto',
+          },
+          kotStyleMode: 'inherit',
+          kotOverrides: {
+            renderMode: 'inherit',
+            operational: {
+              headerCompact: false,
+              prominentNotes: false,
+              showPrices: false,
+              showTotals: false,
+            },
+          },
+        };
+        db.prepare(`INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('print_style_preferences', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify(initialPrefs));
+      }
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6091,6 +6146,7 @@ function seedInstallDefaults(): void {
   insert('invoice_number_reset_period', 'daily');
   insert('invoice_financial_year_start_month', '4');
   insert('invoice_financial_year_start_day', '1');
+  insert('print_style_preferences', JSON.stringify(DEFAULT_PRINT_STYLE_PREFERENCES));
 
   seedCloudSyncDefaults();
 

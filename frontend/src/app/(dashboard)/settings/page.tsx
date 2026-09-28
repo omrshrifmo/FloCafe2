@@ -8,6 +8,10 @@ import { usePosSettingsStore, type BillTemplate } from '@/store/pos-settings';
 import { useThemeMode, type ThemeMode } from '@/store/theme';
 import type { KotLanguagePolicy, PrimaryLanguageSelection, ReceiptLanguagePolicy } from '@print/types';
 import {
+  DEFAULT_PRINT_STYLE_PREFERENCES,
+  parsePrintStylePreferences,
+} from '@print/style';
+import {
   parseStoredKotLanguagePolicy,
   parseStoredReceiptLanguagePolicy,
 } from '@/lib/print-language-policies';
@@ -1065,6 +1069,7 @@ export default function SettingsPage() {
     billShowTableNumber: posSettings.billShowTableNumber,
     receiptRenderMode: posSettings.receiptRenderMode || 'legacy_text',
     receiptBrandedFontFamily: posSettings.receiptBrandedFontFamily || 'almarai',
+    printStylePreferences: posSettings.printStylePreferences || DEFAULT_PRINT_STYLE_PREFERENCES,
   });
   const [printingForm, setPrintingForm] = useState<PrintingForm>(initPrinting);
   const [savedPrinting, setSavedPrinting] = useState<PrintingForm>(initPrinting);
@@ -1129,6 +1134,9 @@ export default function SettingsPage() {
         bill_show_table_number: formSnapshot.billShowTableNumber,
         receipt_render_mode: formSnapshot.receiptRenderMode,
         receipt_branded_font_family: formSnapshot.receiptBrandedFontFamily,
+        ...(formSnapshot.printStylePreferences ? {
+          print_style_preferences: JSON.stringify(formSnapshot.printStylePreferences),
+        } : {}),
         ...(formSnapshot.cashDrawerPulseEnabled !== undefined ? {
           cash_drawer_pulse_enabled: formSnapshot.cashDrawerPulseEnabled,
           cash_drawer_pulse_methods: formSnapshot.cashDrawerPulseMethods,
@@ -1156,6 +1164,9 @@ export default function SettingsPage() {
       posSettings.setBillShowTableNumber(formSnapshot.billShowTableNumber);
       posSettings.setReceiptRenderMode(formSnapshot.receiptRenderMode);
       posSettings.setReceiptBrandedFontFamily(formSnapshot.receiptBrandedFontFamily);
+      if (formSnapshot.printStylePreferences) {
+        posSettings.setPrintStylePreferences(formSnapshot.printStylePreferences);
+      }
       setSavedPrinting(formSnapshot);
       if (!silent) toast.success(t('printingSettingsSaved'));
     } finally {
@@ -1760,7 +1771,16 @@ export default function SettingsPage() {
     };
 
     const loadPrinting = async (printingAtHydrationStart: PrintingForm, billFormAtHydrationStart: BillTemplateForm) => {
-      const [trimResponse, cashEnabledResponse, cashMethodsResponse, billLanguageResponse, kotLanguageResponse, renderModeResponse, brandedFontResponse] = await Promise.all([
+      const [
+        trimResponse,
+        cashEnabledResponse,
+        cashMethodsResponse,
+        billLanguageResponse,
+        kotLanguageResponse,
+        renderModeResponse,
+        brandedFontResponse,
+        printStyleResponse,
+      ] = await Promise.all([
         readOptional('/settings/printer_trim_decimals'),
         readOptional('/settings/cash_drawer_pulse_enabled'),
         readOptional('/settings/cash_drawer_pulse_methods'),
@@ -1768,8 +1788,28 @@ export default function SettingsPage() {
         readOptional('/settings/kot_language_policy'),
         readOptional('/settings/receipt_render_mode'),
         readOptional('/settings/receipt_branded_font_family'),
+        readOptional('/settings/print_style_preferences'),
       ]);
       if (!active()) return;
+
+      const hasCanonicalPrintStyles = Boolean(printStyleResponse?.data?.setting?.value);
+      if (hasCanonicalPrintStyles && printStyleResponse?.data?.setting?.value) {
+        try {
+          const parsed = parsePrintStylePreferences(printStyleResponse.data.setting.value);
+          posSettings.setPrintStylePreferences(parsed);
+          mergeHydratedPrinting({
+            printStylePreferences: parsed,
+            receiptRenderMode: parsed.receipt.renderMode,
+            receiptBrandedFontFamily: parsed.receipt.typography.fontFamily,
+          }, printingAtHydrationStart, hydrationTouchSnapshot);
+          setSavedPrinting((p) => ({
+            ...p,
+            printStylePreferences: parsed,
+            receiptRenderMode: parsed.receipt.renderMode,
+            receiptBrandedFontFamily: parsed.receipt.typography.fontFamily,
+          }));
+        } catch { /* use safe defaults */ }
+      }
 
       if (trimResponse) {
         const enabled = trimResponse.data.setting?.value === 'true';
@@ -1777,7 +1817,7 @@ export default function SettingsPage() {
         mergeHydratedPrinting({ printerTrimDecimals: enabled }, printingAtHydrationStart, hydrationTouchSnapshot);
         setSavedPrinting((p) => ({ ...p, printerTrimDecimals: enabled }));
       }
-      if (renderModeResponse) {
+      if (!hasCanonicalPrintStyles && renderModeResponse) {
         const val = renderModeResponse.data.setting?.value;
         if (val === 'legacy_text' || val === 'branded_raster') {
           posSettings.setReceiptRenderMode(val);
@@ -1785,7 +1825,7 @@ export default function SettingsPage() {
           setSavedPrinting((p) => ({ ...p, receiptRenderMode: val }));
         }
       }
-      if (brandedFontResponse) {
+      if (!hasCanonicalPrintStyles && brandedFontResponse) {
         const val = brandedFontResponse.data.setting?.value;
         if (val === 'system' || val === 'cairo' || val === 'almarai') {
           posSettings.setReceiptBrandedFontFamily(val);

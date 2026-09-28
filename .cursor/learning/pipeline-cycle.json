@@ -1,17 +1,17 @@
 {
-  "collectedAt": "2026-09-27T14:14:51.256Z",
-  "attributionMtime": 1790518491256.2385,
+  "collectedAt": "2026-09-28T14:38:53.282Z",
+  "attributionMtime": 1790606333276.2905,
   "circuitOpen": false,
   "runsLastMinute": 1,
-  "indexedAt": "2026-09-26T14:22:56.459Z",
+  "indexedAt": "2026-09-28T14:39:03.638Z",
   "runsFileMtime": 0,
   "runsFileSize": 0,
-  "analyzedAt": "2026-09-26T14:22:56.470Z",
+  "analyzedAt": "2026-09-28T14:39:03.660Z",
   "trace": {
     "errors": [],
-    "indexMs": 5,
-    "analyzeMs": 11,
-    "totalMs": 16,
-    "lastCompletedAt": "2026-09-26T14:22:56.471Z"
+    "indexMs": 2,
+    "analyzeMs": 26,
+    "totalMs": 28,
+    "lastCompletedAt": "2026-09-28T14:39:03.665Z"
   }
 }

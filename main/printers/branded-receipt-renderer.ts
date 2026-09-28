@@ -10,6 +10,7 @@ import {
 } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { PrinterCutMode } from './profiles';
+import type { ResolvedPrintStyle } from '../../shared/print';
 
 export type DitheringMode = 'threshold' | 'error-diffusion';
 export type BrandedFontFamily = 'system' | 'cairo' | 'almarai';
@@ -55,11 +56,12 @@ export interface BrandedReceiptTotalRow {
 
 export interface BrandedReceiptRequest {
   readonly version: 1;
-  readonly kind: 'branded-receipt';
+  readonly kind: 'branded-receipt' | 'branded-kot';
   readonly requestId: string;
   readonly widthDots: number;
   readonly maxBandHeight: number;
   readonly fontFamily: BrandedFontFamily;
+  readonly style?: ResolvedPrintStyle;
   readonly bundledFonts?: readonly { readonly family: string; readonly dataUrl: string; readonly weight?: string }[];
   readonly logo?: {
     readonly dataUrl: string;
@@ -857,11 +859,19 @@ export function renderBrandedReceiptSoftware(
 
   // Helper: draw horizontal divider line
   const drawLine = (y: number, thickness = 2) => {
+    const dividerStyle = request.style?.frame?.dividerStyle;
+    if (dividerStyle === 'none') return;
     for (let dy = 0; dy < thickness; dy++) {
       const lineY = y + dy;
       if (lineY >= height) break;
       for (let x = contentLeft; x < contentLeft + contentWidth; x++) {
-        pixels[lineY * width + x] = 1;
+        if (dividerStyle === 'dotted') {
+          if (x % 4 === 0) pixels[lineY * width + x] = 1;
+        } else if (dividerStyle === 'dashed') {
+          if ((x % 8) < 5) pixels[lineY * width + x] = 1;
+        } else {
+          pixels[lineY * width + x] = 1;
+        }
       }
     }
   };
@@ -1037,6 +1047,38 @@ export function renderBrandedReceiptSoftware(
   if (request.footer.thankYou) {
     renderText(contentLeft, currentY, request.footer.thankYou, 1, true);
     currentY += rowHeight;
+  }
+
+  // Draw outer frame border if enabled
+  if (request.style?.frame?.borderStyle && request.style.frame.borderStyle !== 'none') {
+    const bs = request.style.frame.borderStyle;
+    const thickness = request.style.frame.borderThickness || 1;
+    const padding = request.style.frame.borderPadding || 8;
+    const minX = Math.max(0, contentLeft - padding);
+    const maxX = Math.min(width - 1, contentLeft + contentWidth + padding);
+    const minY = 4;
+    const maxY = Math.min(height - 4, currentY + 8);
+
+    const isBorderPixelOn = (pos: number) => {
+      if (bs === 'dotted') return pos % 4 === 0;
+      if (bs === 'dashed') return (pos % 8) < 5;
+      return true;
+    };
+
+    for (let t = 0; t < thickness; t++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (isBorderPixelOn(x)) {
+          if (minY + t < height) pixels[(minY + t) * width + x] = 1;
+          if (maxY - t >= 0 && maxY - t < height) pixels[(maxY - t) * width + x] = 1;
+        }
+      }
+      for (let y = minY; y <= maxY; y++) {
+        if (isBorderPixelOn(y)) {
+          if (minX + t < width) pixels[y * width + (minX + t)] = 1;
+          if (maxX - t >= 0) pixels[y * width + (maxX - t)] = 1;
+        }
+      }
+    }
   }
 
   // Chunk pixels into 200-dot RasterBand[]

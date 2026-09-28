@@ -6,6 +6,14 @@ import type {
   KotLanguagePolicy,
   ReceiptLanguagePolicy,
 } from '@print/types';
+export {
+  DEFAULT_PRINT_STYLE_PREFERENCES,
+  type StorePrintStylePreferences,
+} from '@print/style';
+import {
+  DEFAULT_PRINT_STYLE_PREFERENCES,
+  type StorePrintStylePreferences,
+} from '@print/style';
 
 export type PaperSize = 'thermal58' | 'thermal80';
 export type PrinterPrintMode = 'escpos' | 'browser';
@@ -59,12 +67,13 @@ export interface PosSettingsState {
   // Print language policies synced from backend settings.
   billLanguagePolicy: ReceiptLanguagePolicy;
   kotLanguagePolicy: KotLanguagePolicy;
-  // Receipt branding settings
   receiptRenderMode: 'legacy_text' | 'branded_raster';
   receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai';
+  printStylePreferences: StorePrintStylePreferences;
   // Actions
   setReceiptRenderMode: (mode: 'legacy_text' | 'branded_raster') => void;
   setReceiptBrandedFontFamily: (font: 'system' | 'cairo' | 'almarai') => void;
+  setPrintStylePreferences: (prefs: StorePrintStylePreferences) => void;
   setShowProductImages: (show: boolean) => void;
   setCustomerMandatory: (mandatory: boolean) => void;
   setEnforcePhoneLength: (enabled: boolean) => void;
@@ -149,6 +158,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       kotLanguagePolicy: defaultPrintLanguagePolicy(),
       receiptRenderMode: 'legacy_text',
       receiptBrandedFontFamily: 'almarai',
+      printStylePreferences: DEFAULT_PRINT_STYLE_PREFERENCES,
       // Actions
       setShowProductImages: (show) => set({ showProductImages: show }),
       setCustomerMandatory: (mandatory) => set({ customerMandatory: mandatory }),
@@ -187,6 +197,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       setKotLanguagePolicy: (kotLanguagePolicy) => set({ kotLanguagePolicy }),
       setReceiptRenderMode: (receiptRenderMode: 'legacy_text' | 'branded_raster') => set({ receiptRenderMode }),
       setReceiptBrandedFontFamily: (receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai') => set({ receiptBrandedFontFamily }),
+      setPrintStylePreferences: (printStylePreferences: StorePrintStylePreferences) => set({ printStylePreferences }),
     }),
     {
       name: 'pos-settings',

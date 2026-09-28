@@ -11,11 +11,28 @@ import {
   Eye,
   Printer,
   FileDown,
+  Layers,
+  ChefHat,
+  Receipt,
+  ShieldCheck,
+  Info,
+  Sliders,
+  Maximize2,
 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import type { PrintingForm, HwPrinter } from './PrintersSettingsTab';
+import {
+  DEFAULT_PRINT_STYLE_PREFERENCES,
+  resolveEffectivePrintStyle,
+  type StorePrintStylePreferences,
+  type FontSizeStep,
+  type BorderStyleType,
+  type DividerStyleType,
+  type ResolvedPrintStyle,
+  type PrintFontFamily,
+} from '@print/style';
 
 export interface ReceiptLogoMetadata {
   id: string;
@@ -40,6 +57,19 @@ export interface ReceiptPreviewData {
   totals: Array<{ label: string; value: string; isBold?: boolean; isLarge?: boolean }>;
 }
 
+export interface KotPreviewData {
+  station_name: string;
+  order_number: string;
+  table_name: string;
+  server_name: string;
+  timestamp: string;
+  items: Array<{ name: string; quantity: number; price: number; unitPrice?: number; notes?: string }>;
+  show_prices: boolean;
+  show_totals: boolean;
+  header_compact: boolean;
+  prominent_notes: boolean;
+}
+
 interface ReceiptBrandingSettingsProps {
   printingForm: PrintingForm;
   setPrintingForm: React.Dispatch<React.SetStateAction<PrintingForm>>;
@@ -57,31 +87,63 @@ export function ReceiptBrandingSettings({
 }: ReceiptBrandingSettingsProps) {
   const t = useTranslations('settings');
 
+  // Document and Script tabs
+  const [activeDoc, setActiveDoc] = useState<'receipt' | 'kot'>('receipt');
+  const [previewScript, setPreviewScript] = useState<'ar' | 'mixed' | 'en'>('mixed');
+
+  // Preview & Logo state
   const [logo, setLogo] = useState<ReceiptLogoMetadata | null>(null);
-  const [loadingLogo, setLoadingLogo] = useState<boolean>(true);
+  const [loadingLogo, setLoadingLogo] = useState<boolean>(false);
   const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [receiptData, setReceiptData] = useState<ReceiptPreviewData | null>(null);
+  const [kotData, setKotData] = useState<KotPreviewData | null>(null);
+  const [sampleText, setSampleText] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewViewMode, setPreviewViewMode] = useState<'thermal' | 'diagnostic' | 'raster'>('thermal');
   const [refreshCount, setRefreshCount] = useState<number>(0);
   const [diagnosticPrinting, setDiagnosticPrinting] = useState<boolean>(false);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string>('');
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const receiptPaperRef = useRef<HTMLDivElement | null>(null);
 
   const defaultPrinter = hwPrinters?.find((p) => p.is_default) || hwPrinters?.[0];
   const effectivePrinter = hwPrinters?.find((p) => p.id === (selectedPrinterId || defaultPrinter?.id)) || defaultPrinter;
-
   const is58mm = printingForm.printerPaperSize === 'thermal58';
+
+  // Current canonical preferences
+  const currentPrefs: StorePrintStylePreferences = printingForm.printStylePreferences || DEFAULT_PRINT_STYLE_PREFERENCES;
+
+  // Pure resolution of styles for receipt and KOT
+  const resolvedReceiptStyle = resolveEffectivePrintStyle(currentPrefs, 'receipt', previewScript);
+  const resolvedKotStyle = resolveEffectivePrintStyle(currentPrefs, 'kot', previewScript);
+  const activeResolvedStyle: ResolvedPrintStyle = activeDoc === 'receipt' ? resolvedReceiptStyle : resolvedKotStyle;
+
+  // Helper to update preferences centrally
+  const updatePrefs = (updater: (prev: StorePrintStylePreferences) => StorePrintStylePreferences) => {
+    markHydrationTouched('printStylePreferences');
+    setPrintingForm((prev) => {
+      const base = prev.printStylePreferences || DEFAULT_PRINT_STYLE_PREFERENCES;
+      const updated = updater(base);
+      return {
+        ...prev,
+        printStylePreferences: updated,
+        receiptRenderMode: updated.receipt.renderMode,
+        receiptBrandedFontFamily: updated.receipt.typography.fontFamily,
+      };
+    });
+  };
+
   const activeFontFamilyCss =
-    printingForm.receiptBrandedFontFamily === 'cairo'
+    activeResolvedStyle.typography.fontFamily === 'cairo'
       ? "'Cairo', 'Segoe UI', Tahoma, sans-serif"
-      : printingForm.receiptBrandedFontFamily === 'system'
+      : activeResolvedStyle.typography.fontFamily === 'system'
         ? "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
         : "'Almarai', 'Segoe UI', Tahoma, sans-serif";
 
+  // Browser Print handler
   const handlePrintBrowser = () => {
     if (!receiptPaperRef.current) return;
     const printWindow = window.open('', '_blank');
@@ -95,7 +157,7 @@ export function ReceiptBrandingSettings({
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Receipt Preview</title>
+    <title>${activeDoc === 'kot' ? 'KOT Ticket' : 'Receipt'}</title>
     <style>
       @page { size: ${mmWidth} auto; margin: 0; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -127,11 +189,12 @@ export function ReceiptBrandingSettings({
     printWindow.document.close();
   };
 
+  // Hardware diagnostic test print
   const handlePrintDiagnostic = async () => {
     if (effectivePrinter?.connection_type === 'webusb') {
       toast.error(
         'WebUSB printers are managed in the browser (via POS toolbar). For desktop print tests, click "Print / Save as PDF" or configure a USB or Network printer in Settings > Printers.',
-        { duration: 7000 }
+        { duration: 7000 },
       );
       return;
     }
@@ -140,7 +203,8 @@ export function ReceiptBrandingSettings({
       setDiagnosticPrinting(true);
       const res = await api.post('/printers/diagnostic-branded', {
         printer_id: effectivePrinter?.id,
-        font_family: printingForm.receiptBrandedFontFamily || 'almarai',
+        font_family: activeResolvedStyle.typography.fontFamily,
+        document_type: activeDoc,
       });
 
       if (res.data?.success) {
@@ -162,7 +226,7 @@ export function ReceiptBrandingSettings({
     }
   };
 
-  // Load active logo metadata on mount
+  // Load logo metadata
   useEffect(() => {
     let ignore = false;
     const timer = setTimeout(async () => {
@@ -188,7 +252,7 @@ export function ReceiptBrandingSettings({
     };
   }, []);
 
-  // Fetch live preview whenever font family, paper width, or logo changes
+  // Fetch live preview from backend route whenever preferences, active doc, script, or paper width change
   useEffect(() => {
     let ignore = false;
     const timer = setTimeout(async () => {
@@ -197,46 +261,44 @@ export function ReceiptBrandingSettings({
         setPreviewError(null);
         const res = await api.get('/settings/receipt-preview', {
           params: {
-            render_mode: 'branded_raster',
-            font_family: printingForm.receiptBrandedFontFamily || 'almarai',
-            paper_width: printingForm.printerPaperSize === 'thermal58' ? '58mm' : '80mm',
+            document_type: activeDoc,
+            language: previewScript,
+            paper_width: is58mm ? '58mm' : '80mm',
+            style_preferences: JSON.stringify(currentPrefs),
           },
         });
 
         if (ignore) return;
         if (res.data?.success) {
-          if (res.data.preview_image_url) {
-            setPreviewImageUrl(res.data.preview_image_url);
-          }
-          if (res.data.receipt_data) {
-            setReceiptData(res.data.receipt_data);
-          }
+          setPreviewImageUrl(res.data.preview_image_url || null);
+          setReceiptData(res.data.receipt_data || null);
+          setKotData(res.data.kot_data || null);
+          setSampleText(res.data.sample_text || null);
         } else {
           setPreviewError('Failed to generate preview');
         }
       } catch (err: unknown) {
         if (ignore) return;
         const e = err as { response?: { data?: { error?: string } }; message?: string };
-        setPreviewError(e?.response?.data?.error || e?.message || 'Error generating receipt preview');
+        setPreviewError(e?.response?.data?.error || e?.message || 'Error generating preview');
       } finally {
-        if (!ignore) {
-          setPreviewLoading(false);
-        }
+        if (!ignore) setPreviewLoading(false);
       }
-    }, 0);
+    }, 50);
 
     return () => {
       ignore = true;
       clearTimeout(timer);
     };
   }, [
-    printingForm.receiptBrandedFontFamily,
-    printingForm.printerPaperSize,
-    logo,
+    activeDoc,
+    previewScript,
+    is58mm,
+    currentPrefs,
     refreshCount,
   ]);
 
-  // Handle Logo Upload
+  // Upload store logo
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -285,7 +347,7 @@ export function ReceiptBrandingSettings({
     }
   };
 
-  // Handle Logo Deletion
+  // Remove store logo
   const handleRemoveLogo = async () => {
     const shouldRemove = await confirm(
       t('confirmRemoveLogo') || 'Are you sure you want to remove the store logo?',
@@ -314,9 +376,18 @@ export function ReceiptBrandingSettings({
     }
   };
 
+  // Thermal view divider helper
+  const getDividerClass = (style: DividerStyleType) => {
+    if (style === 'none') return 'border-transparent my-1';
+    if (style === 'solid') return 'border-t border-black my-2';
+    if (style === 'dotted') return 'border-t border-dotted border-gray-600 my-2';
+    return 'border-t border-dashed border-gray-600 my-2';
+  };
+
   return (
     <div className="bg-card rounded-xl border border-border p-6 space-y-6">
-      <div className="flex items-center justify-between border-b border-border pb-4">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border pb-4 gap-4">
         <div>
           <div className="flex items-center gap-2">
             <Sparkles size={20} className="text-brand" />
@@ -324,13 +395,576 @@ export function ReceiptBrandingSettings({
           </div>
           <p className="text-xs text-muted-foreground mt-1">{t('receiptBrandingDesc')}</p>
         </div>
+
+        {/* Document Selector: Receipt vs KOT */}
+        <div className="flex items-center p-1 bg-muted/60 rounded-xl border border-border self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setActiveDoc('receipt')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              activeDoc === 'receipt'
+                ? 'bg-card text-foreground shadow-sm font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Receipt size={14} className={activeDoc === 'receipt' ? 'text-brand' : ''} />
+            <span>{t('documentReceipt')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveDoc('kot')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              activeDoc === 'kot'
+                ? 'bg-card text-foreground shadow-sm font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ChefHat size={14} className={activeDoc === 'kot' ? 'text-brand' : ''} />
+            <span>{t('documentKot')}</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Controls Column (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Logo Management */}
-          <div className="space-y-3">
+          {/* 1. KOT OPERATIONAL CONTENT OPTIONS (Available in both Inherit and Custom modes) */}
+          {activeDoc === 'kot' && (
+            <div className="bg-card rounded-xl border border-border p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <ShieldCheck size={16} className="text-emerald-500" />
+                    {t('kotOperationalSettings')}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('kotOperationalSettingsDesc')}</p>
+                </div>
+              </div>
+
+              {/* Safety notice banner */}
+              <div className="text-[11px] text-muted-foreground bg-muted/40 border border-border rounded-lg p-2.5 leading-relaxed">
+                🛡️ <strong>Safety Guarantee:</strong> {t('kotSafeNotice')}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* showPrices */}
+                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/20 cursor-pointer">
+                  <div className="space-y-0.5 pe-2">
+                    <span className="text-xs font-semibold text-foreground block">{t('kotShowPrices')}</span>
+                    <span className="text-[11px] text-muted-foreground block leading-tight">{t('kotShowPricesDesc')}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={currentPrefs.kotOverrides?.operational?.showPrices ?? false}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: {
+                          ...p.kotOverrides,
+                          operational: { ...p.kotOverrides?.operational, showPrices: checked },
+                        },
+                      }));
+                    }}
+                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand"
+                  />
+                </label>
+
+                {/* showTotals */}
+                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/20 cursor-pointer">
+                  <div className="space-y-0.5 pe-2">
+                    <span className="text-xs font-semibold text-foreground block">{t('kotShowTotals')}</span>
+                    <span className="text-[11px] text-muted-foreground block leading-tight">{t('kotShowTotalsDesc')}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={currentPrefs.kotOverrides?.operational?.showTotals ?? false}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: {
+                          ...p.kotOverrides,
+                          operational: { ...p.kotOverrides?.operational, showTotals: checked },
+                        },
+                      }));
+                    }}
+                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand"
+                  />
+                </label>
+
+                {/* headerCompact */}
+                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/20 cursor-pointer">
+                  <div className="space-y-0.5 pe-2">
+                    <span className="text-xs font-semibold text-foreground block">{t('kotHeaderCompact')}</span>
+                    <span className="text-[11px] text-muted-foreground block leading-tight">{t('kotHeaderCompactDesc')}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={currentPrefs.kotOverrides?.operational?.headerCompact ?? false}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: {
+                          ...p.kotOverrides,
+                          operational: { ...p.kotOverrides?.operational, headerCompact: checked },
+                        },
+                      }));
+                    }}
+                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand"
+                  />
+                </label>
+
+                {/* prominentNotes */}
+                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/20 cursor-pointer">
+                  <div className="space-y-0.5 pe-2">
+                    <span className="text-xs font-semibold text-foreground block">{t('kotProminentNotes')}</span>
+                    <span className="text-[11px] text-muted-foreground block leading-tight">{t('kotProminentNotesDesc')}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={currentPrefs.kotOverrides?.operational?.prominentNotes ?? false}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: {
+                          ...p.kotOverrides,
+                          operational: { ...p.kotOverrides?.operational, prominentNotes: checked },
+                        },
+                      }));
+                    }}
+                    className="h-4 w-4 rounded border-border text-brand focus:ring-brand"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* 2. KOT VISUAL STYLE: Inherit vs Custom Mode Toggle */}
+          {activeDoc === 'kot' && (
+            <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <Layers size={16} className="text-brand" />
+                    {t('kotStyleMode')}
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {currentPrefs.kotStyleMode === 'inherit'
+                      ? 'Visual styling is mirrored directly from the customer receipt.'
+                      : t('kotModeCustomDesc')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 bg-card p-1 rounded-lg border border-border">
+                  <button
+                    type="button"
+                    onClick={() => updatePrefs((p) => ({ ...p, kotStyleMode: 'inherit' }))}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
+                      currentPrefs.kotStyleMode === 'inherit'
+                        ? 'bg-brand text-white shadow-sm font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {t('kotModeInherit')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updatePrefs((p) => ({ ...p, kotStyleMode: 'custom' }))}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
+                      currentPrefs.kotStyleMode === 'custom'
+                        ? 'bg-brand text-white shadow-sm font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {t('kotModeCustom')}
+                  </button>
+                </div>
+              </div>
+
+              {currentPrefs.kotStyleMode === 'inherit' && (
+                <div className="flex items-start gap-2 bg-brand/10 border border-brand/25 text-brand dark:text-brand-foreground rounded-lg p-3 text-xs leading-relaxed">
+                  <Info size={16} className="shrink-0 mt-0.5 text-brand" />
+                  <p>{t('kotInheritNotice')}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* RENDER MODE (Receipt or Custom KOT) */}
+          {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-foreground block">{t('receiptRenderMode')}</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeDoc === 'receipt') {
+                      updatePrefs((p) => ({
+                        ...p,
+                        receipt: { ...p.receipt, renderMode: 'legacy_text' },
+                      }));
+                    } else {
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: { ...p.kotOverrides, renderMode: 'legacy_text' },
+                      }));
+                    }
+                  }}
+                  className={`p-3 rounded-xl border text-start transition-all ${
+                    (activeDoc === 'receipt' ? currentPrefs.receipt.renderMode : (currentPrefs.kotOverrides?.renderMode || currentPrefs.receipt.renderMode)) === 'legacy_text'
+                      ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
+                      : 'border-border hover:bg-muted/30 text-muted-foreground'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">{t('renderModeLegacyText')}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    {t('renderModeLegacyTextDesc')}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeDoc === 'receipt') {
+                      updatePrefs((p) => ({
+                        ...p,
+                        receipt: { ...p.receipt, renderMode: 'branded_raster' },
+                      }));
+                    } else {
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: { ...p.kotOverrides, renderMode: 'branded_raster' },
+                      }));
+                    }
+                  }}
+                  className={`p-3 rounded-xl border text-start transition-all ${
+                    (activeDoc === 'receipt' ? currentPrefs.receipt.renderMode : (currentPrefs.kotOverrides?.renderMode || currentPrefs.receipt.renderMode)) === 'branded_raster'
+                      ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
+                      : 'border-border hover:bg-muted/30 text-muted-foreground'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">{t('renderModeBrandedRaster')}</span>
+                    <Sparkles size={14} className="text-brand" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    {t('renderModeBrandedRasterDesc')}
+                  </p>
+                </button>
+              </div>
+
+              {/* Honest Notice for Legacy Text mode */}
+              {activeResolvedStyle.renderMode === 'legacy_text' && (
+                <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg p-2.5 leading-relaxed">
+                  💡 <strong>Notice:</strong> {t('legacyTextNotice')}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* FONT FAMILY SELECTION */}
+          {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
+            <div className="space-y-3 pt-4 border-t border-border">
+              <label className="text-sm font-semibold text-foreground block">{t('brandedFontFamily')}</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {[
+                  { id: 'almarai' as PrintFontFamily, label: t('fontFamilyAlmarai'), sample: 'المراعي ١٢٣', font: "'Almarai', sans-serif" },
+                  { id: 'cairo' as PrintFontFamily, label: t('fontFamilyCairo'), sample: 'القاهرة ١٢٣', font: "'Cairo', sans-serif" },
+                  { id: 'system' as PrintFontFamily, label: t('fontFamilySystem'), sample: 'System 123', font: 'system-ui, sans-serif' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: {
+                            ...p.receipt,
+                            typography: { ...p.receipt.typography, fontFamily: f.id },
+                          },
+                        }));
+                      } else {
+                        updatePrefs((p) => ({
+                          ...p,
+                          kotOverrides: {
+                            ...p.kotOverrides,
+                            typography: { ...p.kotOverrides?.typography, fontFamily: f.id },
+                          },
+                        }));
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl border text-start transition-all cursor-pointer ${
+                      activeResolvedStyle.typography.fontFamily === f.id
+                        ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
+                        : 'border-border hover:bg-muted/30 text-muted-foreground'
+                    }`}
+                  >
+                    <p className="text-xs truncate font-medium">{f.label}</p>
+                    <p className="text-xs text-foreground mt-1 font-semibold" style={{ fontFamily: f.font }}>
+                      {f.sample}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TYPOGRAPHY SCALING SECTION */}
+          {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <Sliders size={16} className="text-brand" />
+                    {t('typographySection')}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Store Name Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('storeNameSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.storeNameSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, storeNameSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, storeNameSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                    <option value="large">{t('sizeLarge')}</option>
+                    <option value="xlarge">{t('sizeXLarge')}</option>
+                  </select>
+                </div>
+
+                {/* Header Meta Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('headerMetaSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.headerMetaSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, headerMetaSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, headerMetaSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                    <option value="large">{t('sizeLarge')}</option>
+                  </select>
+                </div>
+
+                {/* Item Names Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('itemNamesSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.itemNamesSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemNamesSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNamesSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                    <option value="large">{t('sizeLarge')}</option>
+                  </select>
+                </div>
+
+                {/* Item Modifiers Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('itemModifiersSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.itemModifiersSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemModifiersSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemModifiersSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                  </select>
+                </div>
+
+                {/* Item Notes Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('itemNotesSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.itemNotesSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemNotesSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNotesSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                    <option value="large">{t('sizeLarge')}</option>
+                  </select>
+                </div>
+
+                {/* Totals Size */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('totalsSize')}</span>
+                  <select
+                    value={activeResolvedStyle.typography.totalsSize}
+                    onChange={(e) => {
+                      const val = e.target.value as FontSizeStep;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, totalsSize: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, totalsSize: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="small">{t('sizeSmall')}</option>
+                    <option value="medium">{t('sizeMedium')}</option>
+                    <option value="large">{t('sizeLarge')}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BORDERS & FRAMES SECTION */}
+          {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <Maximize2 size={16} className="text-brand" />
+                    {t('frameSection')}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Border Style */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('borderStyle')}</span>
+                  <select
+                    value={activeResolvedStyle.frame.borderStyle}
+                    onChange={(e) => {
+                      const val = e.target.value as BorderStyleType;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, frame: { ...p.receipt.frame, borderStyle: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, frame: { ...p.kotOverrides?.frame, borderStyle: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="none">{t('borderStyleNone')}</option>
+                    <option value="solid">{t('borderStyleSolid')}</option>
+                    <option value="dashed">{t('borderStyleDashed')}</option>
+                    <option value="dotted">{t('borderStyleDotted')}</option>
+                    <option value="double">{t('borderStyleDouble')}</option>
+                  </select>
+                </div>
+
+                {/* Section Divider Style */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-foreground">{t('dividerStyle')}</span>
+                  <select
+                    value={activeResolvedStyle.frame.dividerStyle}
+                    onChange={(e) => {
+                      const val = e.target.value as DividerStyleType;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, frame: { ...p.receipt.frame, dividerStyle: val } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, frame: { ...p.kotOverrides?.frame, dividerStyle: val } } }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="dashed">{t('dividerStyleDashed')}</option>
+                    <option value="solid">{t('dividerStyleSolid')}</option>
+                    <option value="dotted">{t('dividerStyleDotted')}</option>
+                    <option value="none">{t('dividerStyleNone')}</option>
+                  </select>
+                </div>
+
+                {/* Border Thickness */}
+                {activeResolvedStyle.frame.borderStyle !== 'none' && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-foreground">{t('borderThickness')}</span>
+                    <select
+                      value={activeResolvedStyle.frame.borderThickness}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (activeDoc === 'receipt') {
+                          updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, frame: { ...p.receipt.frame, borderThickness: val } } }));
+                        } else {
+                          updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, frame: { ...p.kotOverrides?.frame, borderThickness: val } } }));
+                        }
+                      }}
+                      className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                    >
+                      <option value="1">1 px (Thin)</option>
+                      <option value="2">2 px (Medium)</option>
+                      <option value="3">3 px (Thick)</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Border Padding */}
+                {activeResolvedStyle.frame.borderStyle !== 'none' && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-foreground">{t('borderPadding')}</span>
+                    <select
+                      value={activeResolvedStyle.frame.borderPadding}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (activeDoc === 'receipt') {
+                          updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, frame: { ...p.receipt.frame, borderPadding: val } } }));
+                        } else {
+                          updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, frame: { ...p.kotOverrides?.frame, borderPadding: val } } }));
+                        }
+                      }}
+                      className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                    >
+                      <option value="4">{t('paddingCompact')} (4px)</option>
+                      <option value="8">{t('paddingNormal')} (8px)</option>
+                      <option value="16">{t('paddingSpacious')} (16px)</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STORE LOGO SECTION */}
+          <div className="space-y-3 pt-4 border-t border-border">
             <div className="flex items-center justify-between">
               <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                 <ImageIcon size={16} className="text-muted-foreground" />
@@ -352,154 +986,60 @@ export function ReceiptBrandingSettings({
               className="hidden"
             />
 
-            {loadingLogo ? (
-              <div className="p-4 border border-border rounded-xl text-center text-xs text-muted-foreground animate-pulse">
-                Loading logo...
-              </div>
-            ) : logo ? (
-              <div className="p-4 border border-border rounded-xl bg-muted/20 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-16 h-16 rounded-lg border border-border bg-white dark:bg-card flex items-center justify-center overflow-hidden p-1">
-                    <img
-                      src={logo.dataUrl || `/api/settings/receipt-logo/image?v=${encodeURIComponent(logo.updatedAt || logo.sha256 || logo.id)}`}
-                      alt="Store Logo"
-                      className="max-w-full max-h-full object-contain"
-                      onError={(e) => {
-                        if (logo.dataUrl) {
-                          (e.target as HTMLImageElement).src = logo.dataUrl;
-                        }
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-foreground truncate max-w-[200px]">{logo.filename}</p>
-                    <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                      {logo.mimeType} · {logo.width}×{logo.height}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
+            {/* Logo Preview & Upload button */}
+            <div className="flex items-center gap-4">
+              {logo ? (
+                <div className="relative group border border-border rounded-xl p-2 bg-muted/20 flex items-center justify-center min-w-[120px] h-20">
+                  <img
+                    src={logo.dataUrl || `/api/settings/receipt-logo/image?v=${encodeURIComponent(logo.updatedAt || logo.sha256 || logo.id)}`}
+                    alt="Store Logo"
+                    className="max-h-16 max-w-[100px] object-contain"
+                  />
                   <button
                     type="button"
-                    disabled={uploadingLogo}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
-                  >
-                    {t('replaceLogo')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={uploadingLogo}
                     onClick={handleRemoveLogo}
-                    className="p-1.5 rounded-lg border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 transition-colors disabled:opacity-50"
+                    disabled={uploadingLogo}
+                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground p-1 rounded-full shadow-md opacity-90 hover:opacity-100 transition-opacity"
                     title={t('removeLogo')}
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={12} />
                   </button>
                 </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                disabled={uploadingLogo}
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-border hover:border-brand/50 hover:bg-muted/20 rounded-xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-              >
-                <div className="w-10 h-10 rounded-full bg-brand/10 text-brand flex items-center justify-center">
-                  <Upload size={18} />
+              ) : (
+                <div className="border border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center text-center min-w-[120px] h-20 bg-muted/10">
+                  <span className="text-[11px] text-muted-foreground">{t('noLogoConfigured')}</span>
                 </div>
-                <div className="text-center">
-                  <span className="text-xs font-medium text-foreground">{t('uploadLogo')}</span>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">PNG, JPEG, WebP · Max 2 MB</p>
-                </div>
-              </button>
-            )}
-          </div>
+              )}
 
-          {/* Render Mode Selection */}
-          <div className="space-y-3 pt-4 border-t border-border">
-            <label className="text-sm font-semibold text-foreground block">{t('receiptRenderMode')}</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  markHydrationTouched('receiptRenderMode');
-                  setPrintingForm((p) => ({ ...p, receiptRenderMode: 'legacy_text' }));
-                }}
-                className={`p-3 rounded-xl border text-start transition-all ${
-                  printingForm.receiptRenderMode === 'legacy_text'
-                    ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
-                    : 'border-border hover:bg-muted/30 text-muted-foreground'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold">{t('renderModeLegacyText')}</span>
-                  {printingForm.receiptRenderMode === 'legacy_text' && (
-                    <span className="text-[10px] bg-brand text-white px-1.5 py-0.5 rounded font-mono">
-                      Default
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                  {t('renderModeLegacyTextDesc')}
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  markHydrationTouched('receiptRenderMode');
-                  setPrintingForm((p) => ({ ...p, receiptRenderMode: 'branded_raster' }));
-                }}
-                className={`p-3 rounded-xl border text-start transition-all ${
-                  printingForm.receiptRenderMode === 'branded_raster'
-                    ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
-                    : 'border-border hover:bg-muted/30 text-muted-foreground'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold">{t('renderModeBrandedRaster')}</span>
-                  <Sparkles size={14} className="text-brand" />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                  {t('renderModeBrandedRasterDesc')}
-                </p>
-              </button>
-            </div>
-          </div>
-
-          {/* Font Family Selection */}
-          <div className="space-y-3 pt-4 border-t border-border">
-            <label className="text-sm font-semibold text-foreground block">{t('brandedFontFamily')}</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {[
-                { id: 'almarai', label: t('fontFamilyAlmarai'), sample: 'المراعي ١٢٣', font: "'Almarai', sans-serif" },
-                { id: 'cairo', label: t('fontFamilyCairo'), sample: 'القاهرة ١٢٣', font: "'Cairo', sans-serif" },
-                { id: 'system', label: t('fontFamilySystem'), sample: 'System 123', font: 'system-ui, sans-serif' },
-              ].map((f) => (
+              <div className="space-y-2">
                 <button
-                  key={f.id}
                   type="button"
-                  onClick={() => {
-                    markHydrationTouched('receiptBrandedFontFamily');
-                    setPrintingForm((p) => ({
-                      ...p,
-                      receiptBrandedFontFamily: f.id as 'system' | 'cairo' | 'almarai',
-                    }));
-                  }}
-                  className={`p-2.5 rounded-xl border text-start transition-all ${
-                    printingForm.receiptBrandedFontFamily === f.id
-                      ? 'border-brand bg-brand/10 font-semibold text-foreground shadow-sm'
-                      : 'border-border hover:bg-muted/30 text-muted-foreground'
-                  }`}
+                  disabled={uploadingLogo}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3.5 py-2 rounded-xl bg-card hover:bg-muted text-foreground font-medium text-xs flex items-center gap-2 border border-border shadow-sm transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  <p className="text-xs truncate font-medium">{f.label}</p>
-                  <p className="text-xs text-foreground mt-1 font-semibold" style={{ fontFamily: f.font }}>
-                    {f.sample}
-                  </p>
+                  <Upload size={14} className={uploadingLogo ? 'animate-bounce' : ''} />
+                  <span>{logo ? t('replaceLogo') : t('uploadLogo')}</span>
                 </button>
-              ))}
+
+                {/* Print Logo Toggle */}
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={activeResolvedStyle.logo.showLogo}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, logo: { ...p.receipt.logo, showLogo: checked } } }));
+                      } else {
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, logo: { ...p.kotOverrides?.logo, showLogo: checked } } }));
+                      }
+                    }}
+                    className="h-3.5 w-3.5 rounded border-border text-brand focus:ring-brand"
+                  />
+                  <span>{t('showLogoOnReceipt')}</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -509,10 +1049,10 @@ export function ReceiptBrandingSettings({
               <div className="space-y-0.5">
                 <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Printer size={14} className="text-brand" />
-                  {t('printBrandedDiagnostic')}
+                  {activeDoc === 'kot' ? t('printKotDiagnostic') : t('printBrandedDiagnostic')}
                 </label>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {t('printBrandedDiagnosticDesc')}
+                  {activeDoc === 'kot' ? t('printKotDiagnosticDesc') : t('printBrandedDiagnosticDesc')}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
@@ -532,12 +1072,12 @@ export function ReceiptBrandingSettings({
                   className="px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground font-medium text-xs flex items-center gap-2 border border-border shadow-sm transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
                 >
                   <Printer size={14} className={diagnosticPrinting ? 'animate-pulse' : ''} />
-                  <span>{diagnosticPrinting ? t('printBrandedDiagnosticPrinting') : t('printBrandedDiagnostic')}</span>
+                  <span>{diagnosticPrinting ? t('printBrandedDiagnosticPrinting') : (activeDoc === 'kot' ? t('printKotDiagnostic') : t('printBrandedDiagnostic'))}</span>
                 </button>
               </div>
             </div>
 
-            {/* Target Printer selector / info badge */}
+            {/* Target Printer selector */}
             <div className="flex flex-wrap items-center gap-2 text-[11px] bg-muted/30 p-2.5 rounded-lg border border-border/60">
               <span className="text-muted-foreground font-medium">Target Printer:</span>
               {hwPrinters && hwPrinters.length > 1 ? (
@@ -579,13 +1119,18 @@ export function ReceiptBrandingSettings({
               </span>
               <span
                 className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                  printingForm.receiptRenderMode === 'branded_raster'
+                  activeResolvedStyle.renderMode === 'branded_raster'
                     ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                     : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30'
                 }`}
               >
-                {printingForm.receiptRenderMode === 'branded_raster' ? 'Branded Raster' : 'Legacy Text'}
+                {activeResolvedStyle.renderMode === 'branded_raster' ? 'Branded Raster' : 'Legacy Text'}
               </span>
+              {activeDoc === 'kot' && currentPrefs.kotStyleMode === 'inherit' && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+                  Inherited Style
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -596,6 +1141,31 @@ export function ReceiptBrandingSettings({
               <RefreshCw size={12} className={previewLoading ? 'animate-spin' : ''} />
               {t('refreshPreview')}
             </button>
+          </div>
+
+          {/* Script / Language Switcher */}
+          <div className="w-full flex items-center justify-between gap-1 p-1 bg-muted/40 rounded-lg mb-2 border border-border text-[11px]">
+            <span className="text-muted-foreground px-2 font-medium">{t('previewLanguage')}:</span>
+            <div className="flex items-center gap-1">
+              {[
+                { id: 'ar' as const, label: 'العربية' },
+                { id: 'mixed' as const, label: 'Mixed / مشترك' },
+                { id: 'en' as const, label: 'English' },
+              ].map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setPreviewScript(s.id)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+                    previewScript === s.id
+                      ? 'bg-card text-foreground shadow-sm font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* View Mode Switcher */}
@@ -609,7 +1179,7 @@ export function ReceiptBrandingSettings({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t('receiptPreview') || 'Thermal View'}
+              Thermal View
             </button>
             <button
               type="button"
@@ -620,7 +1190,7 @@ export function ReceiptBrandingSettings({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t('printBrandedDiagnostic') || 'Diagnostic'}
+              Diagnostic
             </button>
             <button
               type="button"
@@ -635,7 +1205,7 @@ export function ReceiptBrandingSettings({
             </button>
           </div>
 
-          {/* Authentic Receipt Surface */}
+          {/* Authentic Thermal Paper Surface */}
           <div
             ref={receiptPaperRef}
             className="w-full bg-white text-black p-4 rounded-xl border border-gray-300 shadow-md min-h-[440px] flex flex-col justify-start items-stretch overflow-hidden transition-all"
@@ -647,7 +1217,7 @@ export function ReceiptBrandingSettings({
             {previewLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-2 text-gray-400 py-20 font-sans">
                 <RefreshCw size={24} className="animate-spin text-gray-400" />
-                <span className="text-xs">Generating receipt preview...</span>
+                <span className="text-xs">Generating preview...</span>
               </div>
             ) : previewError ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-2 text-red-500 py-20 text-center px-4 font-sans">
@@ -655,6 +1225,7 @@ export function ReceiptBrandingSettings({
                 <span className="text-xs">{previewError}</span>
               </div>
             ) : previewViewMode === 'raster' ? (
+              /* Backend 1-bit ESC/POS Raster Preview */
               <div className="w-full flex flex-col items-center font-sans">
                 {previewImageUrl ? (
                   <>
@@ -674,7 +1245,7 @@ export function ReceiptBrandingSettings({
                 )}
               </div>
             ) : previewViewMode === 'diagnostic' ? (
-              /* Diagnostic Receipt View */
+              /* Diagnostic View */
               <div className="space-y-2">
                 <div className="bg-amber-100 border border-amber-400 text-amber-950 font-bold text-center text-[10px] p-2 rounded leading-tight">
                   FLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT
@@ -682,7 +1253,7 @@ export function ReceiptBrandingSettings({
                   اختبار طابعة FloCafe — ليست فاتورة بيع
                 </div>
 
-                {logo && (
+                {activeResolvedStyle.logo.showLogo && logo && (
                   <div className="flex justify-center my-1.5">
                     <img
                       src={logo.dataUrl || `/api/settings/receipt-logo/image?v=${encodeURIComponent(logo.updatedAt || logo.sha256 || logo.id)}`}
@@ -693,13 +1264,13 @@ export function ReceiptBrandingSettings({
                 )}
 
                 <div className="text-center font-bold text-xs text-black">
-                  {receiptData?.business_name || 'FloCafe Coffee & Bakery'}
+                  {activeDoc === 'kot' ? (kotData?.station_name || 'Main Kitchen / المطبخ الرئيسي') : (receiptData?.business_name || 'FloCafe Coffee & Bakery')}
                 </div>
 
                 <div className="bg-gray-100 p-2 rounded text-[9px] font-mono space-y-0.5 text-gray-800">
                   <div className="flex justify-between">
-                    <span>ORDER:</span>
-                    <span className="font-bold">DIAG-RASTER-PROBE</span>
+                    <span>DOCUMENT:</span>
+                    <span className="font-bold">{activeDoc.toUpperCase()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>WIDTH:</span>
@@ -707,11 +1278,11 @@ export function ReceiptBrandingSettings({
                   </div>
                   <div className="flex justify-between">
                     <span>FONT:</span>
-                    <span className="uppercase">{printingForm.receiptBrandedFontFamily}</span>
+                    <span className="uppercase">{activeResolvedStyle.typography.fontFamily}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>RENDER:</span>
-                    <span>BRANDED_RASTER</span>
+                    <span>{activeResolvedStyle.renderMode.toUpperCase()}</span>
                   </div>
                 </div>
 
@@ -729,89 +1300,239 @@ export function ReceiptBrandingSettings({
                     <span>شاي كرك بالحليب / Karak</span>
                     <span className="font-mono">2 × 8.00</span>
                   </div>
-                  <div className="flex justify-between text-gray-900">
-                    <span>Croissant au Beurre (Français)</span>
-                    <span className="font-mono">1 × 16.00</span>
-                  </div>
-                  <div className="flex justify-between text-gray-900">
-                    <span>عصير برتقال 100% Fresh</span>
-                    <span className="font-mono">1 × 18.00</span>
-                  </div>
                 </div>
 
                 <div className="text-center text-[9px] text-gray-500 font-mono py-1">
                   NON-FINANCIAL DOCUMENT · NO CASH DRAWER PULSE
                 </div>
-                <div className="text-center text-[9px] font-bold text-gray-700">
-                  اختبار جودة الطباعة والخطوط واللغات
-                </div>
               </div>
-            ) : (
-              /* Thermal Customer Receipt View */
-              <div className="space-y-1.5">
-                {/* Store Logo */}
-                {logo ? (
-                  <div className="flex justify-center mb-2">
+            ) : activeResolvedStyle.renderMode === 'legacy_text' && sampleText ? (
+              /* Honest ESC/POS Legacy Text Mode Preview */
+              <div className="font-mono text-[11px] leading-tight text-gray-900 whitespace-pre overflow-x-auto py-2">
+                {sampleText}
+              </div>
+            ) : activeDoc === 'kot' ? (
+              /* KITCHEN ORDER TICKET (KOT) THERMAL VIEW */
+              <div
+                className="space-y-2 transition-all"
+                style={{
+                  border: activeResolvedStyle.frame.borderStyle !== 'none'
+                    ? `${activeResolvedStyle.frame.borderThickness}px ${activeResolvedStyle.frame.borderStyle} #000`
+                    : 'none',
+                  padding: activeResolvedStyle.frame.borderStyle !== 'none'
+                    ? `${activeResolvedStyle.frame.borderPadding}px`
+                    : '0px',
+                  borderRadius: `${activeResolvedStyle.frame.borderRadius}px`,
+                }}
+              >
+                {/* Logo if enabled */}
+                {activeResolvedStyle.logo.showLogo && logo && (
+                  <div className="flex justify-center mb-1.5">
                     <img
                       src={logo.dataUrl || `/api/settings/receipt-logo/image?v=${encodeURIComponent(logo.updatedAt || logo.sha256 || logo.id)}`}
                       alt="Store Logo"
-                      className="max-h-16 max-w-[180px] object-contain"
+                      style={{ maxWidth: `${activeResolvedStyle.logo.maxWidthPercent}%` }}
+                      className="max-h-14 object-contain"
                     />
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-gray-300 rounded p-2 text-center text-[10px] text-gray-400 mb-2 font-sans">
-                    + No store logo uploaded
                   </div>
                 )}
 
+                {/* Station & Banner Header */}
+                <div className="text-center space-y-0.5">
+                  <h3
+                    className="font-bold text-black tracking-tight"
+                    style={{
+                      fontSize: activeResolvedStyle.typography.storeNameSize === 'xlarge' ? '18px' : (activeResolvedStyle.typography.storeNameSize === 'large' ? '15px' : '13px'),
+                    }}
+                  >
+                    {kotData?.station_name || (previewScript === 'ar' ? 'المطبخ الرئيسي' : (previewScript === 'en' ? 'Main Kitchen' : 'المطبخ / Main Kitchen'))}
+                  </h3>
+                  <div className="text-[10px] font-semibold text-gray-700">
+                    {previewScript === 'ar' ? 'تذكرة طلب المطبخ' : (previewScript === 'en' ? 'Kitchen Order Ticket' : 'تذكرة طلب المطبخ / Kitchen Ticket')}
+                  </div>
+                </div>
+
+                <div className={getDividerClass(activeResolvedStyle.frame.dividerStyle)} />
+
+                {/* Metadata */}
+                <div
+                  className="space-y-0.5 font-mono text-gray-800"
+                  style={{
+                    fontSize: activeResolvedStyle.typography.headerMetaSize === 'large' ? '12px' : '10px',
+                  }}
+                >
+                  <div className="flex justify-between font-bold">
+                    <span>{kotData?.order_number || '#ORD-108'}</span>
+                    <span>{kotData?.table_name || (previewScript === 'ar' ? 'طاولة 4' : (previewScript === 'en' ? 'Table 4' : 'طاولة 4 / Table 4'))}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600 text-[10px]">
+                    <span>{kotData?.timestamp || '12:35 PM'}</span>
+                    <span>{kotData?.server_name || (previewScript === 'ar' ? 'سارة' : (previewScript === 'en' ? 'Sara' : 'سارة / Sara'))}</span>
+                  </div>
+                </div>
+
+                <div className={getDividerClass(activeResolvedStyle.frame.dividerStyle)} />
+
+                {/* KOT Item Lines */}
+                <div className="space-y-2 py-0.5">
+                  {(kotData?.items || [
+                    { name: previewScript === 'ar' ? 'قهوة فلات وايت' : (previewScript === 'en' ? 'Flat White Coffee' : 'قهوة فلات وايت / Flat White'), quantity: 1, unitPrice: 18.0, notes: previewScript === 'ar' ? 'بدون سكر' : (previewScript === 'en' ? 'No sugar' : 'بدون سكر / No sugar') },
+                    { name: previewScript === 'ar' ? 'كرواسون زعتر جبن' : (previewScript === 'en' ? 'Zaatar Croissant' : 'كرواسون زعتر / Zaatar Croissant'), quantity: 2, unitPrice: 12.0, notes: previewScript === 'ar' ? 'ساخن جداً' : (previewScript === 'en' ? 'Extra hot' : 'ساخن جداً / Extra hot') },
+                    { name: previewScript === 'ar' ? 'كيكة العسل الملكية' : (previewScript === 'en' ? 'Honey Cake' : 'كيكة العسل / Honey Cake'), quantity: 1, unitPrice: 22.0 },
+                  ]).map((item, idx) => (
+                    <div key={idx} className="space-y-0.5">
+                      <div className="flex justify-between items-baseline text-gray-900">
+                        <div className="flex items-baseline gap-1.5 flex-1 pe-1">
+                          <span className="font-bold text-xs font-mono">{item.quantity}x</span>
+                          <span
+                            className="font-medium leading-tight"
+                            style={{
+                              fontSize: activeResolvedStyle.typography.itemNamesSize === 'large' ? '14px' : (activeResolvedStyle.typography.itemNamesSize === 'medium' ? '12px' : '10px'),
+                            }}
+                          >
+                            {item.name}
+                          </span>
+                        </div>
+                        {activeResolvedStyle.operational.showPrices && item.unitPrice !== undefined && (
+                          <span className="text-[10px] font-mono text-gray-600 whitespace-nowrap">
+                            ({item.unitPrice.toFixed(2)})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Prominent Notes / Instructions */}
+                      {item.notes && (
+                        <div
+                          className={`ms-5 text-[10px] leading-snug ${
+                            activeResolvedStyle.operational.prominentNotes
+                              ? 'font-bold bg-gray-100 p-1 rounded border-l-2 border-black text-gray-950'
+                              : 'text-gray-600 italic'
+                          }`}
+                          style={{
+                            fontSize: activeResolvedStyle.typography.itemNotesSize === 'large' ? '12px' : (activeResolvedStyle.typography.itemNotesSize === 'medium' ? '10px' : '9px'),
+                          }}
+                        >
+                          {activeResolvedStyle.operational.prominentNotes ? `*** NOTE: ${item.notes} ***` : `>> ${item.notes}`}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Subtotals / Totals if enabled */}
+                {activeResolvedStyle.operational.showTotals && (
+                  <>
+                    <div className={getDividerClass(activeResolvedStyle.frame.dividerStyle)} />
+                    <div className="flex justify-between font-bold text-xs text-gray-900 font-mono py-0.5">
+                      <span>TOTAL ITEMS: 4</span>
+                      <span>SUBTOTAL: 64.00</span>
+                    </div>
+                  </>
+                )}
+
+                <div className={getDividerClass(activeResolvedStyle.frame.dividerStyle)} />
+
+                {/* NON-FINANCIAL Operational Footer */}
+                <div className="text-center text-[9px] text-gray-500 font-mono py-1">
+                  [ KITCHEN ORDER TICKET · NON-FINANCIAL ]
+                </div>
+              </div>
+            ) : (
+              /* CUSTOMER RECEIPT THERMAL VIEW */
+              <div
+                className="space-y-1.5 transition-all"
+                style={{
+                  border: activeResolvedStyle.frame.borderStyle !== 'none'
+                    ? `${activeResolvedStyle.frame.borderThickness}px ${activeResolvedStyle.frame.borderStyle} #000`
+                    : 'none',
+                  padding: activeResolvedStyle.frame.borderStyle !== 'none'
+                    ? `${activeResolvedStyle.frame.borderPadding}px`
+                    : '0px',
+                  borderRadius: `${activeResolvedStyle.frame.borderRadius}px`,
+                }}
+              >
+                {/* Store Logo */}
+                {activeResolvedStyle.logo.showLogo && logo ? (
+                  <div className="flex justify-center mb-1.5">
+                    <img
+                      src={logo.dataUrl || `/api/settings/receipt-logo/image?v=${encodeURIComponent(logo.updatedAt || logo.sha256 || logo.id)}`}
+                      alt="Store Logo"
+                      style={{ maxWidth: `${activeResolvedStyle.logo.maxWidthPercent}%` }}
+                      className="max-h-16 object-contain"
+                    />
+                  </div>
+                ) : null}
+
                 {/* Business Info */}
-                <h3 className="font-bold text-center text-sm text-black tracking-tight leading-snug">
+                <h3
+                  className="font-bold text-center text-black tracking-tight leading-snug"
+                  style={{
+                    fontSize: activeResolvedStyle.typography.storeNameSize === 'xlarge' ? '18px' : (activeResolvedStyle.typography.storeNameSize === 'large' ? '15px' : '13px'),
+                  }}
+                >
                   {receiptData?.business_name || 'FloCafe Coffee & Bakery'}
                 </h3>
                 <p className="text-[10px] text-center text-gray-700 leading-tight">
-                  {receiptData?.business_address || 'طريق الملك فهد، الرياض'}
+                  {receiptData?.business_address || (previewScript === 'en' ? 'King Fahd Road, Riyadh' : 'طريق الملك فهد، الرياض')}
                 </p>
                 <p className="text-[10px] text-center text-gray-700 leading-tight">
-                  هاتف: {receiptData?.business_phone || '+966 50 123 4567'}
+                  {previewScript === 'en' ? 'Phone:' : 'هاتف:'} {receiptData?.business_phone || '+966 50 123 4567'}
                 </p>
                 <p className="text-[10px] text-center text-gray-700 leading-tight font-mono">
-                  الرقم الضريبي: {receiptData?.tax_registration_number || '300123456700003'}
+                  {previewScript === 'en' ? 'Tax ID:' : 'الرقم الضريبي:'} {receiptData?.tax_registration_number || '300123456700003'}
                 </p>
 
                 {/* Banner */}
                 <div className="text-center font-bold text-[11px] text-gray-900 border-y border-dashed border-gray-400 py-1 my-2">
-                  فاتورة ضريبية مبسطة / Tax Invoice
+                  {previewScript === 'ar' ? 'فاتورة ضريبية مبسطة' : (previewScript === 'en' ? 'Simplified Tax Invoice' : 'فاتورة ضريبية مبسطة / Tax Invoice')}
                 </div>
 
                 {/* Metadata */}
-                <div className="flex justify-between text-[10px] text-gray-600 font-mono">
+                <div
+                  className="flex justify-between text-gray-600 font-mono"
+                  style={{
+                    fontSize: activeResolvedStyle.typography.headerMetaSize === 'large' ? '11px' : '9.5px',
+                  }}
+                >
                   <span>INV-2026-001</span>
                   <span>#42</span>
                 </div>
-                <div className="flex justify-between text-[10px] text-gray-600 font-mono">
+                <div
+                  className="flex justify-between text-gray-600 font-mono"
+                  style={{
+                    fontSize: activeResolvedStyle.typography.headerMetaSize === 'large' ? '11px' : '9.5px',
+                  }}
+                >
                   <span>2026-09-28 12:30</span>
-                  <span>طاولة 5 / Table 5</span>
+                  <span>{previewScript === 'en' ? 'Table 5' : (previewScript === 'ar' ? 'طاولة 5' : 'طاولة 5 / Table 5')}</span>
                 </div>
 
                 {/* Table Header */}
                 <div className="border-t border-dashed border-gray-400 pt-1 mt-2">
                   <div className="flex justify-between text-[10px] font-bold text-gray-800 pb-1 border-b border-gray-300">
-                    <span className="flex-1">الصنف / Item</span>
-                    <span className="text-center w-8">الكمية</span>
-                    <span className="text-end">السعر</span>
+                    <span className="flex-1">{previewScript === 'en' ? 'Item' : (previewScript === 'ar' ? 'الصنف' : 'الصنف / Item')}</span>
+                    <span className="text-center w-8">{previewScript === 'en' ? 'Qty' : 'الكمية'}</span>
+                    <span className="text-end">{previewScript === 'en' ? 'Price' : 'السعر'}</span>
                   </div>
 
                   {/* Items */}
                   <div className="divide-y divide-gray-100 py-0.5">
                     {(receiptData?.items || [
-                      { name: 'قهوة فلات وايت / Flat White', quantity: 1, price: 18.0 },
-                      { name: 'كرواسون زعتر / Zaatar Croissant', quantity: 2, price: 24.0 },
-                      { name: 'كيكة العسل / Honey Cake', quantity: 1, price: 22.0 },
+                      { name: previewScript === 'en' ? 'Flat White Coffee' : (previewScript === 'ar' ? 'قهوة فلات وايت' : 'قهوة فلات وايت / Flat White'), quantity: 1, price: 18.0 },
+                      { name: previewScript === 'en' ? 'Zaatar Croissant' : (previewScript === 'ar' ? 'كرواسون زعتر' : 'كرواسون زعتر / Zaatar Croissant'), quantity: 2, price: 24.0 },
+                      { name: previewScript === 'en' ? 'Honey Cake' : (previewScript === 'ar' ? 'كيكة العسل' : 'كيكة العسل / Honey Cake'), quantity: 1, price: 22.0 },
                     ]).map((item, idx) => (
-                      <div key={idx} className="flex justify-between text-[10px] text-gray-900 py-1">
-                        <span className="flex-1 pe-1 leading-tight">{item.name}</span>
-                        <span className="text-center w-8 font-mono">{item.quantity}</span>
-                        <span className="text-end font-mono whitespace-nowrap">
+                      <div key={idx} className="flex justify-between text-gray-900 py-1">
+                        <span
+                          className="flex-1 pe-1 leading-tight"
+                          style={{
+                            fontSize: activeResolvedStyle.typography.itemNamesSize === 'large' ? '13px' : (activeResolvedStyle.typography.itemNamesSize === 'medium' ? '11px' : '10px'),
+                          }}
+                        >
+                          {item.name}
+                        </span>
+                        <span className="text-center w-8 font-mono text-[10px]">{item.quantity}</span>
+                        <span className="text-end font-mono whitespace-nowrap text-[10px]">
                           {typeof item.price === 'number' ? item.price.toFixed(2) : item.price} {receiptData?.currency || 'SAR'}
                         </span>
                       </div>
@@ -822,28 +1543,40 @@ export function ReceiptBrandingSettings({
                 {/* Totals */}
                 <div className="border-t border-dashed border-gray-400 pt-2 mt-2 space-y-0.5 text-[10px]">
                   <div className="flex justify-between text-gray-700">
-                    <span>المجموع الفرعي / Subtotal</span>
+                    <span>{previewScript === 'en' ? 'Subtotal' : (previewScript === 'ar' ? 'المجموع الفرعي' : 'المجموع الفرعي / Subtotal')}</span>
                     <span className="font-mono">64.00 {receiptData?.currency || 'SAR'}</span>
                   </div>
                   <div className="flex justify-between text-gray-700">
-                    <span>ضريبة القيمة المضافة 15% / VAT</span>
+                    <span>{previewScript === 'en' ? 'VAT 15%' : (previewScript === 'ar' ? 'ضريبة القيمة المضافة 15%' : 'ضريبة القيمة المضافة 15% / VAT')}</span>
                     <span className="font-mono">9.60 {receiptData?.currency || 'SAR'}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-xs text-black pt-1 border-t border-gray-800">
-                    <span>الإجمالي / Total</span>
+                  <div
+                    className="flex justify-between font-bold text-black pt-1 border-t border-gray-800"
+                    style={{
+                      fontSize: activeResolvedStyle.typography.totalsSize === 'large' ? '14px' : (activeResolvedStyle.typography.totalsSize === 'medium' ? '12px' : '11px'),
+                    }}
+                  >
+                    <span>{previewScript === 'en' ? 'Total' : (previewScript === 'ar' ? 'الإجمالي' : 'الإجمالي / Total')}</span>
                     <span className="font-mono">73.60 {receiptData?.currency || 'SAR'}</span>
                   </div>
                   <div className="flex justify-between text-gray-700 pt-0.5">
-                    <span>طريقة الدفع: نقدي / Cash</span>
+                    <span>{previewScript === 'en' ? 'Payment: Cash' : (previewScript === 'ar' ? 'طريقة الدفع: نقدي' : 'طريقة الدفع: نقدي / Cash')}</span>
                     <span className="font-mono">73.60 {receiptData?.currency || 'SAR'}</span>
                   </div>
                 </div>
 
-                {/* Footer */}
-                <div className="border-t border-dashed border-gray-400 pt-2 mt-2 text-center text-[10px] text-gray-600 leading-tight">
-                  شكراً لزيارتكم ويسعدنا خدمتكم دائماً
-                  <br />
-                  Thank You For Visiting!
+                {/* Customer Footer */}
+                <div
+                  className="border-t border-dashed border-gray-400 pt-2 mt-2 text-center text-gray-600 leading-tight"
+                  style={{
+                    fontSize: activeResolvedStyle.typography.footerSize === 'medium' ? '11px' : '9.5px',
+                  }}
+                >
+                  {previewScript === 'ar'
+                    ? 'شكراً لزيارتكم ويسعدنا خدمتكم دائماً'
+                    : (previewScript === 'en'
+                      ? 'Thank You For Visiting!'
+                      : 'شكراً لزيارتكم ويسعدنا خدمتكم دائماً\nThank You For Visiting!')}
                 </div>
                 <div className="text-center text-[9px] text-gray-400 font-mono pt-1">
                   FloCafe POS · {is58mm ? '58mm' : '80mm'}

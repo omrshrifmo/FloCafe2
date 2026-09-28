@@ -18,3 +18,4 @@ export * from './raster';
 export * from './warnings';
 export * from './layout';
 export * from './z-report';
+export * from './style';

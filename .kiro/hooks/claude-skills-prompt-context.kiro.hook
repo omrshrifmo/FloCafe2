@@ -8,7 +8,7 @@
   },
   "then": {
     "type": "runCommand",
-    "command": "curl -sf -X POST -H \"Content-Type: application/json\" --data @- \"http://127.0.0.1:33459/hook/prompt-context?agent=kiro&cwd=%2Fhome%2Fomrshrifmo%2FFloCafe2\" || true",
+    "command": "curl -sf -X POST -H \"Content-Type: application/json\" --data @- \"http://127.0.0.1:4895/hook/prompt-context?agent=kiro&cwd=%2Fhome%2Fomrshrifmo%2FFloCafe2\" || true",
     "timeout": 8
   }
 }

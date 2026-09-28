@@ -29,6 +29,12 @@ import {
 } from '../lib/print-language-settings';
 import { isThemeMode } from '../title-bar-theme';
 import { receiptAssetsRouter } from './receipt-assets';
+import {
+  DEFAULT_PRINT_STYLE_PREFERENCES,
+  validatePrintStylePreferences,
+  parsePrintStylePreferences,
+  type StorePrintStylePreferences,
+} from '../../shared/print/style';
 
 const router = Router();
 const settingsReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
@@ -100,6 +106,7 @@ const OPTIONAL_SETTING_DEFAULTS: Record<string, string> = {
   receipt_render_mode: 'legacy_text',
   receipt_branded_font_family: 'almarai',
   receipt_logo_asset_id: '',
+  print_style_preferences: JSON.stringify(DEFAULT_PRINT_STYLE_PREFERENCES),
 };
 
 function maskSetting(key: string, value: string): string {
@@ -113,6 +120,18 @@ function publicSettingsShape(settings: Record<string, string>): Record<string, s
   for (const [key, value] of Object.entries(settings)) {
     if (isGoogleDriveSettingKey(key)) continue;
     publicSettings[key] = maskSetting(key, value);
+  }
+  // Canonical conflict rule: print_style_preferences is the sole source of truth
+  if (publicSettings.print_style_preferences) {
+    const prefs = parsePrintStylePreferences(publicSettings.print_style_preferences);
+    if (publicSettings.receipt_render_mode && publicSettings.receipt_render_mode !== prefs.receipt.renderMode) {
+      console.warn(`[Settings] Legacy receipt_render_mode '${publicSettings.receipt_render_mode}' conflicts with canonical print_style_preferences '${prefs.receipt.renderMode}'. Canonical wins.`);
+    }
+    if (publicSettings.receipt_branded_font_family && publicSettings.receipt_branded_font_family !== prefs.receipt.typography.fontFamily) {
+      console.warn(`[Settings] Legacy receipt_branded_font_family '${publicSettings.receipt_branded_font_family}' conflicts with canonical print_style_preferences '${prefs.receipt.typography.fontFamily}'. Canonical wins.`);
+    }
+    publicSettings.receipt_render_mode = prefs.receipt.renderMode;
+    publicSettings.receipt_branded_font_family = prefs.receipt.typography.fontFamily;
   }
   return publicSettings;
 }
@@ -889,6 +908,7 @@ const ALLOWED_WILDCARD_KEYS = new Set([
   'currency_display', 'number_digits', 'calendar',
   'theme_mode',
   'receipt_render_mode', 'receipt_branded_font_family',
+  'print_style_preferences',
 ]);
 
 function isAllowedWildcardKey(key: string): boolean {
@@ -967,6 +987,7 @@ const PRINTING_BATCH_KEYS = new Set<string>([
   'cash_drawer_pulse_methods',
   'receipt_render_mode',
   'receipt_branded_font_family',
+  'print_style_preferences',
 ]);
 
 router.put('/printing', settingsWriteRateLimit, requirePermission('printers.manage'), (req: Request, res: Response) => {
@@ -1053,11 +1074,54 @@ router.put('/printing', settingsWriteRateLimit, requirePermission('printers.mana
       entries.cash_drawer_pulse_enabled = values.cash_drawer_pulse_enabled ? 'true' : 'false';
       entries.cash_drawer_pulse_methods = JSON.stringify(values.cash_drawer_pulse_methods);
     }
-    if (hasReceiptRenderMode) {
-      entries.receipt_render_mode = String(values.receipt_render_mode);
-    }
-    if (hasReceiptBrandedFontFamily) {
-      entries.receipt_branded_font_family = String(values.receipt_branded_font_family);
+
+    const hasPrintStylePreferences = Object.prototype.hasOwnProperty.call(values, 'print_style_preferences');
+    if (hasPrintStylePreferences) {
+      let raw: unknown = values.print_style_preferences;
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw); } catch { return res.status(400).json({ error: 'print_style_preferences must be valid JSON' }); }
+      }
+      const validated = validatePrintStylePreferences(raw);
+      if (!validated) {
+        return res.status(400).json({ error: 'Invalid print_style_preferences schema' });
+      }
+      entries.print_style_preferences = JSON.stringify(validated);
+      // One-way compatibility export ONLY:
+      entries.receipt_render_mode = validated.receipt.renderMode;
+      entries.receipt_branded_font_family = validated.receipt.typography.fontFamily;
+
+      if (hasReceiptRenderMode && values.receipt_render_mode !== validated.receipt.renderMode) {
+        console.warn(`[Settings] Caller supplied legacy receipt_render_mode '${values.receipt_render_mode}' which conflicts with canonical '${validated.receipt.renderMode}'. Canonical wins.`);
+      }
+      if (hasReceiptBrandedFontFamily && values.receipt_branded_font_family !== validated.receipt.typography.fontFamily) {
+        console.warn(`[Settings] Caller supplied legacy receipt_branded_font_family '${values.receipt_branded_font_family}' which conflicts with canonical '${validated.receipt.typography.fontFamily}'. Canonical wins.`);
+      }
+    } else if (hasReceiptRenderMode || hasReceiptBrandedFontFamily) {
+      // Legacy endpoint compatibility:
+      // Patch ONLY the equivalent receipt field inside print_style_preferences;
+      // Preserve every other canonical field exactly;
+      // Preserve all KOT overrides exactly;
+      // Do not rebuild canonical preferences from defaults if existing;
+      // Do not read other legacy keys and merge them back into canonical preferences.
+      const db = getDatabase();
+      const currentRaw = db.prepare('SELECT value FROM settings WHERE key = ?').get('print_style_preferences') as { value: string } | undefined;
+      const currentPrefs = parsePrintStylePreferences(currentRaw?.value);
+      const updatedPrefs: StorePrintStylePreferences = {
+        ...currentPrefs,
+        receipt: {
+          ...currentPrefs.receipt,
+          ...(hasReceiptRenderMode ? { renderMode: values.receipt_render_mode as any } : {}),
+          ...(hasReceiptBrandedFontFamily ? {
+            typography: {
+              ...currentPrefs.receipt.typography,
+              fontFamily: values.receipt_branded_font_family as any,
+            },
+          } : {}),
+        },
+      };
+      entries.print_style_preferences = JSON.stringify(updatedPrefs);
+      entries.receipt_render_mode = updatedPrefs.receipt.renderMode;
+      entries.receipt_branded_font_family = updatedPrefs.receipt.typography.fontFamily;
     }
 
     upsertSettings(getDatabase(), entries);
@@ -1077,6 +1141,20 @@ router.get('/:key', settingsReadRateLimit, requirePermission('settings.view'), (
     }
     const key = String(req.params.key);
     const db = getDatabase();
+    if (key === 'receipt_render_mode' || key === 'receipt_branded_font_family') {
+      const canonicalRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('print_style_preferences') as { value: string } | undefined;
+      if (canonicalRow?.value) {
+        const prefs = parsePrintStylePreferences(canonicalRow.value);
+        const canonicalValue = key === 'receipt_render_mode'
+          ? prefs.receipt.renderMode
+          : prefs.receipt.typography.fontFamily;
+        const setting = db.prepare('SELECT * FROM settings WHERE key = ?').get(key) as { key: string; value: string; updated_at: string | null } | undefined;
+        if (setting && setting.value !== canonicalValue) {
+          console.warn(`[Settings] Legacy key '${key}' (${setting.value}) conflicts with canonical print_style_preferences (${canonicalValue}). Canonical wins.`);
+        }
+        return res.json({ setting: { key, value: canonicalValue, updated_at: setting?.updated_at || null } });
+      }
+    }
     const setting = db.prepare('SELECT * FROM settings WHERE key = ?').get(key);
     if (!setting) {
       const defaultValue = OPTIONAL_SETTING_DEFAULTS[key];
@@ -1101,6 +1179,7 @@ router.put('/:key', settingsWriteRateLimit, requirePermission('settings.manage')
     if (value === undefined) {
       return res.status(400).json({ error: 'Value is required' });
     }
+    let valueToPersist: unknown = value;
     // Upgrades legacy string values to canonical structured JSON on save.
     if (req.params.key === 'bill_template' && !isAvailableBillTemplate(value)) {
       return res.status(400).json({ error: 'Unsupported bill template' });
@@ -1119,7 +1198,39 @@ router.put('/:key', settingsWriteRateLimit, requirePermission('settings.manage')
     ) {
       return res.status(400).json({ error: 'Invalid receipt_branded_font_family value' });
     }
-    let valueToPersist: unknown = value;
+    if (req.params.key === 'print_style_preferences') {
+      let raw: unknown = value;
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw); } catch { return res.status(400).json({ error: 'print_style_preferences must be valid JSON' }); }
+      }
+      const validated = validatePrintStylePreferences(raw);
+      if (!validated) {
+        return res.status(400).json({ error: 'Invalid print_style_preferences schema' });
+      }
+      valueToPersist = JSON.stringify(validated);
+      const db = getDatabase();
+      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run('receipt_render_mode', validated.receipt.renderMode);
+      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run('receipt_branded_font_family', validated.receipt.typography.fontFamily);
+    }
+    if (req.params.key === 'receipt_render_mode' || req.params.key === 'receipt_branded_font_family') {
+      const db = getDatabase();
+      const currentRaw = db.prepare('SELECT value FROM settings WHERE key = ?').get('print_style_preferences') as { value: string } | undefined;
+      const currentPrefs = parsePrintStylePreferences(currentRaw?.value);
+      const updatedPrefs: StorePrintStylePreferences = {
+        ...currentPrefs,
+        receipt: {
+          ...currentPrefs.receipt,
+          ...(req.params.key === 'receipt_render_mode' ? { renderMode: value as any } : {}),
+          ...(req.params.key === 'receipt_branded_font_family' ? {
+            typography: {
+              ...currentPrefs.receipt.typography,
+              fontFamily: value as any,
+            },
+          } : {}),
+        },
+      };
+      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run('print_style_preferences', JSON.stringify(updatedPrefs));
+    }
     if (req.params.key === 'currency') {
       valueToPersist = typeof value === 'string' ? value.trim().toUpperCase() : value;
       if (!isSyntacticallyValidCurrencyCode(valueToPersist)) {

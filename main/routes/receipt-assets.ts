@@ -109,17 +109,53 @@ receiptAssetsRouter.get(
       DEFAULT_RASTER_WIDTH_58MM,
     } = require('../printers/branded-receipt-renderer');
     const { getActiveReceiptLogoAsset } = require('../services/receipt-assets');
+    const {
+      parsePrintStylePreferences,
+      resolveEffectivePrintStyle,
+    } = require('../../shared/print');
 
     const db = getDatabase();
     const rows = db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>;
     const storeSettings: Record<string, string> = {};
     for (const row of rows) storeSettings[row.key] = row.value;
 
-    const renderMode = (req.query.render_mode as string) || storeSettings.receipt_render_mode || 'legacy_text';
-    const fontFamily = (req.query.font_family as string) || storeSettings.receipt_branded_font_family || 'almarai';
+    const documentType = (req.query.document_type as string) === 'kot' ? 'kot' : 'receipt';
     const paperWidth = (req.query.paper_width as string) || '80mm';
-    const widthDots = paperWidth === '58mm' ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM;
+    const is58mm = paperWidth === '58mm';
+    const widthDots = is58mm ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM;
+    const language = (req.query.language as string) || 'mixed';
 
+    // Parse base preferences from DB or query override
+    let stylePrefs = parsePrintStylePreferences(
+      req.query.style_preferences
+        ? (typeof req.query.style_preferences === 'string' ? req.query.style_preferences : JSON.stringify(req.query.style_preferences))
+        : storeSettings.print_style_preferences,
+    );
+
+    // Apply query param overrides if passed directly
+    if (req.query.render_mode === 'legacy_text' || req.query.render_mode === 'branded_raster') {
+      stylePrefs = {
+        ...stylePrefs,
+        receipt: { ...stylePrefs.receipt, renderMode: req.query.render_mode as any },
+      };
+    }
+    if (req.query.font_family === 'system' || req.query.font_family === 'cairo' || req.query.font_family === 'almarai') {
+      stylePrefs = {
+        ...stylePrefs,
+        receipt: {
+          ...stylePrefs.receipt,
+          typography: { ...stylePrefs.receipt.typography, fontFamily: req.query.font_family as any },
+        },
+      };
+    }
+    if (req.query.kot_mode === 'inherit' || req.query.kot_mode === 'custom') {
+      stylePrefs = {
+        ...stylePrefs,
+        kotStyleMode: req.query.kot_mode,
+      };
+    }
+
+    const resolvedStyle = resolveEffectivePrintStyle(stylePrefs, documentType, language);
     const activeLogo = getActiveReceiptLogoAsset();
     const currency = storeSettings.currency || 'SAR';
     const businessName = storeSettings.business_name || 'FloCafe Coffee & Bakery';
@@ -127,12 +163,163 @@ receiptAssetsRouter.get(
     const businessPhone = storeSettings.business_phone || '+966 50 123 4567';
     const taxRegNumber = storeSettings.tax_registration_number || '300123456700003';
 
-    const sampleItems = [
-      { name: 'قهوة فلات وايت / Flat White', quantity: 1, price: 18.0, unitPrice: 18.0 },
-      { name: 'كرواسون زعتر / Zaatar Croissant', quantity: 2, price: 24.0, unitPrice: 12.0 },
-      { name: 'كيكة العسل / Honey Cake', quantity: 1, price: 22.0, unitPrice: 22.0 },
-    ];
+    // Sample data according to language
+    const sampleItems = language === 'ar'
+      ? [
+          { name: 'قهوة فلات وايت', quantity: 1, price: 18.0, unitPrice: 18.0, notes: 'بدون سكر' },
+          { name: 'كرواسون زعتر جبن', quantity: 2, price: 24.0, unitPrice: 12.0, notes: 'ساخن جداً' },
+          { name: 'كيكة العسل الملكية', quantity: 1, price: 22.0, unitPrice: 22.0 },
+        ]
+      : language === 'en'
+        ? [
+            { name: 'Flat White Coffee', quantity: 1, price: 18.0, unitPrice: 18.0, notes: 'No sugar' },
+            { name: 'Zaatar Croissant', quantity: 2, price: 24.0, unitPrice: 12.0, notes: 'Extra hot' },
+            { name: 'Honey Cake', quantity: 1, price: 22.0, unitPrice: 22.0 },
+          ]
+        : [
+            { name: 'قهوة فلات وايت / Flat White', quantity: 1, price: 18.0, unitPrice: 18.0, notes: 'بدون سكر / No sugar' },
+            { name: 'كرواسون زعتر / Zaatar Croissant', quantity: 2, price: 24.0, unitPrice: 12.0, notes: 'ساخن جداً / Extra hot' },
+            { name: 'كيكة العسل / Honey Cake', quantity: 1, price: 22.0, unitPrice: 22.0 },
+          ];
 
+    if (documentType === 'kot') {
+      const dividerChar = resolvedStyle.frame.dividerStyle === 'solid'
+        ? '='
+        : resolvedStyle.frame.dividerStyle === 'dotted'
+          ? '. '
+          : '- ';
+      const dividerLine = resolvedStyle.frame.dividerStyle === 'none'
+        ? ''
+        : dividerChar.repeat(Math.ceil((is58mm ? 32 : 48) / dividerChar.length)).slice(0, is58mm ? 32 : 48);
+
+      const kotDataPayload = {
+        station_name: language === 'ar' ? 'المطبخ الرئيسي' : (language === 'en' ? 'Main Kitchen' : 'المطبخ / Main Kitchen'),
+        order_number: '#ORD-108',
+        table_name: language === 'ar' ? 'طاولة 4' : (language === 'en' ? 'Table 4' : 'طاولة 4 / Table 4'),
+        server_name: language === 'ar' ? 'سارة' : (language === 'en' ? 'Sara' : 'سارة / Sara'),
+        timestamp: '12:35 PM',
+        items: sampleItems,
+        show_prices: resolvedStyle.operational.showPrices,
+        show_totals: resolvedStyle.operational.showTotals,
+        header_compact: resolvedStyle.operational.headerCompact,
+        prominent_notes: resolvedStyle.operational.prominentNotes,
+      };
+
+      if (resolvedStyle.renderMode === 'legacy_text') {
+        const textLines: string[] = [];
+        if (dividerLine) textLines.push(dividerLine);
+        textLines.push(`        *** ${kotDataPayload.station_name} ***        `);
+        textLines.push(`Order: ${kotDataPayload.order_number}   ${kotDataPayload.table_name}`);
+        textLines.push(`Time: ${kotDataPayload.timestamp}   Server: ${kotDataPayload.server_name}`);
+        if (dividerLine) textLines.push(dividerLine);
+        for (const item of sampleItems) {
+          const pricePart = resolvedStyle.operational.showPrices ? ` (${item.unitPrice.toFixed(2)})` : '';
+          textLines.push(`${item.quantity}x  ${item.name}${pricePart}`);
+          if (item.notes) {
+            if (resolvedStyle.operational.prominentNotes) {
+              textLines.push(`  *** NOTE: ${item.notes} ***`);
+            } else {
+              textLines.push(`  >> ${item.notes}`);
+            }
+          }
+        }
+        if (resolvedStyle.operational.showTotals) {
+          if (dividerLine) textLines.push(dividerLine);
+          textLines.push('TOTAL ITEMS: 4  |  SUBTOTAL: 64.00');
+        }
+        if (dividerLine) textLines.push(dividerLine);
+        textLines.push('  [ KITCHEN ORDER TICKET · NON-FINANCIAL ]  ');
+
+        res.json({
+          success: true,
+          document_type: 'kot',
+          render_mode: 'legacy_text',
+          resolved_style: resolvedStyle,
+          width_dots: widthDots,
+          sample_text: textLines.join('\n'),
+          kot_data: kotDataPayload,
+        });
+        return;
+      }
+
+      // KOT in Branded Raster mode
+      const geometry = computeBrandedGeometry({
+        widthDots,
+        borderThicknessDots: resolvedStyle.frame.borderStyle !== 'none' ? resolvedStyle.frame.borderThickness : 0,
+        borderInsetDots: resolvedStyle.frame.borderPadding,
+      });
+      const bundledFonts = resolveBundledFontList(resolvedStyle.typography.fontFamily);
+
+      let logoPayload: { dataUrl: string; width: number; height: number } | undefined;
+      if (resolvedStyle.logo.showLogo && activeLogo && activeLogo.data.length > 0) {
+        logoPayload = {
+          dataUrl: `data:${activeLogo.mimeType};base64,${activeLogo.data.toString('base64')}`,
+          width: activeLogo.width,
+          height: activeLogo.height,
+        };
+      }
+
+      const kotRasterItems = sampleItems.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: resolvedStyle.operational.showPrices ? item.price : 0,
+        unitPrice: resolvedStyle.operational.showPrices ? item.unitPrice : undefined,
+        notes: item.notes,
+      }));
+
+      const kotTotals = resolvedStyle.operational.showTotals
+        ? [{ label: 'Items Subtotal / مجموع الأصناف', value: `64.00 ${currency}`, isBold: true }]
+        : [];
+
+      const kotRequest = {
+        version: 1 as const,
+        kind: 'branded-kot' as const,
+        requestId: `preview-kot-${Date.now()}`,
+        widthDots,
+        maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
+        fontFamily: resolvedStyle.typography.fontFamily,
+        style: resolvedStyle,
+        bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
+        logo: logoPayload,
+        geometry,
+        ditheringMode: 'threshold' as const,
+        threshold: 128,
+        header: {
+          businessName: kotDataPayload.station_name,
+          banner: 'تذكرة طلب المطبخ / Kitchen Order Ticket',
+        },
+        meta: {
+          orderNumber: kotDataPayload.order_number,
+          tableName: kotDataPayload.table_name,
+          timestamp: `Time: ${kotDataPayload.timestamp} | Server: ${kotDataPayload.server_name}`,
+        },
+        items: kotRasterItems,
+        totals: kotTotals,
+        footer: {
+          footerNote: 'تذكرة تشغيلية فقط — ليست مطالبة مالية أو فاتورة بيع\nOperational Ticket · Non-Financial',
+        },
+      };
+
+      const brandedOutput = await renderBrandedReceipt(kotRequest);
+      if (!brandedOutput.ok) {
+        res.status(500).json({ error: brandedOutput.error || 'Failed to render KOT raster' });
+        return;
+      }
+
+      res.json({
+        success: true,
+        document_type: 'kot',
+        render_mode: 'branded_raster',
+        resolved_style: resolvedStyle,
+        width_dots: brandedOutput.dimensions.widthDots,
+        height_dots: brandedOutput.dimensions.heightDots,
+        preview_image_url: brandedOutput.previewDataUrl,
+        kot_data: kotDataPayload,
+      });
+      return;
+    }
+
+    // Target is Receipt
     const sampleTotalRows = [
       { label: 'المجموع الفرعي / Subtotal', value: `64.00 ${currency}` },
       { label: 'ضريبة القيمة المضافة (15%) / VAT', value: `9.60 ${currency}` },
@@ -146,43 +333,47 @@ receiptAssetsRouter.get(
       business_phone: businessPhone,
       tax_registration_number: taxRegNumber,
       currency,
-      logo_url: activeLogo ? `/api/settings/receipt-logo/image?v=${encodeURIComponent(activeLogo.sha256)}` : null,
+      logo_url: resolvedStyle.logo.showLogo && activeLogo ? `/api/settings/receipt-logo/image?v=${encodeURIComponent(activeLogo.sha256)}` : null,
       items: sampleItems,
       totals: sampleTotalRows,
     };
 
-    if (renderMode === 'legacy_text') {
+    if (resolvedStyle.renderMode === 'legacy_text') {
+      const dividerChar = resolvedStyle.frame.dividerStyle === 'solid' ? '=' : (resolvedStyle.frame.dividerStyle === 'dotted' ? '. ' : '- ');
+      const dividerLine = resolvedStyle.frame.dividerStyle === 'none' ? '' : dividerChar.repeat(Math.ceil((is58mm ? 32 : 48) / dividerChar.length)).slice(0, is58mm ? 32 : 48);
+
       const sampleText = [
-        '================================',
+        dividerLine,
         `        ${businessName}        `,
         `      ${businessAddress}       `,
         `      هاتف: ${businessPhone}   `,
         `     الرقم الضريبي: ${taxRegNumber} `,
-        '--------------------------------',
+        dividerLine,
         'فاتورة ضريبية مبسطة / Tax Invoice',
         `التاريخ: ${new Date().toLocaleDateString('ar-SA')} 12:30`,
         'رقم الفاتورة: #INV-2026-001',
-        '--------------------------------',
+        dividerLine,
         'الصنف            الكمية    السعر',
-        '--------------------------------',
+        dividerLine,
         'قهوة فلات وايت      1     18.00',
         'كرواسون زعتر        2     24.00',
         'كيكة العسل          1     22.00',
-        '--------------------------------',
+        dividerLine,
         'المجموع الفرعي:           64.00',
         'ضريبة القيمة المضافة 15%:  9.60',
         'الإجمالي شامل الضريبة:    73.60',
         'طريقة الدفع: نقدي         73.60',
-        '================================',
+        dividerLine,
         '     شكراً لزيارتكم ويسعدنا خدمتكم    ',
         '       Thank You For Visiting!  ',
-        '================================',
-      ].join('\n');
+        dividerLine,
+      ].filter(Boolean).join('\n');
 
       res.json({
         success: true,
+        document_type: 'receipt',
         render_mode: 'legacy_text',
-        font_family: fontFamily,
+        resolved_style: resolvedStyle,
         width_dots: widthDots,
         sample_text: sampleText,
         receipt_data: receiptDataPayload,
@@ -190,11 +381,15 @@ receiptAssetsRouter.get(
       return;
     }
 
-    const geometry = computeBrandedGeometry({ widthDots });
-    const bundledFonts = resolveBundledFontList(fontFamily);
+    const geometry = computeBrandedGeometry({
+      widthDots,
+      borderThicknessDots: resolvedStyle.frame.borderStyle !== 'none' ? resolvedStyle.frame.borderThickness : 0,
+      borderInsetDots: resolvedStyle.frame.borderPadding,
+    });
+    const bundledFonts = resolveBundledFontList(resolvedStyle.typography.fontFamily);
 
     let logoPayload: { dataUrl: string; width: number; height: number } | undefined;
-    if (activeLogo && activeLogo.data.length > 0) {
+    if (resolvedStyle.logo.showLogo && activeLogo && activeLogo.data.length > 0) {
       logoPayload = {
         dataUrl: `data:${activeLogo.mimeType};base64,${activeLogo.data.toString('base64')}`,
         width: activeLogo.width,
@@ -208,7 +403,8 @@ receiptAssetsRouter.get(
       requestId: `preview-${Date.now()}`,
       widthDots,
       maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
-      fontFamily,
+      fontFamily: resolvedStyle.typography.fontFamily,
+      style: resolvedStyle,
       bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
       logo: logoPayload,
       geometry,
@@ -243,8 +439,10 @@ receiptAssetsRouter.get(
 
     res.json({
       success: true,
+      document_type: 'receipt',
       render_mode: 'branded_raster',
-      font_family: fontFamily,
+      resolved_style: resolvedStyle,
+      font_family: resolvedStyle.typography.fontFamily,
       width_dots: brandedOutput.dimensions.widthDots,
       height_dots: brandedOutput.dimensions.heightDots,
       preview_image_url: brandedOutput.previewDataUrl,

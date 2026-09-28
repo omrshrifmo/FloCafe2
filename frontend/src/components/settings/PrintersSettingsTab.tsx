@@ -24,7 +24,7 @@ import { Toggle } from '@/components/settings/Toggle';
 import { SettingsTabShell } from '@/components/settings/SettingsTabShell';
 import { LANGUAGES, type Language } from '@/lib/i18n';
 import { isTemplateCardSelected, type BillTemplateSelectionSource } from '@/lib/bill-template-picker';
-import { type PaperSize, type BillTemplate } from '@/store/pos-settings';
+import { type PaperSize, type BillTemplate, type StorePrintStylePreferences } from '@/store/pos-settings';
 import { usePrinterStore } from '@/hooks/usePrinter';
 import { ReceiptBrandingSettings } from './ReceiptBrandingSettings';
 import api from '@/lib/api';
@@ -96,6 +96,7 @@ export type PrintingForm = {
   billShowTableNumber: boolean;
   receiptRenderMode: 'legacy_text' | 'branded_raster';
   receiptBrandedFontFamily: 'system' | 'cairo' | 'almarai';
+  printStylePreferences?: StorePrintStylePreferences;
 };
 
 export type BillTemplateForm = {

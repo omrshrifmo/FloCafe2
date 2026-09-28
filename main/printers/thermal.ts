@@ -58,6 +58,8 @@ import {
   buildZReportDocument,
   containsRtlScript,
   layoutStyledUnit,
+  parsePrintStylePreferences,
+  resolveEffectivePrintStyle,
   optionalPaymentAmount,
   projectCashTender,
   selectBilingualFit,
@@ -836,10 +838,12 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
       console.log('[Printer] No printer configured');
       return { ok: false, detail: 'No printer configured' };
     }
-    const renderMode = getSettingValue('receipt_render_mode') || 'legacy_text';
+    const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
+    const resolvedReceiptStyle = resolveEffectivePrintStyle(stylePrefs, 'receipt', language ?? business?.language);
+    const renderMode = resolvedReceiptStyle.renderMode;
     if (renderMode === 'branded_raster') {
-      const logoAsset = getActiveReceiptLogoAsset();
-      const fontFamily = (getSettingValue('receipt_branded_font_family') || 'almarai') as BrandedFontFamily;
+      const logoAsset = resolvedReceiptStyle.logo.showLogo ? getActiveReceiptLogoAsset() : null;
+      const fontFamily = resolvedReceiptStyle.typography.fontFamily as BrandedFontFamily;
       const paperWidth = printer.paper_width || '80mm';
       const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
 
@@ -850,6 +854,8 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
         widthDots,
         fontFamily,
         logoAsset,
+        borderThicknessDots: resolvedReceiptStyle.frame.borderStyle !== 'none' ? resolvedReceiptStyle.frame.borderThickness : 0,
+        borderInsetDots: resolvedReceiptStyle.frame.borderPadding,
       });
 
       let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
@@ -986,6 +992,9 @@ export async function printKOT(order: any, items: any[], stationName: string, us
     }).timezone;
     const tzOptions = { timeZone: timezone };
 
+    const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
+    const resolvedKotStyle = resolveEffectivePrintStyle(stylePrefs, 'kot', language ?? biz?.language, stationName);
+
     const warnings: PrintWarning[] = [];
     const nativeCapabilities = nativeFallbackCapabilities(capabilities);
     let data: Buffer;
@@ -999,6 +1008,7 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         arabicShaping: capabilities.shaping.arabic,
         cutMode: profile.cutMode,
         capabilities,
+        style: resolvedKotStyle,
       });
       const nativeResult = renderKotViaDocument(order, items, stationName, {
         columns: cols,
@@ -1009,6 +1019,7 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         arabicShaping: nativeCapabilities.shaping.arabic,
         cutMode: profile.cutMode,
         capabilities: nativeCapabilities,
+        style: resolvedKotStyle,
       });
       const rasterized = await rasterizeDocumentLines(documentResult.lines, documentResult.warnings, {
         useUnicode,

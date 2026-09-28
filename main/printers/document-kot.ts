@@ -32,6 +32,9 @@ import {
   type KotPrintData,
   type PrintContext,
   type SemanticLabel,
+  type ResolvedPrintStyle,
+  type PrintDividerStyle,
+  resolveLegacyEscPosSize,
 } from '../../shared/print';
 
 // Normalization (caller-side, main-process layer).
@@ -53,6 +56,8 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
     items: ticketItems.map((item: any) => ({
       productName: String(item?.product_name ?? ''),
       quantity: Number(item?.quantity) || 0,
+      unitPrice: typeof item?.unit_price === 'number' ? item.unit_price : (typeof item?.price === 'number' ? item.price : undefined),
+      totalPrice: typeof item?.total_price === 'number' ? item.total_price : undefined,
       addons: parseKotAddons(item?.addons).map((addon) => ({
         name: String(addon?.name ?? ''),
         ...(typeof addon?.quantity === 'number' && Number.isFinite(addon.quantity) && addon.quantity > 0
@@ -112,6 +117,7 @@ export interface KotDocumentRenderOptions {
   readonly cutMode: PrinterCutMode;
   readonly capabilities?: ThermalPrinterCapabilities;
   readonly rasterGroups?: RasterSemanticLineGroup[];
+  readonly style?: ResolvedPrintStyle;
 }
 
 /** Typed accessor for one block kind within a KOT document. */
@@ -229,10 +235,50 @@ function kotHeaderLines(header: KotHeaderBlock, options: KotDocumentRenderOption
   return lines;
 }
 
-function kotItemLines(row: KotItemsBlock['rows'][number], cols: number, arabicShaping: boolean, language: string, capabilities?: ThermalPrinterCapabilities): string[] {
+function formatKotDivider(cols: number, dividerStyle?: PrintDividerStyle): string {
+  if (dividerStyle === 'none') return '';
+  if (dividerStyle === 'solid') return '='.repeat(cols);
+  if (dividerStyle === 'dotted') {
+    const pattern = '. ';
+    return pattern.repeat(Math.ceil(cols / pattern.length)).slice(0, cols);
+  }
+  const pattern = '- ';
+  return pattern.repeat(Math.ceil(cols / pattern.length)).slice(0, cols);
+}
+
+function kotItemLines(
+  row: KotItemsBlock['rows'][number],
+  cols: number,
+  arabicShaping: boolean,
+  language: string,
+  capabilities?: ThermalPrinterCapabilities,
+  style?: ResolvedPrintStyle,
+): string[] {
   const lines: string[] = [];
   const itemPrefix = row.quantity + 'x  ';
-  lines.push('{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + truncateShapedLine(row.name.text, Math.max(1, cols - displayCellWidth(itemPrefix)), arabicShaping, language, capabilities) + '{/BOLD}{/DOUBLE_HEIGHT}');
+
+  let priceSuffix = '';
+  if (style?.operational?.showPrices && row.unitPrice !== undefined) {
+    priceSuffix = ` (${row.unitPrice.toFixed(2)})`;
+  }
+
+  const availableWidth = Math.max(1, cols - displayCellWidth(itemPrefix) - displayCellWidth(priceSuffix));
+  const shapedName = truncateShapedLine(row.name.text, availableWidth, arabicShaping, language, capabilities);
+
+  const itemSizeSpec = style?.typography?.itemNamesSize
+    ? resolveLegacyEscPosSize(style.typography.itemNamesSize)
+    : { initToken: '{DOUBLE_HEIGHT}', resetToken: '{/DOUBLE_HEIGHT}' };
+
+  if (itemSizeSpec.initToken === '{DBL_WIDTH_HEIGHT}') {
+    lines.push('{DOUBLE_WIDTH}{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{/DOUBLE_HEIGHT}{/DOUBLE_WIDTH}');
+  } else if (itemSizeSpec.initToken === '{DBL_HEIGHT}') {
+    lines.push('{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{/DOUBLE_HEIGHT}');
+  } else if (itemSizeSpec.initToken === '{FONT_B}') {
+    lines.push('{FONT_B}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{FONT_A}');
+  } else {
+    lines.push('{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}');
+  }
+
   for (const addon of row.addons) {
     const quantity = addon.quantity ?? 1;
     const quantitySuffix = quantity > 1 ? ` x${quantity}` : '';
@@ -240,7 +286,13 @@ function kotItemLines(row: KotItemsBlock['rows'][number], cols: number, arabicSh
     lines.push('  + ' + name + quantitySuffix);
   }
   if (row.specialInstructions) {
-    lines.push('  >> ' + truncateShapedLine(row.specialInstructions.text, Math.max(1, cols - 8), arabicShaping, language, capabilities));
+    const isProminent = style?.operational?.prominentNotes === true;
+    const noteText = row.specialInstructions.text;
+    if (isProminent) {
+      lines.push('{BOLD}  *** NOTE: ' + truncateShapedLine(noteText, Math.max(1, cols - 14), arabicShaping, language, capabilities) + ' ***{/BOLD}');
+    } else {
+      lines.push('  >> ' + truncateShapedLine(noteText, Math.max(1, cols - 8), arabicShaping, language, capabilities));
+    }
   }
   return lines;
 }
@@ -256,7 +308,7 @@ export function renderKotDocumentToLines(document: KotDocument, options: KotDocu
   const header = kotBlock(document, 'kot-header');
   const items = kotBlock(document, 'kot-items');
   const cols = options.columns;
-  const bar = '='.repeat(cols);
+  const divider = formatKotDivider(cols, options.style?.frame?.dividerStyle ?? 'solid');
 
   lines.push('{INIT}');
   if (header) {
@@ -266,13 +318,13 @@ export function renderKotDocumentToLines(document: KotDocument, options: KotDocu
     lines.push(...kotHeaderLines(header, options, headerSourceLines, headerSourceControlLines));
     options.rasterGroups?.push({ groupId: 'kot-header', lineIndex: headerStart, lineCount: lines.length - headerStart, sourceLines: headerSourceLines, sourceControlLines: headerSourceControlLines });
   }
-  lines.push(bar);
+  if (divider) lines.push(divider);
   lines.push('');
 
   if (items) {
     for (const [rowIndex, row] of items.rows.entries()) {
       const rowStart = lines.length;
-      const rowLines = kotItemLines(row, cols, options.arabicShaping, options.language, options.capabilities);
+      const rowLines = kotItemLines(row, cols, options.arabicShaping, options.language, options.capabilities, options.style);
       lines.push(...rowLines);
       const sourceLines = [`${row.quantity}x  ${row.name.text}`];
       const sourceControlLines = [rowLines[0] ?? ''];
@@ -292,10 +344,31 @@ export function renderKotDocumentToLines(document: KotDocument, options: KotDocu
         options.rasterGroups.push({ ...group, sourceLines, sourceControlLines });
       }
     }
+
+    // Operational subtotal / total items count if enabled
+    if (options.style?.operational?.showTotals) {
+      let operationalSubtotal = 0;
+      let hasPrices = false;
+      let totalItemsCount = 0;
+      for (const row of items.rows) {
+        totalItemsCount += row.quantity;
+        if (row.unitPrice !== undefined) {
+          operationalSubtotal += row.quantity * row.unitPrice;
+          hasPrices = true;
+        }
+      }
+      lines.push('');
+      if (divider) lines.push(divider);
+      if (hasPrices) {
+        lines.push(`TOTAL ITEMS: ${totalItemsCount}  |  SUBTOTAL: ${operationalSubtotal.toFixed(2)}`);
+      } else {
+        lines.push(`TOTAL ITEMS: ${totalItemsCount}`);
+      }
+    }
   }
 
   lines.push('');
-  lines.push(bar);
+  if (divider) lines.push(divider);
   lines.push('{CUT}');
 
   return lines;
@@ -326,6 +399,7 @@ export function renderKotViaDocument(
     arabicShaping: boolean;
     cutMode: PrinterCutMode;
     capabilities?: import('../../shared/print/thermal-capabilities').ThermalPrinterCapabilities;
+    style?: ResolvedPrintStyle;
   },
 ): KotDocumentRenderResult {
   const printData = buildKotPrintData(order, items, stationName);
@@ -347,6 +421,7 @@ export function renderKotViaDocument(
     cutMode: opts.cutMode,
     capabilities: opts.capabilities,
     rasterGroups,
+    style: opts.style,
   });
   const data = buildEscPos(lines, opts.useUnicode, { cutMode: opts.cutMode, arabicShaping: opts.arabicShaping, columns: opts.columns, language: opts.language, capabilities: opts.capabilities }, warnings);
   return { document, lines, data, warnings, rasterGroups };
