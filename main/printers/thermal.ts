@@ -2185,19 +2185,16 @@ export function buildTestPage(paperWidth: string = '80mm', cutMode: PrinterCutMo
 }
 
 /**
- * Build the ESC/POS bytes for a Z-report (cierre de caja) from a stored
- * `cash_closures` row. Day-close, no bill — sections in spec print order:
- * header → Z number + business date + period → opening float → cash
- * movements → sales by payment method → refunds → tax breakdown → staff
- * sales → expected / counted / variance (variance emphasized) → operator +
- * signature → footer.
- * The byte builder never touches the drawer pulse; that is appended by
- * `printZReport` (the route layer) so the byte form is reusable for the
- * WebUSB `bytes: number[]` branch where the renderer dispatches.
+ * Internal: build the raw line-section array for a Z-report without encoding
+ * to bytes. Returned alongside rendering context so `printZReport` can route
+ * to the raster fallback when financial rows contain unsupported characters.
  */
-export function buildZReportBody(z: any, language?: string, printer?: { columns?: number; capabilities?: ThermalPrinterCapabilities }, warnings?: PrintWarning[]): Buffer {
+function buildZReportSections(
+  z: any,
+  printer?: { columns?: number; capabilities?: ThermalPrinterCapabilities },
+): { sections: string[]; cols: number; lang: string; capabilities?: ThermalPrinterCapabilities } {
   const cols = printer?.columns || columnsForPaperWidth('80mm') || 48;
-  const lang = normalizePrintLanguage(language ?? z?.__language);
+  const lang = normalizePrintLanguage(z?.__language);
   const additionalLanguage = z?.__additionalLanguage
     ? normalizePrintLanguage(z.__additionalLanguage)
     : undefined;
@@ -2207,10 +2204,6 @@ export function buildZReportBody(z: any, language?: string, printer?: { columns?
   const settings: Record<string, string> = Object.fromEntries(
     settingsRows.map((r) => [r.key, r.value]),
   );
-  // Single resolution for currency/locale/timezone — resolves the stored
-  // timezone through the country profile when missing or invalid, instead of
-  // leaving it undefined (which would use the server's own host timezone,
-  // not the tenant's, for the printed period timestamps).
   const snapshot = resolveRegionalSnapshot(settings);
   const currency = snapshot.currency;
   const fractionDigits = getCurrencyFractionDigits(currency);
@@ -2270,19 +2263,20 @@ export function buildZReportBody(z: any, language?: string, printer?: { columns?
     taxRegistrationNumber: String(settings.tax_registration_number || ''),
     isReprint: !!z?.__isReprint,
   };
+  const capabilities = printer?.capabilities;
   const zDocument = buildZReportDocument(documentData, {
     languages,
     baseDirection: containsRtlScript(printLabel(lang, 'print.zReport.title')) ? 'rtl' : 'ltr',
     resolveLabel: (conceptId, languageCode) => printLabel(languageCode, conceptId as PrintConceptId),
   });
-  const zContext = zLayoutContext(cols, zDocument, printer?.capabilities);
+  const zContext = zLayoutContext(cols, zDocument, capabilities);
   const bar = '='.repeat(cols);
   const dash = '-'.repeat(cols);
   const sections: string[] = [];
   sections.push('{INIT}');
-  if (zDocument.header.businessName) pushCenteredWrapped(sections, zDocument.header.businessName.text, cols, lang, printer?.capabilities);
-  if (zDocument.header.businessAddress) pushCenteredWrapped(sections, zDocument.header.businessAddress.text, cols, lang, printer?.capabilities);
-  if (zDocument.header.taxRegistrationNumber) pushCenteredWrapped(sections, zDocument.header.taxRegistrationNumber.text, cols, lang, printer?.capabilities);
+  if (zDocument.header.businessName) pushCenteredWrapped(sections, zDocument.header.businessName.text, cols, lang, capabilities);
+  if (zDocument.header.businessAddress) pushCenteredWrapped(sections, zDocument.header.businessAddress.text, cols, lang, capabilities);
+  if (zDocument.header.taxRegistrationNumber) pushCenteredWrapped(sections, zDocument.header.taxRegistrationNumber.text, cols, lang, capabilities);
   sections.push('');
 
   const titleLabel: SemanticLabel = {
@@ -2292,7 +2286,7 @@ export function buildZReportBody(z: any, language?: string, printer?: { columns?
       : {}),
   };
   for (const line of layoutStyledUnit({ label: titleLabel, field: 'Z report title' }, zContext).lines) {
-    sections.push('{CENTER}{BOLD}' + normalizeThermalText(line, printer?.capabilities) + '{/BOLD}{/CENTER}');
+    sections.push('{CENTER}{BOLD}' + normalizeThermalText(line, capabilities) + '{/BOLD}{/CENTER}');
   }
   sections.push('');
 
@@ -2358,30 +2352,47 @@ export function buildZReportBody(z: any, language?: string, printer?: { columns?
       : {}),
   };
   for (const line of zLaidOutLabel(varianceLabel, zContext)) {
-    sections.push('{CENTER}{FINANCIAL}{BOLD}' + normalizeThermalText(line, printer?.capabilities) + '{/BOLD}{/CENTER}');
+    sections.push('{CENTER}{FINANCIAL}{BOLD}' + normalizeThermalText(line, capabilities) + '{/BOLD}{/CENTER}');
   }
   sections.push(dash);
   sections.push('');
 
   if (zDocument.operator.name) pushZReportTextValue(sections, zDocument.operator.label, zDocument.operator.name.text, zContext);
   const signatureLines = zLaidOutLabel(zDocument.operator.signatureLabel, zContext);
-  const inlineSignature = signatureLines.length === 1 ? normalizeThermalText(signatureLines[0], printer?.capabilities) : null;
+  const inlineSignature = signatureLines.length === 1 ? normalizeThermalText(signatureLines[0], capabilities) : null;
   const remainingSigCols = inlineSignature === null ? 0 : cols - thermalDisplayWidth(inlineSignature) - 1;
   if (inlineSignature !== null && remainingSigCols >= 8) {
     sections.push(inlineSignature + ' ' + '_'.repeat(remainingSigCols));
   } else {
-    for (const line of signatureLines) sections.push(normalizeThermalText(line, printer?.capabilities));
+    for (const line of signatureLines) sections.push(normalizeThermalText(line, capabilities));
     sections.push('_'.repeat(cols));
   }
   sections.push('');
 
   for (const line of bilingualLabelLines(zDocument.footer, selectBilingualFit(zDocument.footer, cols))) {
-    sections.push('{CENTER}' + normalizeThermalText(line, printer?.capabilities) + '{/CENTER}');
+    sections.push('{CENTER}' + normalizeThermalText(line, capabilities) + '{/CENTER}');
   }
-  sections.push('{CENTER}Z#' + zDocument.header.zNumber.text + ' - ' + normalizeThermalText(documentData.businessDate, printer?.capabilities) + '{/CENTER}');
+  sections.push('{CENTER}Z#' + zDocument.header.zNumber.text + ' - ' + normalizeThermalText(documentData.businessDate, capabilities) + '{/CENTER}');
   sections.push('{CUT}');
 
-  return buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities: printer?.capabilities }, warnings);
+  return { sections, cols, lang, capabilities };
+}
+
+/**
+ * Build the ESC/POS bytes for a Z-report (cierre de caja) from a stored
+ * `cash_closures` row. Day-close, no bill — sections in spec print order:
+ * header → Z number + business date + period → opening float → cash
+ * movements → sales by payment method → refunds → tax breakdown → staff
+ * sales → expected / counted / variance (variance emphasized) → operator +
+ * signature → footer.
+ * The byte builder never touches the drawer pulse; that is appended by
+ * `printZReport` (the route layer) so the byte form is reusable for the
+ * WebUSB `bytes: number[]` branch where the renderer dispatches.
+ */
+export function buildZReportBody(z: any, language?: string, printer?: { columns?: number; capabilities?: ThermalPrinterCapabilities }, warnings?: PrintWarning[]): Buffer {
+  const zWithLanguage = language !== undefined ? { ...z, __language: language } : z;
+  const { sections, cols, lang, capabilities } = buildZReportSections(zWithLanguage, printer);
+  return buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, warnings);
 }
 
 function zLayoutContext(columns: number, document: ZReportDocument, capabilities?: ThermalPrinterCapabilities): ThermalLayoutContext {
@@ -2458,28 +2469,65 @@ function pushZReportRow(lines: string[], label: SemanticLabel, value: string, co
  * print (bypassing bill-bound `shouldPulseForPayment` and the
  * `cash_drawer_pulse_methods` filter): the Z is the document the merchant
  * prints while counting the drawer.
+ *
+ * When financial rows contain characters unsupported by the printer's code
+ * page, the function automatically routes those rows through the Chromium
+ * raster renderer instead of refusing to print. A non-fatal `PrintWarning`
+ * is attached to the result so the caller can surface the fallback if needed.
  */
 export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?: any): Promise<DispatchResult & { bytes?: Buffer; connection_type?: string }> {
   try {
     if (signal?.aborted) return { ok: false, detail: 'Print cancelled during shutdown' };
-    // The route resolves the default receipt printer so it can pick the
-    // WebUSB branch server-side (`main/routes/printers.ts:329-331`). The
-    // helper's own fallback uses getPrinterConfig() (which excludes webusb,
-    // so default lookups never see a WebUSB printer).
     const printer = targetPrinter || getPrinterConfig();
     if (!printer) return { ok: false, detail: 'No printer configured' };
-    // F3: resolve the printer's profile so `buildZReportBody` can use the
-    // right columns and capabilities (58mm/36/42 cols, profile-specific
-    // code pages, etc.). Same pattern as `prepareReceipt` (`:1043-1056`).
-    const { profile, columns, capabilities } = resolvePrinterContext(printer, false);
+    const { columns, capabilities } = resolvePrinterContext(printer, false);
     const zWithMarker = { ...z, __isReprint: !!z?.__isReprint };
-    // The route carries the resolved Z-report language policy in the snapshot;
-    // direct callers retain the English store-language default.
     const warnings: PrintWarning[] = [];
-    const baseBody = buildZReportBody(zWithMarker, undefined, { columns, capabilities }, warnings);
-    if (hasFinancialPrintWarning(warnings)) {
-      return { ok: false, detail: makeFinancialPrintRefusalMessage(warnings), warnings };
+    const { sections, cols, lang } = buildZReportSections(zWithMarker, { columns, capabilities });
+
+    // Probe for financial-row failures before committing to bytes.
+    const probeWarnings: PrintWarning[] = [];
+    buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, probeWarnings);
+
+    let baseBody: Buffer;
+    if (hasFinancialPrintWarning(probeWarnings)) {
+      // One or more financial rows contain unsupported characters — fall back
+      // to the Chromium raster renderer so no financial data is lost or
+      // corrupted. All Z-report lines are marked financial because the document
+      // as a whole is a financial record.
+      const rasterGroup: RasterSemanticLineGroup = {
+        groupId: 'z-report-financial-fallback',
+        lineIndex: 0,
+        lineCount: sections.length,
+        financial: true,
+      };
+      const rasterized = await rasterizeDocumentLines(sections, probeWarnings, {
+        useUnicode: false,
+        cutMode: 'full',
+        arabicShaping: false,
+        columns: cols,
+        language: lang,
+        capabilities: capabilities ?? { shaping: { arabic: false }, codePage: { native: false, ascii: true } },
+        requestPrefix: 'z-report',
+      }, [rasterGroup]);
+      if (!rasterized.rasterFailed) {
+        baseBody = rasterized.data;
+        warnings.push(...rasterized.warnings.filter((w) => w.kind !== 'financial'));
+        warnings.push({
+          field: 'z-report',
+          text: '',
+          message: 'Z-report printed via raster fallback: financial rows contained unsupported characters for this printer profile.',
+          kind: 'line',
+        });
+      } else {
+        // Raster also failed — surface the original financial refusal so the
+        // operator can use system/browser printing instead.
+        return { ok: false, detail: makeFinancialPrintRefusalMessage(probeWarnings), warnings: probeWarnings };
+      }
+    } else {
+      baseBody = buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, warnings);
     }
+
     const data = appendCashDrawerPulse(baseBody);
     let result: DispatchResult;
     switch (printer.connection_type) {
@@ -2490,9 +2538,6 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         result = await printViaUSB(data, printer.name, signal);
         break;
       case 'webusb':
-        // Backend never dispatches WebUSB; return the FULL bytes (including
-        // the appended drawer pulse) for the renderer. The route maps this to
-        // `bytes: number[]` per the test-page endpoint contract.
         return { ok: true, bytes: data, connection_type: 'webusb', ...(warnings.length > 0 ? { warnings } : {}) };
       default:
         result = { ok: false, detail: `Unsupported connection type: ${printer.connection_type}` };
