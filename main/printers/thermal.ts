@@ -25,6 +25,8 @@ import { randomUUID } from 'crypto';
 import {
   buildBrandedReceiptRequest,
   buildBrandedDiagnosticRequest,
+  buildBrandedKotRequest,
+  buildBrandedReportRequest,
   renderBrandedReceipt,
   DEFAULT_RASTER_WIDTH_80MM,
   DEFAULT_RASTER_WIDTH_58MM,
@@ -1003,6 +1005,42 @@ export async function printKOT(order: any, items: any[], stationName: string, us
 
     const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
     const resolvedKotStyle = resolveEffectivePrintStyle(stylePrefs, 'kot', language ?? biz?.language, stationName);
+
+    if (resolvedKotStyle.renderMode === 'branded_raster') {
+      const logoAsset = resolvedKotStyle.logo.showLogo ? getActiveReceiptLogoAsset() : null;
+      const fontFamily = resolvedKotStyle.typography.fontFamily as BrandedFontFamily;
+      const paperWidth = printer.paper_width || '80mm';
+      const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+      const kotTransport = resolveRasterTransport(printer.branded_raster_transport);
+
+      const brandedRequest = buildBrandedKotRequest({
+        order,
+        items,
+        stationName,
+        business: biz,
+        printer,
+        widthDots,
+        fontFamily,
+        logoAsset,
+        style: resolvedKotStyle,
+        transport: kotTransport,
+      });
+
+      let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
+      try {
+        brandedOutput = await renderBrandedReceipt(brandedRequest, kotTransport);
+      } catch (renderErr) {
+        console.warn('[Printer] Branded raster KOT pre-dispatch render error:', renderErr);
+      }
+
+      if (brandedOutput && brandedOutput.ok) {
+        console.log('[Printer] Dispatching branded raster KOT, bytes:', brandedOutput.rasterBytes.length);
+        const dispatch = await dispatchPrint(printer, brandedOutput.rasterBytes, signal);
+        return dispatch;
+      } else {
+        console.warn('[Printer] Branded raster KOT rendering failed, falling back to document/legacy');
+      }
+    }
 
     const warnings: PrintWarning[] = [];
     const nativeCapabilities = nativeFallbackCapabilities(capabilities);
@@ -2503,42 +2541,75 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
     const probeWarnings: PrintWarning[] = [];
     buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, probeWarnings);
 
+    const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
+    const resolvedReceiptStyle = resolveEffectivePrintStyle(stylePrefs, 'receipt');
+    const isBrandedRaster = resolvedReceiptStyle.renderMode === 'branded_raster';
+
     let baseBody: Buffer;
-    if (hasFinancialPrintWarning(probeWarnings)) {
-      // One or more financial rows contain unsupported characters — fall back
-      // to the Chromium raster renderer so no financial data is lost or
-      // corrupted. All Z-report lines are marked financial because the document
-      // as a whole is a financial record.
-      const rasterGroup: RasterSemanticLineGroup = {
-        groupId: 'z-report-financial-fallback',
-        lineIndex: 0,
-        lineCount: sections.length,
-        financial: true,
-      };
+    if (isBrandedRaster || hasFinancialPrintWarning(probeWarnings)) {
       const zTransport = resolveRasterTransport(printer?.branded_raster_transport);
-      const rasterized = await rasterizeDocumentLines(sections, probeWarnings, {
-        useUnicode: false,
-        cutMode: 'full',
-        arabicShaping: false,
-        columns: cols,
-        language: lang,
-        capabilities: capabilities ?? { shaping: { arabic: false }, codePage: { native: false, ascii: true } },
-        requestPrefix: 'z-report',
+      const paperWidth = printer.paper_width || '80mm';
+      const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+      const fontFamily = (resolvedReceiptStyle?.typography?.fontFamily as BrandedFontFamily) || 'almarai';
+
+      const brandedRequest = buildBrandedReportRequest({
+        title: zWithMarker.__isReprint ? 'Z REPORT (REPRINT) / تقرير إغلاق مالي (إعادة طباعة)' : 'Z REPORT / تقرير الإغلاق المالي',
+        sections,
+        widthDots,
+        fontFamily,
         transport: zTransport,
-      }, [rasterGroup]);
-      if (!rasterized.rasterFailed) {
-        baseBody = rasterized.data;
-        warnings.push(...rasterized.warnings.filter((w) => w.kind !== 'financial'));
-        warnings.push({
-          field: 'z-report',
-          text: '',
-          message: 'Z-report printed via raster fallback: financial rows contained unsupported characters for this printer profile.',
-          kind: 'line',
-        });
+        printer,
+      });
+
+      let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;
+      try {
+        brandedOutput = await renderBrandedReceipt(brandedRequest, zTransport);
+      } catch (renderErr) {
+        console.warn('[Printer] Branded raster report render error:', renderErr);
+      }
+
+      if (brandedOutput && brandedOutput.ok) {
+        baseBody = brandedOutput.rasterBytes;
+        if (hasFinancialPrintWarning(probeWarnings)) {
+          warnings.push({
+            field: 'z-report',
+            text: '',
+            message: 'Z-report printed via raster: financial rows contained unsupported characters or printer is configured for branded raster.',
+            kind: 'line',
+          });
+        }
       } else {
-        // Raster also failed — surface the original financial refusal so the
-        // operator can use system/browser printing instead.
-        return { ok: false, detail: makeFinancialPrintRefusalMessage(probeWarnings), warnings: probeWarnings };
+        // Fallback to rasterizeDocumentLines so no financial data is lost or corrupted
+        const rasterGroup: RasterSemanticLineGroup = {
+          groupId: 'z-report-financial-fallback',
+          lineIndex: 0,
+          lineCount: sections.length,
+          financial: true,
+        };
+        const rasterized = await rasterizeDocumentLines(sections, probeWarnings, {
+          useUnicode: false,
+          cutMode: 'full',
+          arabicShaping: false,
+          columns: cols,
+          language: lang,
+          capabilities: capabilities ?? { shaping: { arabic: false }, codePage: { native: false, ascii: true } },
+          requestPrefix: 'z-report',
+          transport: zTransport,
+        }, [rasterGroup]);
+        if (!rasterized.rasterFailed) {
+          baseBody = rasterized.data;
+          warnings.push(...rasterized.warnings.filter((w) => w.kind !== 'financial'));
+          warnings.push({
+            field: 'z-report',
+            text: '',
+            message: 'Z-report printed via raster fallback: financial rows contained unsupported characters for this printer profile.',
+            kind: 'line',
+          });
+        } else {
+          // Raster also failed — surface the original financial refusal so the
+          // operator can use system/browser printing instead.
+          return { ok: false, detail: makeFinancialPrintRefusalMessage(probeWarnings), warnings: probeWarnings };
+        }
       }
     } else {
       baseBody = buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, warnings);

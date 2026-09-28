@@ -102,6 +102,7 @@ receiptAssetsRouter.get(
     const { getDatabase } = require('../db');
     const {
       renderBrandedReceipt,
+      buildBrandedKotRequest,
       computeBrandedGeometry,
       resolveBundledFontList,
       DEFAULT_RASTER_MAX_BAND_HEIGHT,
@@ -259,46 +260,21 @@ receiptAssetsRouter.get(
         };
       }
 
-      const kotRasterItems = sampleItems.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        price: resolvedStyle.operational.showPrices ? item.price : 0,
-        unitPrice: resolvedStyle.operational.showPrices ? item.unitPrice : undefined,
-        notes: item.notes,
-      }));
-
-      const kotTotals = resolvedStyle.operational.showTotals
-        ? [{ label: 'Items Subtotal / مجموع الأصناف', value: `64.00 ${currency}`, isBold: true }]
-        : [];
-
-      const kotRequest = {
-        version: 1 as const,
-        kind: 'branded-kot' as const,
-        requestId: `preview-kot-${Date.now()}`,
+      const kotRequest = buildBrandedKotRequest({
+        order: {
+          order_number: kotDataPayload.order_number,
+          table: { name: kotDataPayload.table_name },
+          created_at: kotDataPayload.timestamp,
+          server_name: kotDataPayload.server_name,
+        },
+        items: sampleItems,
+        stationName: kotDataPayload.station_name,
+        business: { currency, ...storeSettings },
         widthDots,
-        maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
         fontFamily: resolvedStyle.typography.fontFamily,
+        logoAsset: activeLogo,
         style: resolvedStyle,
-        bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
-        logo: logoPayload,
-        geometry,
-        ditheringMode: 'threshold' as const,
-        threshold: 128,
-        header: {
-          businessName: kotDataPayload.station_name,
-          banner: 'تذكرة طلب المطبخ / Kitchen Order Ticket',
-        },
-        meta: {
-          orderNumber: kotDataPayload.order_number,
-          tableName: kotDataPayload.table_name,
-          timestamp: `Time: ${kotDataPayload.timestamp} | Server: ${kotDataPayload.server_name}`,
-        },
-        items: kotRasterItems,
-        totals: kotTotals,
-        footer: {
-          footerNote: 'تذكرة تشغيلية فقط — ليست مطالبة مالية أو فاتورة بيع\nOperational Ticket · Non-Financial',
-        },
-      };
+      });
 
       const brandedOutput = await renderBrandedReceipt(kotRequest);
       if (!brandedOutput.ok) {

@@ -56,9 +56,21 @@ export interface BrandedReceiptTotalRow {
   readonly isLarge?: boolean;
 }
 
+export interface BrandedReportSectionLine {
+  readonly label: string;
+  readonly value?: string;
+  readonly isBold?: boolean;
+  readonly align?: 'left' | 'center' | 'right';
+}
+
+export interface BrandedReportSection {
+  readonly title?: string;
+  readonly lines: readonly BrandedReportSectionLine[];
+}
+
 export interface BrandedReceiptRequest {
   readonly version: 1;
-  readonly kind: 'branded-receipt' | 'branded-kot';
+  readonly kind: 'branded-receipt' | 'branded-kot' | 'branded-report';
   readonly requestId: string;
   readonly widthDots: number;
   readonly maxBandHeight: number;
@@ -91,6 +103,8 @@ export interface BrandedReceiptRequest {
     readonly customerPhone?: string;
     readonly onlinePlatform?: string;
     readonly externalOrderId?: string;
+    readonly serverName?: string;
+    readonly stationName?: string;
   };
   readonly items: readonly BrandedReceiptItem[];
   readonly totals: readonly BrandedReceiptTotalRow[];
@@ -98,6 +112,7 @@ export interface BrandedReceiptRequest {
     readonly footerNote?: string;
     readonly thankYou?: string;
   };
+  readonly reportSections?: readonly BrandedReportSection[];
 }
 
 export interface BrandedReceiptOutput {
@@ -630,6 +645,182 @@ export function buildBrandedDiagnosticRequest(options: {
   };
 }
 
+// ── Build Branded KOT Request (Kitchen Order Ticket) ────────────────────────
+
+export function buildBrandedKotRequest(options: {
+  order: any;
+  items: any[];
+  stationName: string;
+  business?: any;
+  printer?: any;
+  widthDots?: number;
+  fontFamily?: BrandedFontFamily;
+  logoAsset?: BrandedLogoAsset | null;
+  style?: ResolvedPrintStyle;
+  transport?: BrandedRasterTransport;
+  requestId?: string;
+}): BrandedReceiptRequest {
+  const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+  const geometry = computeBrandedGeometry({ widthDots });
+  const fontFamily = options.fontFamily ?? (options.style?.typography?.fontFamily as BrandedFontFamily) ?? 'almarai';
+  const bundledFonts = resolveBundledFontList(fontFamily);
+  const business = options.business ?? {};
+  const order = options.order ?? {};
+  const items = options.items ?? [];
+  const style = options.style;
+
+  let logoPayload: BrandedReceiptRequest['logo'];
+  if (style?.logo?.showLogo && options.logoAsset && options.logoAsset.data.length > 0) {
+    logoPayload = {
+      dataUrl: `data:${options.logoAsset.mimeType};base64,${options.logoAsset.data.toString('base64')}`,
+      width: options.logoAsset.width,
+      height: options.logoAsset.height,
+    };
+  }
+
+  const showPrices = style?.operational?.showPrices ?? false;
+  const showTotals = style?.operational?.showTotals ?? false;
+
+  const kotItems: BrandedReceiptItem[] = items.map((item: any) => {
+    const name = String(item.product_name || item.name || 'Item');
+    const quantity = Number(item.quantity || 1);
+    const price = showPrices ? Number(item.total_price || item.price || 0) : 0;
+    const unitPrice = showPrices && item.unit_price !== undefined ? Number(item.unit_price) : undefined;
+    const addons = Array.isArray(item.addons)
+      ? item.addons.map((a: any) => ({ name: String(a.name || a.addon_name || ''), price: showPrices ? Number(a.price || 0) : 0 }))
+      : undefined;
+    const notes = item.notes ? String(item.notes) : undefined;
+    return { name, quantity, price, unitPrice, addons, notes };
+  });
+
+  const totals: BrandedReceiptTotalRow[] = [];
+  if (showTotals) {
+    const sum = kotItems.reduce((acc, it) => acc + it.price, 0);
+    const currency = business.currency_symbol || business.currency || '';
+    totals.push({
+      label: 'Items Subtotal / مجموع الأصناف',
+      value: `${sum.toFixed(2)} ${currency}`.trim(),
+      isBold: true,
+    });
+  }
+
+  const orderNum = order.order_number ? String(order.order_number) : undefined;
+  const tableName = order.table?.name || business.table_name || undefined;
+  const timestamp = order.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const serverName = order.server_name || order.user?.name || undefined;
+
+  return {
+    version: 1,
+    kind: 'branded-kot',
+    requestId: options.requestId || `kot-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    widthDots,
+    maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
+    transport: options.transport,
+    fontFamily,
+    style,
+    bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
+    logo: logoPayload,
+    geometry,
+    ditheringMode: 'threshold',
+    threshold: 128,
+    header: {
+      businessName: options.stationName || 'Kitchen',
+      banner: 'تذكرة طلب المطبخ / Kitchen Order Ticket',
+    },
+    meta: {
+      orderNumber: orderNum,
+      tableName,
+      timestamp: serverName ? `${timestamp} | Server: ${serverName}` : timestamp,
+      serverName,
+      stationName: options.stationName,
+    },
+    items: kotItems,
+    totals,
+    footer: {
+      footerNote: 'تذكرة تشغيلية فقط — ليست مطالبة مالية أو فاتورة بيع\nOperational Ticket · Non-Financial',
+    },
+  };
+}
+
+// ── Build Branded Report Request (Financial Z / X / Shift Report) ────────────
+
+export function buildBrandedReportRequest(options: {
+  title: string;
+  sections?: readonly string[];
+  reportSections?: readonly BrandedReportSection[];
+  business?: any;
+  printer?: any;
+  widthDots?: number;
+  fontFamily?: BrandedFontFamily;
+  transport?: BrandedRasterTransport;
+  requestId?: string;
+}): BrandedReceiptRequest {
+  const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
+  const geometry = computeBrandedGeometry({ widthDots });
+  const fontFamily = options.fontFamily ?? 'almarai';
+  const bundledFonts = resolveBundledFontList(fontFamily);
+  const business = options.business ?? {};
+
+  let parsedSections = options.reportSections;
+  if (!parsedSections && options.sections) {
+    const lines: BrandedReportSectionLine[] = [];
+    for (const rawLine of options.sections) {
+      if (rawLine === undefined || rawLine === null) continue;
+      const isBold = rawLine.includes('{BOLD}');
+      const isCenter = rawLine.includes('{CENTER}');
+      const isRight = rawLine.includes('{RIGHT}');
+      const clean = rawLine.replace(/\{[^}]+\}/g, '').trimEnd();
+      if (!clean) {
+        lines.push({ label: '', align: 'left' });
+        continue;
+      }
+      const colSplit = clean.split(/\s{2,}/);
+      if (colSplit.length === 2 && !isCenter) {
+        lines.push({
+          label: colSplit[0].trim(),
+          value: colSplit[1].trim(),
+          isBold,
+          align: 'left',
+        });
+      } else {
+        lines.push({
+          label: clean.trim(),
+          isBold,
+          align: isCenter ? 'center' : (isRight ? 'right' : 'left'),
+        });
+      }
+    }
+    parsedSections = [{ lines }];
+  }
+
+  return {
+    version: 1,
+    kind: 'branded-report',
+    requestId: options.requestId || `report-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    widthDots,
+    maxBandHeight: DEFAULT_RASTER_MAX_BAND_HEIGHT,
+    transport: options.transport,
+    fontFamily,
+    bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
+    geometry,
+    ditheringMode: 'threshold',
+    threshold: 128,
+    header: {
+      businessName: business.name || 'FloCafe',
+      banner: options.title || 'FINANCIAL REPORT / تقرير مالي',
+    },
+    meta: {
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    },
+    items: [],
+    totals: [],
+    footer: {
+      footerNote: 'تقرير مالي معتمد — تم التوليد بنظام FloCafe\nVerified Financial Report',
+    },
+    reportSections: parsedSections || [],
+  };
+}
+
 // ── 5x7 Monospaced Font Table & Decoding Helpers ───────────────────────────
 
 const FONT_5X7: Record<string, number[]> = {
@@ -725,7 +916,69 @@ const FONT_5X7: Record<string, number[]> = {
   'y': [0x0c, 0x50, 0x50, 0x50, 0x3c],
   'z': [0x44, 0x64, 0x54, 0x4c, 0x44],
   '|': [0x00, 0x00, 0x7f, 0x00, 0x00],
-  '~': [0x10, 0x08, 0x18, 0x10, 0x08],
+};
+
+const FONT_ARABIC: Record<string, number[]> = {
+  '\u0660': [0x00, 0x18, 0x18, 0x00, 0x00], // ٠
+  '\u0661': [0x00, 0x40, 0x7f, 0x00, 0x00], // ١
+  '\u0662': [0x00, 0x43, 0x45, 0x79, 0x01], // ٢
+  '\u0663': [0x00, 0x45, 0x55, 0x7d, 0x01], // ٣
+  '\u0664': [0x00, 0x22, 0x55, 0x2a, 0x00], // ٤
+  '\u0665': [0x00, 0x3e, 0x41, 0x3e, 0x00], // ٥
+  '\u0666': [0x00, 0x01, 0x7d, 0x05, 0x01], // ٦
+  '\u0667': [0x00, 0x03, 0x3c, 0x03, 0x00], // ٧
+  '\u0668': [0x00, 0x30, 0x0f, 0x30, 0x00], // ٨
+  '\u0669': [0x00, 0x0f, 0x11, 0x7f, 0x00], // ٩
+  '\u06F0': [0x00, 0x18, 0x18, 0x00, 0x00], // ۰
+  '\u06F1': [0x00, 0x40, 0x7f, 0x00, 0x00], // ۱
+  '\u06F2': [0x00, 0x43, 0x45, 0x79, 0x01], // ۲
+  '\u06F3': [0x00, 0x45, 0x55, 0x7d, 0x01], // ۳
+  '\u06F4': [0x00, 0x22, 0x55, 0x2a, 0x00], // ۴
+  '\u06F5': [0x00, 0x3e, 0x41, 0x3e, 0x00], // ۵
+  '\u06F6': [0x00, 0x01, 0x7d, 0x05, 0x01], // ۶
+  '\u06F7': [0x00, 0x03, 0x3c, 0x03, 0x00], // ۷
+  '\u06F8': [0x00, 0x30, 0x0f, 0x30, 0x00], // ۸
+  '\u06F9': [0x00, 0x0f, 0x11, 0x7f, 0x00], // ۹
+  'ا': [0x00, 0x00, 0x7f, 0x00, 0x00],
+  'أ': [0x00, 0x05, 0x7f, 0x00, 0x00],
+  'إ': [0x00, 0x40, 0x7f, 0x00, 0x00],
+  'آ': [0x00, 0x06, 0x7f, 0x00, 0x00],
+  'ء': [0x00, 0x26, 0x29, 0x12, 0x00],
+  'ئ': [0x22, 0x40, 0x40, 0x7e, 0x20],
+  'ؤ': [0x02, 0x38, 0x44, 0x39, 0x60],
+  'ب': [0x20, 0x40, 0x40, 0x40, 0x3f],
+  'ت': [0x05, 0x40, 0x40, 0x40, 0x3f],
+  'ث': [0x07, 0x40, 0x40, 0x40, 0x3f],
+  'ج': [0x28, 0x54, 0x54, 0x54, 0x3e],
+  'ح': [0x08, 0x54, 0x54, 0x54, 0x3e],
+  'خ': [0x09, 0x54, 0x54, 0x54, 0x3e],
+  'د': [0x00, 0x41, 0x41, 0x7e, 0x00],
+  'ذ': [0x00, 0x41, 0x43, 0x7e, 0x00],
+  'ر': [0x00, 0x01, 0x02, 0x1c, 0x60],
+  'ز': [0x00, 0x01, 0x03, 0x1c, 0x60],
+  'س': [0x45, 0x45, 0x45, 0x7f, 0x00],
+  'ش': [0x47, 0x47, 0x45, 0x7f, 0x00],
+  'ص': [0x3e, 0x49, 0x49, 0x7f, 0x00],
+  'ض': [0x3e, 0x4b, 0x49, 0x7f, 0x00],
+  'ط': [0x7f, 0x49, 0x49, 0x7f, 0x00],
+  'ظ': [0x7f, 0x4b, 0x49, 0x7f, 0x00],
+  'ع': [0x0e, 0x11, 0x11, 0x7e, 0x00],
+  'غ': [0x0f, 0x11, 0x11, 0x7e, 0x00],
+  'ف': [0x03, 0x45, 0x49, 0x7f, 0x00],
+  'ق': [0x07, 0x45, 0x49, 0x7f, 0x00],
+  'ك': [0x7f, 0x48, 0x44, 0x42, 0x00],
+  'ل': [0x00, 0x7f, 0x40, 0x30, 0x00],
+  'م': [0x38, 0x44, 0x44, 0x7f, 0x40],
+  'ن': [0x02, 0x40, 0x40, 0x7e, 0x00],
+  'ه': [0x3e, 0x2a, 0x2a, 0x3e, 0x00],
+  'ة': [0x05, 0x2a, 0x2a, 0x3e, 0x00],
+  'و': [0x38, 0x44, 0x46, 0x39, 0x60],
+  'ي': [0x20, 0x40, 0x40, 0x7e, 0x20],
+  'ى': [0x00, 0x40, 0x40, 0x7e, 0x20],
+  '،': [0x00, 0x03, 0x05, 0x00, 0x00],
+  '؛': [0x00, 0x23, 0x25, 0x00, 0x00],
+  '؟': [0x30, 0x48, 0x45, 0x40, 0x20],
+  '٪': [0x62, 0x64, 0x08, 0x13, 0x23],
 };
 
 function decodePngDataUrlToMonochrome(
@@ -875,25 +1128,36 @@ export function renderBrandedReceiptSoftware(
     estimatedHeight += logoDims.height + 16;
   }
 
-  estimatedHeight += rowHeight * 4; // header (banner, name, address, phone)
-  estimatedHeight += 16; // divider
-  estimatedHeight += rowHeight * 3; // meta (order #, time, table)
-  estimatedHeight += 16; // divider
-  estimatedHeight += rowHeight; // table header
-  estimatedHeight += 8; // divider
-
-  for (const item of items) {
-    estimatedHeight += rowHeight;
-    if (item.addons && item.addons.length > 0) {
-      estimatedHeight += item.addons.length * 20;
+  if (request.kind === 'branded-report') {
+    estimatedHeight += rowHeight * 4 + 16;
+    for (const sec of (request.reportSections || [])) {
+      if (sec.title) estimatedHeight += rowHeight + 8;
+      estimatedHeight += (sec.lines || []).length * rowHeight + 16;
     }
+    estimatedHeight += rowHeight * 3 + 48;
+  } else if (request.kind === 'branded-kot') {
+    estimatedHeight += rowHeight * 4 + 16;
+    estimatedHeight += rowHeight * 3 + 16;
+    estimatedHeight += rowHeight + 8;
+    for (const item of items) {
+      estimatedHeight += rowHeight;
+      if (item.addons && item.addons.length > 0) estimatedHeight += item.addons.length * 20;
+      if (item.notes) estimatedHeight += 22;
+    }
+    if (totals.length > 0) estimatedHeight += 16 + totals.length * rowHeight;
+    estimatedHeight += rowHeight * 3 + 48;
+  } else {
+    estimatedHeight += rowHeight * 4 + 16;
+    estimatedHeight += rowHeight * 3 + 16;
+    estimatedHeight += rowHeight + 8;
+    for (const item of items) {
+      estimatedHeight += rowHeight;
+      if (item.addons && item.addons.length > 0) estimatedHeight += item.addons.length * 20;
+      if (item.notes) estimatedHeight += 22;
+    }
+    estimatedHeight += 16 + totals.length * rowHeight + 16;
+    estimatedHeight += rowHeight * 3 + 48;
   }
-
-  estimatedHeight += 16; // divider
-  estimatedHeight += totals.length * rowHeight;
-  estimatedHeight += 16; // divider
-  estimatedHeight += rowHeight * 2; // footer
-  estimatedHeight += 48; // bottom margin / cut gap
 
   const height = Math.max(128, estimatedHeight);
   const totalPixels = width * height;
@@ -918,14 +1182,38 @@ export function renderBrandedReceiptSoftware(
     }
   };
 
-  // Helper: render ASCII text string with 5x7 font
-  const renderText = (startX: number, startY: number, str: string, scale = 1, isBold = false) => {
-    let curX = startX;
+  const measureText = (str: string, scale = 1, isBold = false): number => {
+    let w = 0;
     for (let i = 0; i < str.length; i++) {
       const ch = str[i];
-      if (ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) <= 126) {
-        const cols = FONT_5X7[ch] || FONT_5X7[' '];
-        for (let c = 0; c < 5; c++) {
+      const cols = FONT_5X7[ch] || FONT_ARABIC[ch];
+      w += (cols ? cols.length : 5) * scale + (isBold ? 2 : 1) * scale;
+    }
+    return w;
+  };
+
+  // Helper: render text string with 5x7 ASCII and Arabic bitmap font
+  const renderText = (
+    startX: number,
+    startY: number,
+    str: string,
+    scale = 1,
+    isBold = false,
+    align: 'left' | 'center' | 'right' = 'left',
+  ) => {
+    const strWidth = measureText(str, scale, isBold);
+    let curX = startX;
+    if (align === 'center') {
+      curX = contentLeft + Math.max(0, Math.floor((contentWidth - strWidth) / 2));
+    } else if (align === 'right') {
+      curX = contentLeft + Math.max(0, contentWidth - strWidth);
+    }
+
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      const cols = FONT_5X7[ch] || FONT_ARABIC[ch];
+      if (cols) {
+        for (let c = 0; c < cols.length; c++) {
           const colByte = cols[c];
           for (let r = 0; r < 7; r++) {
             if ((colByte & (1 << r)) !== 0) {
@@ -944,9 +1232,9 @@ export function renderBrandedReceiptSoftware(
             }
           }
         }
-        curX += (5 + (isBold ? 2 : 1)) * scale;
+        curX += (cols.length + (isBold ? 2 : 1)) * scale;
       } else {
-        // Simple 4x6 marker for non-ASCII / Arabic glyphs
+        // Fallback marker for unknown characters
         for (let sy = 1; sy < 7; sy++) {
           for (let sx = 0; sx < 4; sx++) {
             const px = curX + sx;
@@ -1001,96 +1289,247 @@ export function renderBrandedReceiptSoftware(
           pixels[y * width + (logoX + logoW - 1)] = 1;
         }
       }
-      renderText(Math.max(contentLeft, logoX + Math.floor(logoW / 2) - 30), currentY + Math.floor(logoH / 2) - 4, 'STORE LOGO', 1, true);
+      renderText(Math.max(contentLeft, logoX + Math.floor(logoW / 2) - 30), currentY + Math.floor(logoH / 2) - 4, 'STORE LOGO', 1, true, 'center');
     }
     currentY += logoH + 16;
   }
 
-  // 2. Header
-  if (request.header.banner) {
-    renderText(contentLeft, currentY, request.header.banner, 1, true);
+  if (request.kind === 'branded-report') {
+    // ── Render Financial Report ──
+    if (request.header.banner) {
+      renderText(contentLeft, currentY, request.header.banner, 1, true, 'center');
+      currentY += rowHeight;
+    }
+    if (request.header.businessName) {
+      renderText(contentLeft, currentY, request.header.businessName, 2, true, 'center');
+      currentY += rowHeight + 4;
+    }
+    if (request.meta.timestamp) {
+      renderText(contentLeft, currentY, request.meta.timestamp, 1, false, 'center');
+      currentY += 20;
+    }
+    drawLine(currentY);
+    currentY += 12;
+
+    for (const sec of (request.reportSections || [])) {
+      if (sec.title) {
+        renderText(contentLeft, currentY, sec.title, 1, true, 'center');
+        currentY += rowHeight;
+        drawLine(currentY, 1);
+        currentY += 8;
+      }
+      for (const line of sec.lines) {
+        if (!line.label && !line.value) {
+          currentY += 10;
+        } else if (line.value) {
+          renderText(contentLeft, currentY, line.label, 1, line.isBold, 'left');
+          renderText(contentLeft, currentY, line.value, 1, line.isBold, 'right');
+          currentY += rowHeight;
+        } else {
+          renderText(contentLeft, currentY, line.label, 1, line.isBold, line.align || 'left');
+          currentY += rowHeight;
+        }
+      }
+      drawLine(currentY);
+      currentY += 12;
+    }
+
+    if (request.footer.footerNote) {
+      for (const fLine of request.footer.footerNote.split('\n')) {
+        renderText(contentLeft, currentY, fLine, 1, false, 'center');
+        currentY += rowHeight;
+      }
+    }
+  } else if (request.kind === 'branded-kot') {
+    // ── Render Kitchen Order Ticket (KOT) ──
+    if (request.header.banner) {
+      renderText(contentLeft, currentY, request.header.banner, 1, true, 'center');
+      currentY += rowHeight;
+    }
+    if (request.header.businessName) {
+      renderText(contentLeft, currentY, request.header.businessName, 2, true, 'center');
+      currentY += rowHeight + 4;
+    }
+    drawLine(currentY);
+    currentY += 12;
+
+    if (request.meta.orderNumber) {
+      renderText(contentLeft, currentY, `#${request.meta.orderNumber}`, 2, true, 'left');
+    }
+    if (request.meta.tableName) {
+      renderText(contentLeft, currentY, request.meta.tableName, 2, true, 'right');
+    }
+    currentY += rowHeight + 4;
+
+    if (request.meta.timestamp) {
+      renderText(contentLeft, currentY, request.meta.timestamp, 1, false, 'left');
+      currentY += 20;
+    }
+    drawLine(currentY);
+    currentY += 12;
+
+    const showPrices = request.style?.operational?.showPrices ?? false;
+    const showTotals = request.style?.operational?.showTotals ?? false;
+    if (showPrices) {
+      const cols = calculateItemTableColumns(contentWidth);
+      renderText(contentLeft, currentY, 'PRICE', 1, true, 'left');
+      renderText(contentLeft + cols.priceWidth + 8, currentY, 'QTY', 1, true, 'left');
+      renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY, 'ITEM', 1, true, 'left');
+    } else {
+      renderText(contentLeft, currentY, 'QTY', 1, true, 'left');
+      renderText(contentLeft + 60, currentY, 'ITEM', 1, true, 'left');
+    }
     currentY += rowHeight;
-  }
-  if (request.header.businessName) {
-    renderText(contentLeft, currentY, request.header.businessName, 2, true);
+    drawLine(currentY, 1);
+    currentY += 8;
+
+    for (const item of items) {
+      const qtyStr = String(item.quantity);
+      const nameStr = item.name.slice(0, 36);
+
+      if (showPrices) {
+        const cols = calculateItemTableColumns(contentWidth);
+        const priceStr = typeof item.price === 'number' ? item.price.toFixed(2) : String(item.price);
+        renderText(contentLeft, currentY + 4, priceStr, 1, false, 'left');
+        renderText(contentLeft + cols.priceWidth + 8, currentY + 4, qtyStr, 2, true, 'left');
+        renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY + 4, nameStr, 1, true, 'left');
+      } else {
+        renderText(contentLeft, currentY + 4, qtyStr, 2, true, 'left');
+        renderText(contentLeft + 60, currentY + 4, nameStr, 1, true, 'left');
+      }
+      currentY += rowHeight;
+
+      if (item.addons && item.addons.length > 0) {
+        for (const addon of item.addons) {
+          renderText(contentLeft + 60, currentY + 2, `+ ${addon.name}`, 1, false, 'left');
+          currentY += 18;
+        }
+      }
+      if (item.notes) {
+        renderText(contentLeft + 60, currentY + 2, `*** NOTE: ${item.notes} ***`, 1, true, 'left');
+        currentY += 20;
+      }
+    }
+
+    if (showTotals && totals.length > 0) {
+      drawLine(currentY);
+      currentY += 12;
+      for (const totalRow of totals) {
+        renderText(contentLeft, currentY + 4, String(totalRow.label), 1, totalRow.isBold, 'left');
+        renderText(contentLeft, currentY + 4, String(totalRow.value), 1, totalRow.isBold, 'right');
+        currentY += rowHeight;
+      }
+    }
+
+    drawLine(currentY);
+    currentY += 16;
+    if (request.footer.footerNote) {
+      for (const fLine of request.footer.footerNote.split('\n')) {
+        renderText(contentLeft, currentY, fLine, 1, false, 'center');
+        currentY += rowHeight;
+      }
+    }
+  } else {
+    // ── Render Branded Customer Receipt ──
+    if (request.header.banner) {
+      renderText(contentLeft, currentY, request.header.banner, 1, true, 'center');
+      currentY += rowHeight;
+    }
+    if (request.header.businessName) {
+      renderText(contentLeft, currentY, request.header.businessName, 2, true, 'center');
+      currentY += rowHeight;
+    }
+    if (request.header.phone) {
+      renderText(contentLeft, currentY, `TEL: ${request.header.phone}`, 1, false, 'center');
+      currentY += 20;
+    }
+    if (request.header.taxId) {
+      renderText(contentLeft, currentY, `TAX ID: ${request.header.taxId}`, 1, false, 'center');
+      currentY += 20;
+    }
+    drawLine(currentY);
+    currentY += 12;
+
+    // Metadata
+    if (request.meta.invoiceNumber) {
+      renderText(contentLeft, currentY, `INV: ${request.meta.invoiceNumber}`, 1, true, 'left');
+    } else if (request.meta.quoteReference) {
+      renderText(contentLeft, currentY, `REF: ${request.meta.quoteReference}`, 1, true, 'left');
+    }
+    if (request.meta.orderNumber) {
+      renderText(contentLeft, currentY, `#${request.meta.orderNumber}`, 1, true, 'right');
+    }
+    currentY += 20;
+
+    if (request.meta.timestamp) {
+      renderText(contentLeft, currentY, request.meta.timestamp, 1, false, 'left');
+      currentY += 20;
+    }
+    if (request.meta.tableName) {
+      renderText(contentLeft, currentY, `TABLE: ${request.meta.tableName}`, 1, false, 'left');
+      currentY += 20;
+    }
+    drawLine(currentY);
+    currentY += 12;
+
+    // Table Header & Items
+    const cols = calculateItemTableColumns(contentWidth);
+    renderText(contentLeft, currentY, 'PRICE', 1, true, 'left');
+    renderText(contentLeft + cols.priceWidth + 8, currentY, 'QTY', 1, true, 'left');
+    renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY, 'ITEM', 1, true, 'left');
     currentY += rowHeight;
-  }
-  if (request.header.phone) {
-    renderText(contentLeft, currentY, `TEL: ${request.header.phone}`, 1);
-    currentY += 20;
-  }
-  if (request.header.taxId) {
-    renderText(contentLeft, currentY, `TAX ID: ${request.header.taxId}`, 1);
-    currentY += 20;
-  }
-  drawLine(currentY);
-  currentY += 12;
+    drawLine(currentY, 1);
+    currentY += 8;
 
-  // 3. Metadata
-  if (request.meta.invoiceNumber) {
-    renderText(contentLeft, currentY, `INV: ${request.meta.invoiceNumber}`, 1, true);
-  } else if (request.meta.quoteReference) {
-    renderText(contentLeft, currentY, `REF: ${request.meta.quoteReference}`, 1, true);
-  }
-  if (request.meta.orderNumber) {
-    renderText(contentLeft + Math.floor(contentWidth / 2), currentY, `#${request.meta.orderNumber}`, 1, true);
-  }
-  currentY += 20;
+    for (const item of items) {
+      const priceStr = typeof item.price === 'number' ? item.price.toFixed(2) : String(item.price);
+      const qtyStr = String(item.quantity);
+      const nameStr = item.name.slice(0, 32);
 
-  if (request.meta.timestamp) {
-    renderText(contentLeft, currentY, request.meta.timestamp, 1);
-    currentY += 20;
-  }
-  drawLine(currentY);
-  currentY += 12;
+      renderText(contentLeft, currentY + 4, priceStr, 1, false, 'left');
+      renderText(contentLeft + cols.priceWidth + 8, currentY + 4, qtyStr, 1, false, 'left');
+      renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY + 4, nameStr, 1, false, 'left');
+      currentY += rowHeight;
 
-  // 4. Table Header & Items
-  const cols = calculateItemTableColumns(contentWidth);
-  renderText(contentLeft, currentY, 'PRICE', 1, true);
-  renderText(contentLeft + cols.priceWidth + 8, currentY, 'QTY', 1, true);
-  renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY, 'ITEM', 1, true);
-  currentY += rowHeight;
-  drawLine(currentY, 1);
-  currentY += 8;
-
-  for (const item of items) {
-    const priceStr = typeof item.price === 'number' ? item.price.toFixed(2) : String(item.price);
-    const qtyStr = String(item.quantity);
-    const nameStr = item.name.slice(0, 24);
-
-    renderText(contentLeft, currentY + 4, priceStr, 1);
-    renderText(contentLeft + cols.priceWidth + 8, currentY + 4, qtyStr, 1);
-    renderText(contentLeft + cols.priceWidth + cols.qtyWidth, currentY + 4, nameStr, 1);
-    currentY += rowHeight;
-
-    if (item.addons && item.addons.length > 0) {
-      for (const addon of item.addons) {
-        renderText(contentLeft + cols.priceWidth + cols.qtyWidth + 10, currentY + 2, `+ ${addon.name}`, 1);
+      if (item.addons && item.addons.length > 0) {
+        for (const addon of item.addons) {
+          renderText(contentLeft + cols.priceWidth + cols.qtyWidth + 10, currentY + 2, `+ ${addon.name}`, 1, false, 'left');
+          currentY += 18;
+        }
+      }
+      if (item.notes) {
+        renderText(contentLeft + cols.priceWidth + cols.qtyWidth + 10, currentY + 2, `* ${item.notes}`, 1, false, 'left');
         currentY += 18;
       }
     }
-  }
 
-  drawLine(currentY);
-  currentY += 12;
+    drawLine(currentY);
+    currentY += 12;
 
-  // 5. Totals
-  for (let i = 0; i < totals.length; i++) {
-    const totalRow = totals[i];
-    const isBold = totalRow.isBold || false;
-    const scale = totalRow.isLarge ? 2 : 1;
-    renderText(contentLeft, currentY + 4, String(totalRow.value), scale, isBold);
-    renderText(contentLeft + cols.priceWidth + 8, currentY + 4, String(totalRow.label), scale, isBold);
-    currentY += rowHeight;
-  }
+    // Totals
+    for (let i = 0; i < totals.length; i++) {
+      const totalRow = totals[i];
+      const isBold = totalRow.isBold || false;
+      const scale = totalRow.isLarge ? 2 : 1;
+      renderText(contentLeft, currentY + 4, String(totalRow.label), scale, isBold, 'left');
+      renderText(contentLeft, currentY + 4, String(totalRow.value), scale, isBold, 'right');
+      currentY += rowHeight * scale;
+    }
 
-  drawLine(currentY);
-  currentY += 16;
+    drawLine(currentY);
+    currentY += 16;
 
-  // 6. Footer
-  if (request.footer.thankYou) {
-    renderText(contentLeft, currentY, request.footer.thankYou, 1, true);
-    currentY += rowHeight;
+    // Footer
+    if (request.footer.thankYou) {
+      renderText(contentLeft, currentY, request.footer.thankYou, 1, true, 'center');
+      currentY += rowHeight;
+    }
+    if (request.footer.footerNote) {
+      for (const fLine of request.footer.footerNote.split('\n')) {
+        renderText(contentLeft, currentY, fLine, 1, false, 'center');
+        currentY += rowHeight;
+      }
+    }
   }
 
   // Draw outer frame border if enabled

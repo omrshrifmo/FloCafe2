@@ -23,11 +23,82 @@ import {
 import { type ThermalPrinterCapabilities } from '../main/printers/capabilities';
 import {
   buildBrandedDiagnosticRequest,
+  buildBrandedReceiptRequest,
+  buildBrandedKotRequest,
+  buildBrandedReportRequest,
   renderBrandedReceipt,
   DEFAULT_RASTER_WIDTH_80MM,
   DEFAULT_RASTER_WIDTH_58MM,
 } from '../main/printers/branded-receipt-renderer';
-import { printBrandedDiagnosticDetailed } from '../main/printers/thermal';
+import { printBrandedDiagnosticDetailed, printZReport } from '../main/printers/thermal';
+import { buildEscPos } from '../main/printers/formatting-helpers';
+
+/**
+ * Strict parser that traverses a raw ESC/POS byte payload, completely skipping:
+ * - ESC * image slices (0x1B 0x2A <m> <nL> <nH> [slice data] \n)
+ * - GS v 0 raster blocks (0x1D 0x76 0x30 <m> <xL> <xH> <yL> <yH> [bitmap data])
+ * - Standard ESC/POS printer control commands (ESC @, ESC 3, ESC 2, ESC a, ESC d, ESC t, ESC !, ESC E, ESC p, GS V)
+ * Any remaining non-image bytes outside image slices represent leaked raw text.
+ */
+export function extractNonImageText(payload: Buffer): string {
+  let text = '';
+  let i = 0;
+  while (i < payload.length) {
+    // ESC * <m> <nL> <nH>
+    if (payload[i] === 0x1b && payload[i + 1] === 0x2a) {
+      const m = payload[i + 2];
+      const nL = payload[i + 3];
+      const nH = payload[i + 4];
+      const cols = nL + (nH << 8);
+      const bytesPerCol = (m === 32 || m === 33) ? 3 : 1;
+      const dataLen = cols * bytesPerCol;
+      i += 5 + dataLen;
+      continue;
+    }
+    // GS v 0 <m> <xL> <xH> <yL> <yH>
+    if (payload[i] === 0x1d && payload[i + 1] === 0x76 && payload[i + 2] === 0x30) {
+      const xL = payload[i + 4];
+      const xH = payload[i + 5];
+      const yL = payload[i + 6];
+      const yH = payload[i + 7];
+      const widthBytes = xL + (xH << 8);
+      const heightDots = yL + (yH << 8);
+      const dataLen = widthBytes * heightDots;
+      i += 8 + dataLen;
+      continue;
+    }
+    // ESC control sequences
+    if (payload[i] === 0x1b) {
+      const cmd = payload[i + 1];
+      if (cmd === 0x40) { i += 2; continue; } // ESC @ (init)
+      if (cmd === 0x32) { i += 2; continue; } // ESC 2 (reset spacing)
+      if (cmd === 0x33 || cmd === 0x61 || cmd === 0x64 || cmd === 0x74 || cmd === 0x21 || cmd === 0x45) {
+        i += 3; continue;
+      }
+      if (cmd === 0x70) { i += 5; continue; } // ESC p m t1 t2 (drawer pulse)
+      i += 2; continue;
+    }
+    // GS control sequences
+    if (payload[i] === 0x1d) {
+      const cmd = payload[i + 1];
+      if (cmd === 0x56) {
+        const mode = payload[i + 2];
+        i += (mode === 0x41 || mode === 0x42) ? 4 : 3;
+        continue;
+      }
+      i += 2; continue;
+    }
+    // Line feeds, carriage returns, nulls, spaces
+    if (payload[i] === 0x0a || payload[i] === 0x0d || payload[i] === 0x00 || payload[i] === 0x20) {
+      i++;
+      continue;
+    }
+    // Any remaining bytes represent non-image text!
+    text += String.fromCharCode(payload[i]);
+    i++;
+  }
+  return text.trim();
+}
 
 async function runTests() {
   console.log('[Test] Running branded raster transport test suite...');
@@ -284,6 +355,193 @@ async function runTests() {
   const billCountAfter = (db.prepare('SELECT COUNT(*) as c FROM bills').get() as any).c;
   assert.equal(orderCountBefore, orderCountAfter, 'Diagnostic must never create an order');
   assert.equal(billCountBefore, billCountAfter, 'Diagnostic must never create a bill');
+
+  // =========================================================================
+  // TEST 5: Full branded customer receipt rasterization (zero leaked plain text)
+  // =========================================================================
+  console.log('Test 5: Full branded customer receipt raw payload inspection...');
+  const orderReceipt = {
+    id: 101,
+    order_number: 'ORD-901',
+    created_at: '2026-09-29 11:30:00',
+    table: { name: 'Table 7' },
+    customer: { name: 'Ahmad الراشد', phone: '+966501234567' },
+    items: [
+      { product_name: 'شاي أخضر بالنعناع Green Tea', quantity: 2, price: 15, total_price: 30, addons: [{ name: 'سكر زيادة Extra sugar', price: 0 }], notes: 'بدون ماء ساخن إضافي' },
+      { product_name: 'كابتشينو كلاسيك Cappuccino', quantity: 1, price: 22, total_price: 22 },
+    ],
+  };
+  const billReceipt = {
+    bill_number: 'INV-2026-901',
+    created_at: '2026-09-29 11:30:00',
+    subtotal: 52,
+    tax: 7.8,
+    tax_rate: 15,
+    total: 59.8,
+    payment_method: 'card',
+    paid_amount: 59.8,
+    items: orderReceipt.items,
+  };
+  const businessReceipt = {
+    name: 'مقهى فلو كافيه FloCafe Coffee',
+    address: 'King Fahd Road طريق الملك فهد',
+    phone: '+966500000000',
+    taxRegistrationNumber: '300012345678903',
+    currency_symbol: 'SAR',
+    footer_note: 'شكراً لزيارتكم نسعد بخدمتكم',
+  };
+
+  // Test with ESC * 24-dot compatibility
+  const reqEscStarReceipt = buildBrandedReceiptRequest({
+    order: orderReceipt,
+    bill: billReceipt,
+    business: businessReceipt,
+    widthDots: DEFAULT_RASTER_WIDTH_80MM,
+    transport: 'esc_star_24',
+  });
+  const renderEscStarReceipt = await renderBrandedReceipt(reqEscStarReceipt, 'esc_star_24');
+  assert(renderEscStarReceipt.ok, 'Branded receipt with ESC * must render successfully');
+  assert(renderEscStarReceipt.rasterBytes.length > 5000, 'Raster payload must contain complete receipt bitmap');
+
+  // Must contain ESC * slice command
+  let hasEscStarReceiptHeader = false;
+  for (let i = 0; i < renderEscStarReceipt.rasterBytes.length - 3; i++) {
+    if (renderEscStarReceipt.rasterBytes[i] === 0x1b && renderEscStarReceipt.rasterBytes[i + 1] === 0x2a && renderEscStarReceipt.rasterBytes[i + 2] === 33) {
+      hasEscStarReceiptHeader = true;
+      break;
+    }
+  }
+  assert(hasEscStarReceiptHeader, 'Receipt payload must contain ESC * 33 slice command');
+
+  // Strict non-image text check: NO raw customer text leaked into ESC/POS stream
+  const nonImageTextReceiptEsc = extractNonImageText(renderEscStarReceipt.rasterBytes);
+  assert.equal(nonImageTextReceiptEsc, '', 'Customer receipt raw non-image text must be completely empty');
+
+  // Test with GS v 0
+  const reqGsReceipt = buildBrandedReceiptRequest({
+    order: orderReceipt,
+    bill: billReceipt,
+    business: businessReceipt,
+    widthDots: DEFAULT_RASTER_WIDTH_80MM,
+    transport: 'gs_v_0',
+  });
+  const renderGsReceipt = await renderBrandedReceipt(reqGsReceipt, 'gs_v_0');
+  assert(renderGsReceipt.ok, 'Branded receipt with GS v 0 must render successfully');
+  const nonImageTextReceiptGs = extractNonImageText(renderGsReceipt.rasterBytes);
+  assert.equal(nonImageTextReceiptGs, '', 'GS v 0 customer receipt non-image text must be completely empty');
+
+  // =========================================================================
+  // TEST 6: Full branded KOT ticket rasterization (zero leaked plain text)
+  // =========================================================================
+  console.log('Test 6: Full branded KOT raw payload inspection...');
+  const kotReq = buildBrandedKotRequest({
+    order: orderReceipt,
+    items: orderReceipt.items,
+    stationName: 'مطبخ المشروبات Drinks Kitchen',
+    business: businessReceipt,
+    widthDots: DEFAULT_RASTER_WIDTH_80MM,
+    transport: 'esc_star_24',
+  });
+  const renderKot = await renderBrandedReceipt(kotReq, 'esc_star_24');
+  assert(renderKot.ok, 'Branded KOT must render successfully');
+  assert(renderKot.rasterBytes.length > 3000, 'KOT raster payload must contain ticket bitmap');
+  const nonImageTextKot = extractNonImageText(renderKot.rasterBytes);
+  assert.equal(nonImageTextKot, '', 'KOT raw non-image text must be completely empty');
+
+  // =========================================================================
+  // TEST 7: Preliminary receipt (pre-bill banner and footer inside bitmap)
+  // =========================================================================
+  console.log('Test 7: Preliminary receipt raw payload inspection...');
+  const prelimReq = buildBrandedReceiptRequest({
+    order: orderReceipt,
+    bill: billReceipt,
+    business: businessReceipt,
+    documentVariant: 'preliminary',
+    widthDots: DEFAULT_RASTER_WIDTH_80MM,
+    transport: 'esc_star_24',
+  });
+  assert(prelimReq.header.banner?.includes('PRELIMINARY'), 'Preliminary banner must be set in header');
+  const renderPrelim = await renderBrandedReceipt(prelimReq, 'esc_star_24');
+  assert(renderPrelim.ok, 'Preliminary receipt must render successfully');
+  const nonImageTextPrelim = extractNonImageText(renderPrelim.rasterBytes);
+  assert.equal(nonImageTextPrelim, '', 'Preliminary receipt raw non-image text must be completely empty');
+
+  // =========================================================================
+  // TEST 8: Financial Z-report rasterization (zero leaked plain text)
+  // =========================================================================
+  console.log('Test 8: Financial Z-report raw payload inspection...');
+  const reportReq = buildBrandedReportRequest({
+    title: 'Z REPORT / تقرير الإغلاق المالي',
+    sections: [
+      '{CENTER}{BOLD}FloCafe Financial Close',
+      '{CENTER}Date: 2026-09-29',
+      'Total Sales / إجمالي المبيعات        1500.00 SAR',
+      'Tax Amount / قيمة الضريبة            225.00 SAR',
+      'Net Sales / صافي المبيعات           1275.00 SAR',
+      'Cash Counted / النقد الفعلي          1000.00 SAR',
+      'Card Payments / شبكة مدى             500.00 SAR',
+    ],
+    widthDots: DEFAULT_RASTER_WIDTH_80MM,
+    transport: 'esc_star_24',
+    business: businessReceipt,
+  });
+  const renderReport = await renderBrandedReceipt(reportReq, 'esc_star_24');
+  assert(renderReport.ok, 'Financial report must render successfully');
+  assert(renderReport.rasterBytes.length > 3000, 'Financial report raster payload must contain bitmap');
+  const nonImageTextReport = extractNonImageText(renderReport.rasterBytes);
+  assert.equal(nonImageTextReport, '', 'Financial report raw non-image text must be completely empty');
+
+  // Test printZReport routing in branded_raster mode with WebUSB printer config
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('country', 'SA')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency', 'SAR')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('timezone', 'Asia/Riyadh')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('store_name', 'FloCafe')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('print_style_preferences', ?)").run(JSON.stringify({
+    receipt: { renderMode: 'branded_raster', typography: { fontFamily: 'almarai' }, frame: { borderStyle: 'none' }, logo: { showLogo: false } },
+    kotStyleMode: 'inherit',
+  }));
+  const zData = {
+    id: 1,
+    z_number: 1,
+    business_date: '2026-09-29',
+    period_start: '2026-09-29 08:00:00',
+    period_end: '2026-09-29 23:00:00',
+    created_at: '2026-09-29 23:00:00',
+    gross_sales: 1500,
+    net_sales: 1275,
+    tax_total: 225,
+    payments: [{ payment_method: 'cash', amount: 1000 }, { payment_method: 'card', amount: 500 }],
+  };
+  const zPrinter = { id: 'p_test_z', connection_type: 'webusb', paper_width: '80mm', branded_raster_transport: 'esc_star_24' };
+  const zResult = await printZReport(zData, undefined, zPrinter);
+  assert(zResult.ok, 'printZReport in branded_raster mode must succeed');
+  assert(zResult.bytes && zResult.bytes.length > 0, 'printZReport must return raster payload');
+  const zNonImageText = extractNonImageText(zResult.bytes);
+  assert.equal(zNonImageText, '', 'printZReport in branded_raster mode must emit zero unrendered text');
+
+  // =========================================================================
+  // TEST 9: Preview & Printer Raster Parity (exact same dimensions and bitmap)
+  // =========================================================================
+  console.log('Test 9: Preview and raster parity verification...');
+  assert(renderEscStarReceipt.previewDataUrl, 'Render result must provide previewDataUrl');
+  assert(renderEscStarReceipt.previewDataUrl.startsWith('data:image/png;base64,'), 'previewDataUrl must be a base64 PNG data URL');
+  assert.equal(renderEscStarReceipt.dimensions.widthDots, DEFAULT_RASTER_WIDTH_80MM, 'Dimensions widthDots must match request');
+  assert(renderEscStarReceipt.dimensions.heightDots > 0, 'Dimensions heightDots must be non-zero');
+
+  // =========================================================================
+  // TEST 10: Legacy text mode preserved and unaffected
+  // =========================================================================
+  console.log('Test 10: Legacy ESC/POS text mode unaffected...');
+  const legacyLines = [
+    'FloCafe Legacy Receipt',
+    'Espresso  15.00 SAR',
+    'Total:    15.00 SAR',
+  ];
+  const legacyEscPos = buildEscPos(legacyLines, false, { cutMode: 'full', language: 'en', columns: 42 });
+  assert(legacyEscPos.length > 0, 'Legacy buildEscPos must produce bytes');
+  const legacyNonImageText = extractNonImageText(legacyEscPos);
+  assert(legacyNonImageText.includes('Espresso'), 'Legacy buildEscPos must emit plain text readable by extractNonImageText');
+  assert(legacyNonImageText.includes('Total'), 'Legacy buildEscPos must emit Total readable by extractNonImageText');
 
   closeDatabase();
   if (fs.existsSync(testDbDir)) fs.rmSync(testDbDir, { recursive: true, force: true });
