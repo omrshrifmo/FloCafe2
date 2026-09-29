@@ -1,6 +1,6 @@
 {
   "name": "flo-desktop",
-  "version": "3.11.7",
+  "version": "3.11.8",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
@@ -112,8 +112,9 @@
     "test:thermal-capabilities": "ts-node --transpile-only -P tests/tsconfig.json tests/thermal-capabilities.test.ts && ts-node --transpile-only -P tests/tsconfig.json tests/windows-print-stderr.test.ts && ts-node --transpile-only -P tests/tsconfig.json tests/windows-print-error-detail.test.ts && ts-node --transpile-only -P tests/tsconfig.json tests/printer-error-toast-clarity.test.ts && ts-node --transpile-only -P tests/tsconfig.json tests/network-print-chunking.test.ts",
     "test:raster": "ts-node --transpile-only -P tests/tsconfig.json tests/raster-printing.test.ts && npm run test:raster-electron",
     "test:raster-electron": "npm run build && electron --no-sandbox tests/raster-renderer-electron.test.cjs",
-    "test:receipt-branding": "node tests/run-electron-node-test.cjs tests/receipt-assets.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-renderer.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-safety.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-backup.test.ts && node tests/run-electron-node-test.cjs tests/branded-diagnostic.test.ts && node tests/run-electron-node-test.cjs tests/branded-raster-transport.test.ts",
+    "test:receipt-branding": "node tests/run-electron-node-test.cjs tests/receipt-assets.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-renderer.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-safety.test.ts && node tests/run-electron-node-test.cjs tests/branded-receipt-backup.test.ts && node tests/run-electron-node-test.cjs tests/branded-diagnostic.test.ts && node tests/run-electron-node-test.cjs tests/branded-raster-transport.test.ts && npm run test:branded-typography-contrast",
     "test:branded-raster-transport": "node tests/run-electron-node-test.cjs tests/branded-raster-transport.test.ts",
+    "test:branded-typography-contrast": "ts-node --transpile-only -P tests/tsconfig.json tests/branded-typography-contrast.test.ts",
     "test:print-style-unified": "node tests/run-electron-node-test.cjs tests/print-style-unified.test.ts",
     "test:preliminary-receipt": "node tests/run-electron-node-test.cjs tests/preliminary-receipt.test.ts",
     "test:financial-print-safety": "node tests/run-electron-node-test.cjs tests/financial-print-safety.test.ts",
