@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Click 'Print GS v 0 Branding Test'.",
     "transportHelperStep2": "2. Click 'Print ESC * Compatibility Test'.",
     "transportHelperStep3": "3. Inspect physical prints and select the transport that printed cleanly without garbled pixels.",
-    "transportHelperStep4": "4. Save to apply this transport to all receipts, preliminary bills, and KOTs."
+    "transportHelperStep4": "4. Save to apply this transport to all receipts, preliminary bills, and KOTs.",
+    "brandedRasterTransportStatusNote": "Branded output uses one full preview-matched bitmap. Transport changes only how that bitmap is sent to the printer."
   },
   "setup": {
     "alreadyCompleted": "Setup has already been completed on this install. Redirecting to login…",

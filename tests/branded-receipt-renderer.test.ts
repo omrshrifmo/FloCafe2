@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as brandedModule from '../main/printers/branded-receipt-renderer';
 import {
   computeBrandedGeometry,
   calculateItemTableColumns,
@@ -13,7 +14,7 @@ import {
 } from '../main/printers/branded-receipt-renderer';
 import { validateRasterBand, encodeGsV0Band } from '../shared/print/raster';
 
-function runTests() {
+async function runTests() {
   console.log('[Test] Running branded-receipt-renderer test suite...');
 
   // 1. Geometry calculation
@@ -168,10 +169,24 @@ function runTests() {
   assert.equal(request.widthDots, 576);
   assert.equal(request.items.length, 60);
 
+  // Assert FONT_ARABIC custom glyph table is completely absent
+  assert.equal((brandedModule as any).FONT_ARABIC, undefined, 'FONT_ARABIC custom glyph table must be completely eliminated');
+
   const output = renderBrandedReceiptSoftware(request);
   assert.equal(output.ok, true);
   assert(output.dimensions.bandCount > 5, '60-item receipt should produce multiple 200-dot bands');
   assert(output.dimensions.heightDots > 1000, '60-item receipt height must exceed 1000 dots');
+
+  // Verify RenderedThermalDocument structure and pixel hash parity
+  assert(output.document, 'Output must include RenderedThermalDocument');
+  assert.equal(output.document.widthDots, 576);
+  assert.equal(output.document.heightDots, output.dimensions.heightDots);
+  assert.equal(output.document.documentKind, 'branded-receipt');
+  assert.equal(output.document.rendererVersion, '3.11.6');
+  assert.equal(typeof output.pixelHash, 'string');
+  assert.equal(output.pixelHash, output.document.pixelHash);
+  assert.equal(output.document.monochromePixels.length, 576 * output.dimensions.heightDots);
+  assert(output.document.pixelHash.length >= 16, 'pixelHash must be non-empty hash');
 
   // Verify all bands satisfy GS v 0 constraints
   for (const band of output.unit.bands) {
@@ -198,7 +213,20 @@ function runTests() {
   assert.equal(pngBuf[2], 0x4e);
   assert.equal(pngBuf[3], 0x47);
 
+  // 8. Fail-safe font-unavailable error handling
+  assert.throws(
+    () => renderBrandedReceiptSoftware({ ...request, fontFamily: 'nonexistent_missing_font' as any }),
+    /font-unavailable/,
+    'Missing font family must throw font-unavailable error'
+  );
+  const fontFailResult = await renderBrandedReceipt({ ...request, fontFamily: 'nonexistent_missing_font' as any });
+  assert.equal(fontFailResult.ok, false);
+  assert.equal(fontFailResult.code, 'font-unavailable');
+
   console.log('[Test] branded-receipt-renderer test suite passed!');
 }
 
-runTests();
+runTests().catch((err) => {
+  console.error('❌ branded-receipt-renderer test suite failed:', err);
+  process.exit(1);
+});

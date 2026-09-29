@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Klicken Sie auf 'GS v 0 Branding-Test drucken'.",
     "transportHelperStep2": "2. Klicken Sie auf 'ESC * Kompatibilitätstest drucken'.",
     "transportHelperStep3": "3. Prüfen Sie die Ausdrucke und wählen Sie den Modus, der fehlerfrei gedruckt hat.",
-    "transportHelperStep4": "4. Speichern Sie, um diesen Modus für alle Belege zu übernehmen."
+    "transportHelperStep4": "4. Speichern Sie, um diesen Modus für alle Belege zu übernehmen.",
+    "brandedRasterTransportStatusNote": "Die Marken-Ausgabe verwendet eine vollständige, mit der Vorschau übereinstimmende Bitmap. Der Transportmodus ändert nur, wie diese an den Drucker gesendet wird."
   },
   "setup": {
     "alreadyCompleted": "Die Ersteinrichtung wurde bereits abgeschlossen. Weiterleitung zur Anmeldung…",

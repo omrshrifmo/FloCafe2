@@ -678,6 +678,7 @@ export function PrintersSettingsTab({
                     <option value="esc_star_24">{t('brandedRasterTransportEscStar')}</option>
                     <option value="auto">{t('brandedRasterTransportAuto')}</option>
                   </select>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('brandedRasterTransportStatusNote')}</p>
                 </div>
               </div>
 

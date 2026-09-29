@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. 'GS v 0 Marka Testi Yazdır' butonuna tıklayın.",
     "transportHelperStep2": "2. 'ESC * Uyumluluk Testi Yazdır' butonuna tıklayın.",
     "transportHelperStep3": "3. Çıktıları inceleyin ve pikselleri bozulmadan temiz basılan modu seçin.",
-    "transportHelperStep4": "4. Tüm fiş ve sipariş biletlerine uygulamak için kaydedin."
+    "transportHelperStep4": "4. Tüm fiş ve sipariş biletlerine uygulamak için kaydedin.",
+    "brandedRasterTransportStatusNote": "Markalı çıktı, önizlemeyle eşleşen tek bir tam bit eşlem kullanır. Aktarım modu yalnızca bunun yazıcıya nasıl gönderileceğini değiştirir."
   },
   "setup": {
     "alreadyCompleted": "Kurulum bu cihazda zaten tamamlandı. Giriş ekranına yönlendiriliyorsunuz…",

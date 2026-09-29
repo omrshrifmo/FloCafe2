@@ -41,6 +41,22 @@ export interface RasterSemanticUnit {
   readonly bands: readonly RasterBand[];
 }
 
+/**
+ * Canonical visual document artifact produced by the unified raster renderer.
+ * Both visual preview and physical printer payloads consume the exact same
+ * pixel buffer and share the same pixelHash.
+ */
+export interface RenderedThermalDocument {
+  readonly widthDots: number;
+  readonly heightDots: number;
+  readonly rgbaPixels?: Uint8Array;
+  readonly monochromePixels: Uint8Array;
+  readonly previewPng: Buffer;
+  readonly pixelHash: string;
+  readonly documentKind: 'branded-receipt' | 'branded-kot' | 'branded-report';
+  readonly rendererVersion: string;
+}
+
 export interface RasterSemanticLineGroup {
   readonly groupId: string;
   readonly lineIndex: number;
@@ -155,20 +171,31 @@ export function encodeGsV0Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_
 }
 
 /**
- * Encode exactly one validated band using ESC * m=33 (24-dot double density).
+ * Encode a full monochrome pixel buffer using ESC * m=33 (24-dot double density).
  *
- * Slices are 24 dots high. Line spacing is set to 24 dots (ESC 3 24) during
- * printing, and restored to standard 1/6-inch (ESC 2) after completion.
- * Any final partial slice with height h < 24 sets ESC 3 h before its LF to
- * maintain exact vertical dot advance without vertical gaps or overlaps.
+ * Slices vertically only at 24-dot boundaries across the entire document height in
+ * strict sequential visual order. Line spacing is set to 24 dots (ESC 3 24) at the start,
+ * and restored to standard 1/6-inch (ESC 2) only after the full document is completed.
+ * Any final partial slice with height h < 24 sets ESC 3 h before its LF to maintain
+ * exact vertical dot advance without vertical gaps, overlaps, or broken band transitions.
  */
-export function encodeEscStar24Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT): Uint8Array {
-  validateRasterBand(band, maxBandHeight);
-  const widthDots = band.widthDots;
-  const heightDots = band.heightDots;
+export function encodeEscStar24Document(
+  widthDots: number,
+  heightDots: number,
+  pixels: Uint8Array,
+): Uint8Array {
+  if (!Number.isSafeInteger(widthDots) || widthDots <= 0 || widthDots > MAX_RASTER_WIDTH_DOTS) {
+    throw new Error('Raster width must be a positive integer within valid limits');
+  }
+  if (!Number.isSafeInteger(heightDots) || heightDots <= 0) {
+    throw new Error('Raster height must be a positive integer');
+  }
+  if (pixels.length !== widthDots * heightDots) {
+    throw new Error('Raster pixels must contain one value per pixel');
+  }
+
   const nL = widthDots & 0xFF;
   const nH = (widthDots >> 8) & 0xFF;
-
   const parts: Uint8Array[] = [];
 
   // Reset alignment to left: ESC a 0 (0x1B, 0x61, 0x00)
@@ -193,21 +220,21 @@ export function encodeEscStar24Band(band: RasterBand, maxBandHeight = DEFAULT_RA
 
       for (let bit = 0; bit < 8; bit += 1) {
         const y = sliceY + bit;
-        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+        if (y < heightDots && pixels[y * widthDots + x] !== 0) {
           b0 |= 0x80 >> bit;
         }
       }
 
       for (let bit = 0; bit < 8; bit += 1) {
         const y = sliceY + 8 + bit;
-        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+        if (y < heightDots && pixels[y * widthDots + x] !== 0) {
           b1 |= 0x80 >> bit;
         }
       }
 
       for (let bit = 0; bit < 8; bit += 1) {
         const y = sliceY + 16 + bit;
-        if (y < heightDots && band.pixels[y * widthDots + x] !== 0) {
+        if (y < heightDots && pixels[y * widthDots + x] !== 0) {
           b2 |= 0x80 >> bit;
         }
       }
@@ -225,6 +252,14 @@ export function encodeEscStar24Band(band: RasterBand, maxBandHeight = DEFAULT_RA
   parts.push(new Uint8Array([0x1B, 0x32, 0x1B, 0x61, 0x00]));
 
   return concatBytes(parts);
+}
+
+/**
+ * Encode exactly one validated band using ESC * m=33 (24-dot double density).
+ */
+export function encodeEscStar24Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT): Uint8Array {
+  validateRasterBand(band, maxBandHeight);
+  return encodeEscStar24Document(band.widthDots, band.heightDots, band.pixels);
 }
 
 export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
@@ -303,6 +338,28 @@ export function encodeWholeReceiptRaster(
   cutMode: 'full' | 'partial',
   transport: RasterImageTransport = 'gs_v_0',
 ): Uint8Array {
+  if (transport === 'esc_star_24') {
+    if (!rasterCapabilityEnabled(capabilities, 'whole-receipt')) {
+      throw new Error('Raster whole-receipt output is not enabled for this printer profile');
+    }
+    if (!unit.complete || unit.bands.length === 0) {
+      throw new Error(unit.financial ? 'Financial raster unit is incomplete' : `Raster unit ${unit.unitId} is incomplete`);
+    }
+    const widthDots = capabilities.raster.widthDots;
+    const totalHeight = unit.bands.reduce((sum, b) => sum + b.heightDots, 0);
+    const fullPixels = new Uint8Array(widthDots * totalHeight);
+    let offset = 0;
+    for (const band of unit.bands) {
+      if (band.widthDots !== widthDots) {
+        throw new Error(`Raster width ${band.widthDots} does not match profile width ${widthDots}`);
+      }
+      fullPixels.set(band.pixels, offset);
+      offset += band.pixels.length;
+    }
+    const rasterBytes = encodeEscStar24Document(widthDots, totalHeight, fullPixels);
+    return concatBytes([rasterBytes, encodeRasterFeedAndCut(cutMode)]);
+  }
+
   return concatBytes([encodeRasterUnits([unit], capabilities, 'whole-receipt', transport), encodeRasterFeedAndCut(cutMode)]);
 }
 

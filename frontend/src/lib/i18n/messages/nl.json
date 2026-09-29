@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Klik op 'GS v 0 Branding-test afdrukken'.",
     "transportHelperStep2": "2. Klik op 'ESC * Compatibiliteitstest afdrukken'.",
     "transportHelperStep3": "3. Controleer de afdrukken en selecteer de modus die zonder fouten afdrukt.",
-    "transportHelperStep4": "4. Sla op om dit toe te passen op alle bonnen en keukenbonnen."
+    "transportHelperStep4": "4. Sla op om dit toe te passen op alle bonnen en keukenbonnen.",
+    "brandedRasterTransportStatusNote": "Aangepaste afdrukken gebruiken één volledige bitmap die overeenkomt met het voorbeeld. De transportmodus verandert alleen hoe deze naar de printer wordt verzonden."
   },
   "setup": {
     "alreadyCompleted": "De installatie is bij deze installatie al voltooid. Omleiden naar inloggen…",

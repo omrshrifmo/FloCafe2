@@ -1083,29 +1083,32 @@ export function ReceiptBrandingSettings({
                 </div>
 
                 {effectivePrinter && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground font-medium">{t('currentTransport')}:</span>
-                    <select
-                      value={effectivePrinter.branded_raster_transport || 'gs_v_0'}
-                      onChange={async (e) => {
-                        const newTransport = e.target.value as 'gs_v_0' | 'esc_star_24' | 'auto';
-                        try {
-                          await api.patch(`/printers/${effectivePrinter.id}/transport`, {
-                            branded_raster_transport: newTransport,
-                          });
-                          effectivePrinter.branded_raster_transport = newTransport;
-                          toast.success(t('transportSaved'));
-                          setRefreshCount((c) => c + 1);
-                        } catch {
-                          toast.error(t('actionFailed'));
-                        }
-                      }}
-                      className="bg-card text-foreground px-2.5 py-1 rounded border border-border text-xs font-semibold"
-                    >
-                      <option value="gs_v_0">{t('brandedRasterTransportGsV0')}</option>
-                      <option value="esc_star_24">{t('brandedRasterTransportEscStar')}</option>
-                      <option value="auto">{t('brandedRasterTransportAuto')}</option>
-                    </select>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground font-medium">{t('currentTransport')}:</span>
+                      <select
+                        value={effectivePrinter.branded_raster_transport || 'gs_v_0'}
+                        onChange={async (e) => {
+                          const newTransport = e.target.value as 'gs_v_0' | 'esc_star_24' | 'auto';
+                          try {
+                            await api.patch(`/printers/${effectivePrinter.id}/transport`, {
+                              branded_raster_transport: newTransport,
+                            });
+                            effectivePrinter.branded_raster_transport = newTransport;
+                            toast.success(t('transportSaved'));
+                            setRefreshCount((c) => c + 1);
+                          } catch {
+                            toast.error(t('actionFailed'));
+                          }
+                        }}
+                        className="bg-card text-foreground px-2.5 py-1 rounded border border-border text-xs font-semibold"
+                      >
+                        <option value="gs_v_0">{t('brandedRasterTransportGsV0')}</option>
+                        <option value="esc_star_24">{t('brandedRasterTransportEscStar')}</option>
+                        <option value="auto">{t('brandedRasterTransportAuto')}</option>
+                      </select>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('brandedRasterTransportStatusNote')}</p>
                   </div>
                 )}
               </div>

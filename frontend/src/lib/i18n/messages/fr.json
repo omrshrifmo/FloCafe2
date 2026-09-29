@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Cliquez sur 'Imprimer le test de marque GS v 0'.",
     "transportHelperStep2": "2. Cliquez sur 'Imprimer le test de compatibilité ESC *'.",
     "transportHelperStep3": "3. Inspectez les impressions physiques et sélectionnez le transport imprimé proprement.",
-    "transportHelperStep4": "4. Enregistrez pour appliquer ce transport à tous les reçus et tickets."
+    "transportHelperStep4": "4. Enregistrez pour appliquer ce transport à tous les reçus et tickets.",
+    "brandedRasterTransportStatusNote": "L'impression personnalisée utilise un bitmap complet conforme à l'aperçu. Le transport modifie uniquement la façon dont ce bitmap est envoyé à l'imprimante."
   },
   "setup": {
     "alreadyCompleted": "La configuration a déjà été effectuée sur cette installation. Redirection vers la connexion…",

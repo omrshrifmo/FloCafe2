@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. 「GS v 0 ブランドテスト印刷」をクリックします。",
     "transportHelperStep2": "2. 「ESC * 互換テスト印刷」をクリックします。",
     "transportHelperStep3": "3. 印刷物を確認し、乱れなくきれいに印刷されたモードを選択します。",
-    "transportHelperStep4": "4. 保存してすべてのレシートと伝票に適用します。"
+    "transportHelperStep4": "4. 保存してすべてのレシートと伝票に適用します。",
+    "brandedRasterTransportStatusNote": "ブランド印刷はプレビューと完全に一致する単一のビットマップを使用します。転送モードはプリンターへの送信方法のみを変更します。"
   },
   "setup": {
     "alreadyCompleted": "このインストールではセットアップが完了しています。ログインへ移動します…",

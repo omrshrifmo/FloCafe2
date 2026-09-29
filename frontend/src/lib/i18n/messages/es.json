@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Haga clic en 'Imprimir prueba de marca GS v 0'.",
     "transportHelperStep2": "2. Haga clic en 'Imprimir prueba de compatibilidad ESC *'.",
     "transportHelperStep3": "3. Inspeccione las impresiones y seleccione el transporte que se imprimió correctamente.",
-    "transportHelperStep4": "4. Guarde para aplicar este transporte a todos los recibos y pedidos."
+    "transportHelperStep4": "4. Guarde para aplicar este transporte a todos los recibos y pedidos.",
+    "brandedRasterTransportStatusNote": "La salida con identidad visual utiliza un mapa de bits completo que coincide con la vista previa. El transporte solo cambia la forma en que se envía a la impresora."
   },
   "setup": {
     "alreadyCompleted": "La configuración ya se completó en esta instalación. Redirigiendo al inicio de sesión…",

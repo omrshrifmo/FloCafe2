@@ -148,6 +148,7 @@ export type PrintResult = {
   driverName?: string;
   printerStatus?: number;
   warnings?: PrintWarning[];
+  pixelHash?: string;
 };
 
 const FINANCIAL_PRINT_REFUSAL_DIAGNOSTIC = 'Receipt not printed: unsupported financial row';
@@ -1314,6 +1315,7 @@ export async function printBrandedDiagnosticDetailed(
       jobId: dispatch.jobId,
       driverName: dispatch.driverName,
       stage: 'dispatch',
+      pixelHash: brandedOutput.pixelHash,
     };
   } catch (error: any) {
     const detail = error?.message || String(error);
@@ -2606,9 +2608,14 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
             kind: 'line',
           });
         } else {
-          // Raster also failed — surface the original financial refusal so the
-          // operator can use system/browser printing instead.
-          return { ok: false, detail: makeFinancialPrintRefusalMessage(probeWarnings), warnings: probeWarnings };
+          // Raster also failed — refuse safely with localized messages so no partial report is printed
+          return {
+            ok: false,
+            detail: 'Financial report could not be rendered safely. No partial report was printed.',
+            userMessageEn: 'Financial report could not be rendered safely. No partial report was printed.',
+            userMessageAr: 'تعذر تجهيز التقرير المالي للطباعة بأمان. لم تتم طباعة تقرير جزئي.',
+            warnings: probeWarnings,
+          };
         }
       }
     } else {

@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. 點擊「列印 GS v 0 品牌測試」。",
     "transportHelperStep2": "2. 點擊「列印 ESC * 相容測試」。",
     "transportHelperStep3": "3. 檢查列印結果，選擇沒有亂碼且清晰的傳輸模式。",
-    "transportHelperStep4": "4. 儲存設定以套用到所有收據與廚房小票。"
+    "transportHelperStep4": "4. 儲存設定以套用到所有收據與廚房小票。",
+    "brandedRasterTransportStatusNote": "品牌列印使用與預覽完全一致的完整點陣圖。傳輸模式僅改變點陣圖傳送到印表機的方式。"
   },
   "setup": {
     "alreadyCompleted": "此安裝已完成設定。正在跳轉到登入…",

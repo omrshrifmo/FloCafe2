@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Fare clic su 'Stampa test marchio GS v 0'.",
     "transportHelperStep2": "2. Fare clic su 'Stampa test compatibilità ESC *'.",
     "transportHelperStep3": "3. Ispezionare le stampe fisiche e selezionare la modalità stampata correttamente.",
-    "transportHelperStep4": "4. Salvare per applicare questo trasporto a tutti gli scontrini e comande."
+    "transportHelperStep4": "4. Salvare per applicare questo trasporto a tutti gli scontrini e comande.",
+    "brandedRasterTransportStatusNote": "L'output con branding utilizza una bitmap completa corrispondente all'anteprima. Il trasporto cambia solo il modo in cui viene inviata alla stampante."
   },
   "setup": {
     "alreadyCompleted": "La configurazione è già stata completata su questa installazione. Reindirizzamento all'accesso…",

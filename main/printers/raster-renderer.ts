@@ -30,8 +30,320 @@ export function rasterRendererHtml(): string {
   const makeFailure = (request, code, detail) => ({ version: 1, requestId: request.requestId, ok: false, code, detail });
   const loadedFonts = new Map();
   const render = async (request) => {
-    if (!request || request.version !== 1 || typeof request.text !== 'string' || typeof request.financial !== 'boolean' || (request.bundledFont !== undefined && (!request.bundledFont || !familyName(request.bundledFont.family)))) {
+    if (!request || request.version !== 1) {
       return makeFailure(request || { requestId: '' }, 'invalid-request', 'Raster request failed validation');
+    }
+    const isDoc = request.kind === 'branded-receipt' || request.kind === 'branded-kot' || request.kind === 'branded-report';
+    if (!isDoc && (typeof request.text !== 'string' || typeof request.financial !== 'boolean' || (request.bundledFont !== undefined && (!request.bundledFont || !familyName(request.bundledFont.family))))) {
+      return makeFailure(request || { requestId: '' }, 'invalid-request', 'Raster request failed validation');
+    }
+    if (isDoc) {
+      try {
+        if (request.bundledFonts && Array.isArray(request.bundledFonts)) {
+          for (const f of request.bundledFonts) {
+            const fontKey = f.family + '|' + (f.weight || 'normal') + '|' + f.dataUrl;
+            let font = loadedFonts.get(fontKey);
+            if (!font) {
+              font = new FontFace(f.family, 'url(' + f.dataUrl + ')', { weight: f.weight || 'normal' });
+              try {
+                await font.load();
+                document.fonts.add(font);
+                loadedFonts.set(fontKey, font);
+              } catch (error) {
+                return makeFailure(request, 'font-unavailable', error instanceof Error ? error.message : String(error));
+              }
+            }
+          }
+        }
+        if (request.fontFamily && request.fontFamily !== 'system' && (!request.bundledFonts || request.bundledFonts.length === 0)) {
+          return makeFailure(request, 'font-unavailable', 'Bundled fonts unavailable for ' + request.fontFamily);
+        }
+
+        const width = request.widthDots || 576;
+        const geom = request.geometry || { contentWidth: width - 32, contentLeft: 16 };
+        const contentWidth = geom.contentWidth;
+        const contentLeft = geom.contentLeft;
+        const primaryFont = request.fontFamily === 'cairo' ? 'Cairo' : request.fontFamily === 'almarai' ? 'Almarai' : 'sans-serif';
+
+        // Preload logo image if provided
+        let logoImg = null;
+        let logoW = 0;
+        let logoH = 0;
+        if (request.logo && request.logo.dataUrl) {
+          try {
+            logoImg = new Image();
+            await new Promise((resolve, reject) => {
+              logoImg.onload = resolve;
+              logoImg.onerror = reject;
+              logoImg.src = request.logo.dataUrl;
+            });
+            const capW = Math.min(contentWidth, Math.round(width * 0.70));
+            const capH = Math.round(contentWidth * 0.40);
+            const scale = Math.min(1, capW / Math.max(1, request.logo.width || logoImg.naturalWidth), capH / Math.max(1, request.logo.height || logoImg.naturalHeight));
+            logoW = Math.max(16, Math.round((request.logo.width || logoImg.naturalWidth) * scale));
+            logoH = Math.max(16, Math.round((request.logo.height || logoImg.naturalHeight) * scale));
+          } catch {
+            logoImg = null;
+          }
+        }
+
+        const rowHeight = 28;
+        let currentY = 16;
+        if (logoImg) currentY += logoH + 16;
+        if (request.kind === 'branded-report') {
+          currentY += rowHeight * 4 + 16;
+          for (const sec of (request.reportSections || [])) {
+            if (sec.title) currentY += rowHeight + 8;
+            currentY += (sec.lines || []).length * rowHeight + 16;
+          }
+          currentY += rowHeight * 3 + 48;
+        } else if (request.kind === 'branded-kot') {
+          currentY += rowHeight * 4 + 16;
+          currentY += rowHeight * 3 + 16;
+          currentY += rowHeight + 8;
+          for (const item of (request.items || [])) {
+            currentY += rowHeight;
+            if (item.addons && item.addons.length > 0) currentY += item.addons.length * 20;
+            if (item.notes) currentY += 22;
+          }
+          if (request.totals && request.totals.length > 0) currentY += 16 + request.totals.length * rowHeight;
+          currentY += rowHeight * 3 + 48;
+        } else {
+          currentY += rowHeight * 4 + 16;
+          currentY += rowHeight * 3 + 16;
+          currentY += rowHeight + 8;
+          for (const item of (request.items || [])) {
+            currentY += rowHeight;
+            if (item.addons && item.addons.length > 0) currentY += item.addons.length * 20;
+            if (item.notes) currentY += 22;
+          }
+          currentY += 16 + (request.totals || []).length * rowHeight + 16;
+          currentY += rowHeight * 3 + 48;
+        }
+
+        const height = Math.max(128, currentY);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { alpha: false });
+        if (!context) return makeFailure(request, 'render-failed', 'Canvas 2D context is unavailable');
+
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, width, height);
+        context.fillStyle = '#000000';
+
+        const drawLine = (lineY, thickness = 2) => {
+          const ds = request.style && request.style.frame && request.style.frame.dividerStyle;
+          if (ds === 'none') return;
+          context.fillStyle = '#000000';
+          if (ds === 'dotted') {
+            for (let x = contentLeft; x < contentLeft + contentWidth; x += 4) {
+              context.fillRect(x, lineY, 2, thickness);
+            }
+          } else if (ds === 'dashed') {
+            for (let x = contentLeft; x < contentLeft + contentWidth; x += 8) {
+              context.fillRect(x, lineY, 5, thickness);
+            }
+          } else {
+            context.fillRect(contentLeft, lineY, contentWidth, thickness);
+          }
+        };
+
+        const drawText = (str, x, textY, align = 'left', bold = false, size = 18) => {
+          if (!str) return;
+          context.font = (bold ? 'bold ' : 'normal ') + size + 'px ' + JSON.stringify(primaryFont) + ', sans-serif';
+          context.textBaseline = 'top';
+          context.direction = /[\u0600-\u06FF]/.test(str) ? 'rtl' : 'ltr';
+          context.textAlign = align;
+          let targetX = x;
+          if (align === 'center') targetX = contentLeft + contentWidth / 2;
+          else if (align === 'right') targetX = contentLeft + contentWidth;
+          context.fillText(str, targetX, textY);
+        };
+
+        let y = 16;
+        if (logoImg) {
+          const logoX = contentLeft + Math.floor((contentWidth - logoW) / 2);
+          context.drawImage(logoImg, logoX, y, logoW, logoH);
+          y += logoH + 16;
+        }
+
+        if (request.header) {
+          if (request.header.banner) {
+            for (const bLine of request.header.banner.split('\n')) {
+              drawText(bLine, contentLeft, y, 'center', true, 16);
+              y += 22;
+            }
+            y += 4;
+          }
+          if (request.header.businessName) {
+            drawText(request.header.businessName, contentLeft, y, 'center', true, 26);
+            y += 32;
+          }
+          if (request.header.phone) {
+            drawText('TEL: ' + request.header.phone, contentLeft, y, 'center', false, 16);
+            y += 20;
+          }
+          if (request.header.taxId) {
+            drawText('TAX ID: ' + request.header.taxId, contentLeft, y, 'center', false, 16);
+            y += 20;
+          }
+        }
+        drawLine(y);
+        y += 12;
+
+        if (request.meta) {
+          if (request.meta.invoiceNumber) {
+            drawText('INV: ' + request.meta.invoiceNumber, contentLeft, y, 'left', true, 18);
+          } else if (request.meta.quoteReference) {
+            drawText('REF: ' + request.meta.quoteReference, contentLeft, y, 'left', true, 18);
+          }
+          if (request.meta.orderNumber) {
+            drawText('#' + request.meta.orderNumber, contentLeft, y, 'right', true, 18);
+          }
+          y += 22;
+          if (request.meta.timestamp) {
+            drawText(request.meta.timestamp, contentLeft, y, 'left', false, 16);
+            y += 20;
+          }
+          if (request.meta.tableName) {
+            drawText(request.meta.tableName, contentLeft, y, 'left', false, 16);
+            y += 20;
+          }
+          drawLine(y);
+          y += 12;
+        }
+
+        if (request.kind === 'branded-report') {
+          for (const sec of (request.reportSections || [])) {
+            if (sec.title) {
+              drawText(sec.title, contentLeft, y, 'center', true, 18);
+              y += rowHeight;
+              drawLine(y, 1);
+              y += 8;
+            }
+            for (const line of (sec.lines || [])) {
+              if (line.value) {
+                drawText(line.label, contentLeft, y, 'left', line.isBold, 16);
+                drawText(line.value, contentLeft, y, 'right', line.isBold, 16);
+              } else {
+                drawText(line.label, contentLeft, y, line.align || 'left', line.isBold, 16);
+              }
+              y += rowHeight;
+            }
+            drawLine(y);
+            y += 12;
+          }
+        } else {
+          const priceWidth = Math.max(64, Math.floor(contentWidth * 0.25));
+          const qtyWidth = Math.max(40, Math.floor(contentWidth * 0.15));
+          const itemWidth = contentWidth - priceWidth - qtyWidth;
+
+          drawText('PRICE', contentLeft, y, 'left', true, 16);
+          drawText('QTY', contentLeft + priceWidth + 8, y, 'left', true, 16);
+          drawText('ITEM', contentLeft + priceWidth + qtyWidth, y, 'left', true, 16);
+          y += rowHeight;
+          drawLine(y, 1);
+          y += 8;
+
+          for (const item of (request.items || [])) {
+            const priceStr = typeof item.price === 'number' ? item.price.toFixed(2) : String(item.price);
+            drawText(priceStr, contentLeft, y + 2, 'left', false, 16);
+            drawText(String(item.quantity), contentLeft + priceWidth + 8, y + 2, 'left', false, 16);
+            drawText(item.name, contentLeft + priceWidth + qtyWidth, y + 2, 'left', false, 16);
+            y += rowHeight;
+
+            if (item.addons && item.addons.length > 0) {
+              for (const addon of item.addons) {
+                drawText('+ ' + addon.name, contentLeft + priceWidth + qtyWidth + 10, y, 'left', false, 14);
+                y += 18;
+              }
+            }
+            if (item.notes) {
+              drawText('* ' + item.notes, contentLeft + priceWidth + qtyWidth + 10, y, 'left', true, 14);
+              y += 18;
+            }
+          }
+          drawLine(y);
+          y += 12;
+
+          for (const totalRow of (request.totals || [])) {
+            const sz = totalRow.isLarge ? 22 : 16;
+            drawText(String(totalRow.label), contentLeft, y + 2, 'left', totalRow.isBold, sz);
+            drawText(String(totalRow.value), contentLeft, y + 2, 'right', totalRow.isBold, sz);
+            y += rowHeight + (totalRow.isLarge ? 6 : 0);
+          }
+          drawLine(y);
+          y += 16;
+        }
+
+        if (request.footer) {
+          if (request.footer.thankYou) {
+            drawText(request.footer.thankYou, contentLeft, y, 'center', true, 16);
+            y += rowHeight;
+          }
+          if (request.footer.footerNote) {
+            for (const fLine of request.footer.footerNote.split('\n')) {
+              drawText(fLine, contentLeft, y, 'center', false, 16);
+              y += rowHeight;
+            }
+          }
+        }
+
+        if (request.style && request.style.frame && request.style.frame.borderStyle && request.style.frame.borderStyle !== 'none') {
+          const thickness = request.style.frame.borderThickness || 1;
+          const padding = request.style.frame.borderPadding || 8;
+          context.lineWidth = thickness;
+          context.strokeStyle = '#000000';
+          context.strokeRect(
+            Math.max(0, contentLeft - padding),
+            4,
+            Math.min(width - 1, contentWidth + padding * 2),
+            Math.min(height - 8, y + 8),
+          );
+        }
+
+        const imgData = context.getImageData(0, 0, width, height).data;
+        const pixels = new Uint8Array(width * height);
+        const threshold = request.threshold || 128;
+        for (let i = 0; i < pixels.length; i++) {
+          const a = imgData[i * 4 + 3];
+          if (a < 64) {
+            pixels[i] = 0;
+          } else {
+            const r = imgData[i * 4];
+            const g = imgData[i * 4 + 1];
+            const b = imgData[i * 4 + 2];
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            pixels[i] = lum < threshold ? 1 : 0;
+          }
+        }
+
+        const bands = [];
+        const maxBandHeight = request.maxBandHeight || 200;
+        for (let offset = 0; offset < height; offset += maxBandHeight) {
+          const bandH = Math.min(maxBandHeight, height - offset);
+          bands.push({
+            widthDots: width,
+            heightDots: bandH,
+            pixels: pixels.slice(offset * width, (offset + bandH) * width),
+          });
+        }
+
+        return {
+          version: 1,
+          requestId: request.requestId,
+          ok: true,
+          unit: {
+            unitId: request.requestId,
+            financial: true,
+            complete: true,
+            bands,
+          },
+        };
+      } catch (error) {
+        return makeFailure(request, 'render-failed', error instanceof Error ? error.message : String(error));
+      }
     }
     try {
       if (request.bundledFont) {
@@ -282,16 +594,25 @@ export class ChromiumRasterRenderer {
   }
 
   async render(request: unknown): Promise<RasterRenderResult> {
-    if (!isRasterRenderRequest(request)) {
-      const requestId = request && typeof request === 'object' && 'requestId' in request && typeof request.requestId === 'string'
-        ? request.requestId
+    const isDoc = request && typeof request === 'object' && 'version' in request && (request as any).version === 1
+      && typeof (request as any).requestId === 'string'
+      && ['branded-receipt', 'branded-kot', 'branded-report'].includes((request as any).kind)
+      && typeof (request as any).widthDots === 'number' && (request as any).widthDots > 0;
+
+    if (!isRasterRenderRequest(request) && !isDoc) {
+      const fallbackId = request && typeof request === 'object' && 'requestId' in request && typeof (request as any).requestId === 'string'
+        ? (request as any).requestId
         : '';
-      return { version: 1, requestId, ok: false, code: 'invalid-request', detail: 'Raster request failed validation' };
+      return { version: 1, requestId: fallbackId, ok: false, code: 'invalid-request', detail: 'Raster request failed validation' };
     }
+
+    const req = request as { requestId: string; [key: string]: any };
+    const reqId = req.requestId;
+
     if (this.destroyed || this.surface.isDestroyed()) {
       return {
         version: 1,
-        requestId: request.requestId,
+        requestId: reqId,
         ok: false,
         code: 'render-failed',
         detail: this.readyError ?? 'Raster surface is unavailable',
@@ -299,25 +620,25 @@ export class ChromiumRasterRenderer {
     }
     this.onActivity?.();
     await this.ready;
-    if (this.readyError) return { version: 1, requestId: request.requestId, ok: false, code: 'render-failed', detail: this.readyError };
+    if (this.readyError) return { version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: this.readyError };
     return await new Promise<RasterRenderResult>((resolve) => {
-      if (this.pending.has(request.requestId)) {
-        resolve({ version: 1, requestId: request.requestId, ok: false, code: 'render-failed', detail: 'Duplicate raster request ID' });
+      if (this.pending.has(reqId)) {
+        resolve({ version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: 'Duplicate raster request ID' });
         return;
       }
       const timer = setTimeout(() => {
-        this.pending.delete(request.requestId);
-        resolve({ version: 1, requestId: request.requestId, ok: false, code: 'render-failed', detail: 'Raster rendering timed out' });
+        this.pending.delete(reqId);
+        resolve({ version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: 'Raster rendering timed out' });
       }, this.timeoutMs);
-      this.pending.set(request.requestId, { resolve, timer });
+      this.pending.set(reqId, { resolve, timer });
       try {
         this.surface.webContents.send('flo:raster-request', { version: 1, request });
       } catch (error) {
         clearTimeout(timer);
-        this.pending.delete(request.requestId);
+        this.pending.delete(reqId);
         resolve({
           version: 1,
-          requestId: request.requestId,
+          requestId: reqId,
           ok: false,
           code: 'render-failed',
           detail: error instanceof Error ? error.message : 'Raster surface is unavailable',

@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Nhấp vào 'In thử nghiệm thương hiệu GS v 0'.",
     "transportHelperStep2": "2. Nhấp vào 'In thử nghiệm tương thích ESC *'.",
     "transportHelperStep3": "3. Kiểm tra bản in thực tế và chọn chế độ in rõ ràng, không bị lỗi.",
-    "transportHelperStep4": "4. Lưu để áp dụng cho tất cả hóa đơn và phiếu bếp."
+    "transportHelperStep4": "4. Lưu để áp dụng cho tất cả hóa đơn và phiếu bếp.",
+    "brandedRasterTransportStatusNote": "Bản in thương hiệu sử dụng một ảnh bitmap đầy đủ khớp với bản xem trước. Phương thức truyền chỉ thay đổi cách gửi ảnh tới máy in."
   },
   "setup": {
     "alreadyCompleted": "Bản cài đặt này đã hoàn tất thiết lập. Đang chuyển đến đăng nhập…",

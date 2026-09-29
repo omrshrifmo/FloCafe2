@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. 'GS v 0 브랜드 테스트 인쇄'를 클릭합니다.",
     "transportHelperStep2": "2. 'ESC * 호환 테스트 인쇄'를 클릭합니다.",
     "transportHelperStep3": "3. 출력물을 확인하고 깨짐 없이 깨끗하게 출력된 모드를 선택합니다.",
-    "transportHelperStep4": "4. 저장하여 모든 영수증 및 주문서에 적용합니다."
+    "transportHelperStep4": "4. 저장하여 모든 영수증 및 주문서에 적용합니다.",
+    "brandedRasterTransportStatusNote": "브랜드 출력은 미리보기와 완벽하게 일치하는 단일 비트맵을 사용합니다. 전송 모드는 비트맵이 프린터로 전송되는 방식만 변경합니다."
   },
   "setup": {
     "alreadyCompleted": "이 설치에서는 초기 설정이 이미 완료되었습니다. 로그인으로 이동합니다…",

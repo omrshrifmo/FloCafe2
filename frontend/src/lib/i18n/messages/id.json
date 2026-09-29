@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Klik 'Cetak Uji Merek GS v 0'.",
     "transportHelperStep2": "2. Klik 'Cetak Uji Kompatibilitas ESC *'.",
     "transportHelperStep3": "3. Periksa hasil cetak fisik dan pilih mode yang tercetak jelas tanpa piksel rusak.",
-    "transportHelperStep4": "4. Simpan untuk menerapkan ke semua struk dan tiket dapur."
+    "transportHelperStep4": "4. Simpan untuk menerapkan ke semua struk dan tiket dapur.",
+    "brandedRasterTransportStatusNote": "Output bermerek menggunakan satu bitmap penuh yang cocok dengan pratinjau. Transportasi hanya mengubah cara bitmap dikirim ke printer."
   },
   "setup": {
     "alreadyCompleted": "Pengaturan awal sudah selesai dilakukan pada instalasi ini. Mengalihkan ke layar masuk…",

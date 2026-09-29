@@ -309,6 +309,10 @@ async function runTests() {
     transport: 'gs_v_0',
   });
   assert(diagReqGsV0.header.banner?.includes('TRANSPORT: GS v 0 RASTER'), 'GS v 0 diagnostic banner must show transport');
+  assert(diagReqGsV0.header.banner?.includes('▲ TOP MARKER'), 'Diagnostic must include TOP marker');
+  assert(diagReqGsV0.header.banner?.includes('v3.11.6'), 'Diagnostic must include version 3.11.6');
+  assert(diagReqGsV0.items.some(it => it.name.includes('◆ MID MARKER')), 'Diagnostic must include MID marker');
+  assert(diagReqGsV0.footer.footerNote?.includes('▼ BOTTOM MARKER'), 'Diagnostic must include BOTTOM marker');
 
   const diagReqEscStar = buildBrandedDiagnosticRequest({
     widthDots: DEFAULT_RASTER_WIDTH_80MM,
@@ -316,6 +320,8 @@ async function runTests() {
     transport: 'esc_star_24',
   });
   assert(diagReqEscStar.header.banner?.includes('TRANSPORT: ESC * 24-DOT COMPATIBILITY'), 'ESC * diagnostic banner must show transport');
+  assert(diagReqEscStar.header.banner?.includes('▲ TOP MARKER'), 'ESC * diagnostic must include TOP marker');
+  assert(diagReqEscStar.header.banner?.includes('v3.11.6'), 'ESC * diagnostic must include version 3.11.6');
 
   // Render both diagnostic documents
   const renderGsV0 = await renderBrandedReceipt(diagReqGsV0);
@@ -527,6 +533,12 @@ async function runTests() {
   assert(renderEscStarReceipt.previewDataUrl.startsWith('data:image/png;base64,'), 'previewDataUrl must be a base64 PNG data URL');
   assert.equal(renderEscStarReceipt.dimensions.widthDots, DEFAULT_RASTER_WIDTH_80MM, 'Dimensions widthDots must match request');
   assert(renderEscStarReceipt.dimensions.heightDots > 0, 'Dimensions heightDots must be non-zero');
+  assert(renderEscStarReceipt.document, 'Render result must contain RenderedThermalDocument');
+  assert.equal(renderEscStarReceipt.document.widthDots, renderEscStarReceipt.dimensions.widthDots);
+  assert.equal(renderEscStarReceipt.document.heightDots, renderEscStarReceipt.dimensions.heightDots);
+  assert.equal(renderEscStarReceipt.document.rendererVersion, '3.11.6');
+  assert.equal(renderEscStarReceipt.pixelHash, renderEscStarReceipt.document.pixelHash);
+  assert.equal(renderEscStarReceipt.document.monochromePixels.length, renderEscStarReceipt.dimensions.widthDots * renderEscStarReceipt.dimensions.heightDots);
 
   // =========================================================================
   // TEST 10: Legacy text mode preserved and unaffected

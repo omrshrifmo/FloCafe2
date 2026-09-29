@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import * as crypto from 'node:crypto';
 import {
   DEFAULT_RASTER_MAX_BAND_HEIGHT,
   encodeWholeReceiptRaster,
@@ -10,9 +11,12 @@ import {
   type RasterSemanticUnit,
   type RasterImageTransport,
   type BrandedRasterTransport,
+  type RenderedThermalDocument,
 } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { CustomerDocumentSource, CustomerDocumentVariant, ResolvedPrintStyle } from '../../shared/print';
+
+export type { RenderedThermalDocument };
 
 export type DitheringMode = 'threshold' | 'error-diffusion';
 export type BrandedFontFamily = 'system' | 'cairo' | 'almarai';
@@ -126,11 +130,14 @@ export interface BrandedReceiptOutput {
     readonly heightDots: number;
     readonly bandCount: number;
   };
+  readonly document: RenderedThermalDocument;
+  readonly pixelHash: string;
 }
 
 export interface BrandedReceiptRenderFailure {
   readonly ok: false;
   readonly error: string;
+  readonly code?: 'font-unavailable' | 'render-failed' | 'invalid-request';
   readonly stage: 'prepare' | 'render';
   readonly renderTimeMs: number;
 }
@@ -557,17 +564,17 @@ export function buildBrandedDiagnosticRequest(options: {
 
   const isEscStar = options.transport === 'esc_star_24';
   const transportBanner = isEscStar
-    ? 'TRANSPORT: ESC * 24-DOT COMPATIBILITY / وضع التوافق ESC *\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT\nاختبار طابعة FloCafe — ليست فاتورة بيع'
-    : 'TRANSPORT: GS v 0 RASTER / نمط الصور النقطية GS v 0\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT\nاختبار طابعة FloCafe — ليست فاتورة بيع';
+    ? '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: ESC * 24-DOT COMPATIBILITY / وضع التوافق ESC *\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.6)\nاختبار طابعة FloCafe — ليست فاتورة بيع'
+    : '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: GS v 0 RASTER / نمط الصور النقطية GS v 0\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.6)\nاختبار طابعة FloCafe — ليست فاتورة بيع';
   const transportLabel = isEscStar ? 'ESC * 24-Dot Mode' : 'GS v 0 Raster Mode';
 
   const items: BrandedReceiptItem[] = [
     {
-      name: 'قهوة مختصة مقطرة V60 / Specialty Coffee',
+      name: 'قهوة مختصة مقطرة V60 / Specialty Coffee V60',
       quantity: 2,
       price: 36.00,
       unitPrice: 18.00,
-      notes: 'Arabic & Latin typography rendering test',
+      notes: 'Arabic & Latin typography rendering test / فحص الخطوط',
     },
     {
       name: 'كرواسون بالزبدة السويسرية / Croissant',
@@ -575,6 +582,13 @@ export function buildBrandedDiagnosticRequest(options: {
       price: 18.50,
       unitPrice: 18.50,
       addons: [{ name: 'إضافة مربى فراولة / Strawberry Jam', price: 3.50 }],
+    },
+    {
+      name: '◆ MID MARKER / منتصف الفحص النقطي',
+      quantity: 1,
+      price: 0.00,
+      unitPrice: 0.00,
+      notes: 'Continuous 24-dot slice alignment / محاذاة مستمرة',
     },
     {
       name: 'Cold Brew بالحليب المكثف / Iced Latte',
@@ -623,6 +637,40 @@ export function buildBrandedDiagnosticRequest(options: {
     geometry,
     ditheringMode: 'threshold',
     threshold: 128,
+    style: {
+      target: 'receipt',
+      renderMode: 'branded_raster',
+      typography: {
+        fontFamily,
+        storeNameSize: 'large',
+        headerMetaSize: 'small',
+        itemNamesSize: 'medium',
+        itemModifiersSize: 'small',
+        itemNotesSize: 'small',
+        totalsSize: 'large',
+        footerSize: 'small',
+      },
+      frame: {
+        borderStyle: 'solid',
+        borderThickness: 2,
+        borderRadius: 0,
+        borderPadding: 8,
+        dividerStyle: 'dashed',
+      },
+      logo: {
+        showLogo: Boolean(logoPayload),
+        maxWidthPercent: 60,
+        spacingBottomDots: 12,
+        alignment: 'center',
+      },
+      direction: 'rtl',
+      operational: {
+        headerCompact: false,
+        prominentNotes: false,
+        showPrices: false,
+        showTotals: false,
+      },
+    },
     header: {
       businessName: business.name || 'FloCafe POS',
       address: business.address || undefined,
@@ -633,13 +681,13 @@ export function buildBrandedDiagnosticRequest(options: {
       orderNumber: 'DIAG-RASTER-PROBE',
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
       tableName: `Printer: ${printerName} | ${transportLabel}`,
-      customerName: `Format: ${paperSpec}`,
+      customerName: `Format: ${paperSpec} | Version: 3.11.6`,
       customerPhone: `Margin: [|<-- ${widthDots} dots -->|]`,
     },
     items,
     totals,
     footer: {
-      footerNote: 'DIAGNOSTIC TEST COMPLETE — NOT A SALES RECEIPT\nانتهى اختبار الطابعة — ليست فاتورة بيع أو مطالبة مالية',
+      footerNote: 'DIAGNOSTIC TEST COMPLETE — NOT A SALES RECEIPT\nانتهى اختبار الطابعة — ليست فاتورة بيع أو مطالبة مالية\n▼ BOTTOM MARKER / نهاية الفحص النقطي',
       thankYou: `Width: ${widthDots} dots | Margin Markers: [|<-- ${widthDots} dots -->|]`,
     },
   };
@@ -918,68 +966,6 @@ const FONT_5X7: Record<string, number[]> = {
   '|': [0x00, 0x00, 0x7f, 0x00, 0x00],
 };
 
-const FONT_ARABIC: Record<string, number[]> = {
-  '\u0660': [0x00, 0x18, 0x18, 0x00, 0x00], // ٠
-  '\u0661': [0x00, 0x40, 0x7f, 0x00, 0x00], // ١
-  '\u0662': [0x00, 0x43, 0x45, 0x79, 0x01], // ٢
-  '\u0663': [0x00, 0x45, 0x55, 0x7d, 0x01], // ٣
-  '\u0664': [0x00, 0x22, 0x55, 0x2a, 0x00], // ٤
-  '\u0665': [0x00, 0x3e, 0x41, 0x3e, 0x00], // ٥
-  '\u0666': [0x00, 0x01, 0x7d, 0x05, 0x01], // ٦
-  '\u0667': [0x00, 0x03, 0x3c, 0x03, 0x00], // ٧
-  '\u0668': [0x00, 0x30, 0x0f, 0x30, 0x00], // ٨
-  '\u0669': [0x00, 0x0f, 0x11, 0x7f, 0x00], // ٩
-  '\u06F0': [0x00, 0x18, 0x18, 0x00, 0x00], // ۰
-  '\u06F1': [0x00, 0x40, 0x7f, 0x00, 0x00], // ۱
-  '\u06F2': [0x00, 0x43, 0x45, 0x79, 0x01], // ۲
-  '\u06F3': [0x00, 0x45, 0x55, 0x7d, 0x01], // ۳
-  '\u06F4': [0x00, 0x22, 0x55, 0x2a, 0x00], // ۴
-  '\u06F5': [0x00, 0x3e, 0x41, 0x3e, 0x00], // ۵
-  '\u06F6': [0x00, 0x01, 0x7d, 0x05, 0x01], // ۶
-  '\u06F7': [0x00, 0x03, 0x3c, 0x03, 0x00], // ۷
-  '\u06F8': [0x00, 0x30, 0x0f, 0x30, 0x00], // ۸
-  '\u06F9': [0x00, 0x0f, 0x11, 0x7f, 0x00], // ۹
-  'ا': [0x00, 0x00, 0x7f, 0x00, 0x00],
-  'أ': [0x00, 0x05, 0x7f, 0x00, 0x00],
-  'إ': [0x00, 0x40, 0x7f, 0x00, 0x00],
-  'آ': [0x00, 0x06, 0x7f, 0x00, 0x00],
-  'ء': [0x00, 0x26, 0x29, 0x12, 0x00],
-  'ئ': [0x22, 0x40, 0x40, 0x7e, 0x20],
-  'ؤ': [0x02, 0x38, 0x44, 0x39, 0x60],
-  'ب': [0x20, 0x40, 0x40, 0x40, 0x3f],
-  'ت': [0x05, 0x40, 0x40, 0x40, 0x3f],
-  'ث': [0x07, 0x40, 0x40, 0x40, 0x3f],
-  'ج': [0x28, 0x54, 0x54, 0x54, 0x3e],
-  'ح': [0x08, 0x54, 0x54, 0x54, 0x3e],
-  'خ': [0x09, 0x54, 0x54, 0x54, 0x3e],
-  'د': [0x00, 0x41, 0x41, 0x7e, 0x00],
-  'ذ': [0x00, 0x41, 0x43, 0x7e, 0x00],
-  'ر': [0x00, 0x01, 0x02, 0x1c, 0x60],
-  'ز': [0x00, 0x01, 0x03, 0x1c, 0x60],
-  'س': [0x45, 0x45, 0x45, 0x7f, 0x00],
-  'ش': [0x47, 0x47, 0x45, 0x7f, 0x00],
-  'ص': [0x3e, 0x49, 0x49, 0x7f, 0x00],
-  'ض': [0x3e, 0x4b, 0x49, 0x7f, 0x00],
-  'ط': [0x7f, 0x49, 0x49, 0x7f, 0x00],
-  'ظ': [0x7f, 0x4b, 0x49, 0x7f, 0x00],
-  'ع': [0x0e, 0x11, 0x11, 0x7e, 0x00],
-  'غ': [0x0f, 0x11, 0x11, 0x7e, 0x00],
-  'ف': [0x03, 0x45, 0x49, 0x7f, 0x00],
-  'ق': [0x07, 0x45, 0x49, 0x7f, 0x00],
-  'ك': [0x7f, 0x48, 0x44, 0x42, 0x00],
-  'ل': [0x00, 0x7f, 0x40, 0x30, 0x00],
-  'م': [0x38, 0x44, 0x44, 0x7f, 0x40],
-  'ن': [0x02, 0x40, 0x40, 0x7e, 0x00],
-  'ه': [0x3e, 0x2a, 0x2a, 0x3e, 0x00],
-  'ة': [0x05, 0x2a, 0x2a, 0x3e, 0x00],
-  'و': [0x38, 0x44, 0x46, 0x39, 0x60],
-  'ي': [0x20, 0x40, 0x40, 0x7e, 0x20],
-  'ى': [0x00, 0x40, 0x40, 0x7e, 0x20],
-  '،': [0x00, 0x03, 0x05, 0x00, 0x00],
-  '؛': [0x00, 0x23, 0x25, 0x00, 0x00],
-  '؟': [0x30, 0x48, 0x45, 0x40, 0x20],
-  '٪': [0x62, 0x64, 0x08, 0x13, 0x23],
-};
 
 function decodePngDataUrlToMonochrome(
   dataUrl: string,
@@ -1112,6 +1098,14 @@ export function renderBrandedReceiptSoftware(
   transportOverride?: RasterImageTransport,
 ): BrandedReceiptOutput {
   const startTime = Date.now();
+  if (request.fontFamily && request.fontFamily !== 'system') {
+    const regular = getBundledFontDataUrl(request.fontFamily, 'regular');
+    const bold = getBundledFontDataUrl(request.fontFamily, 'bold');
+    if (!regular || !bold) {
+      throw new Error(`font-unavailable: Bundled font files unavailable on disk for ${request.fontFamily}`);
+    }
+  }
+
   const width = request.widthDots || DEFAULT_RASTER_WIDTH_80MM;
   const geom = request.geometry || computeBrandedGeometry({ widthDots: width });
   const contentWidth = geom.contentWidth;
@@ -1186,13 +1180,13 @@ export function renderBrandedReceiptSoftware(
     let w = 0;
     for (let i = 0; i < str.length; i++) {
       const ch = str[i];
-      const cols = FONT_5X7[ch] || FONT_ARABIC[ch];
+      const cols = FONT_5X7[ch];
       w += (cols ? cols.length : 5) * scale + (isBold ? 2 : 1) * scale;
     }
     return w;
   };
 
-  // Helper: render text string with 5x7 ASCII and Arabic bitmap font
+  // Helper: render text string with 5x7 ASCII bitmap font
   const renderText = (
     startX: number,
     startY: number,
@@ -1211,7 +1205,7 @@ export function renderBrandedReceiptSoftware(
 
     for (let i = 0; i < str.length; i++) {
       const ch = str[i];
-      const cols = FONT_5X7[ch] || FONT_ARABIC[ch];
+      const cols = FONT_5X7[ch];
       if (cols) {
         for (let c = 0; c < cols.length; c++) {
           const colByte = cols[c];
@@ -1586,9 +1580,20 @@ export function renderBrandedReceiptSoftware(
     bands,
   };
 
-  // Generate lightweight PNG preview data URL
+  // Generate lightweight PNG preview and canonical document artifact
+  const pixelHash = crypto.createHash('sha256').update(pixels).digest('hex');
   const previewPng = createMonochromePngBuffer(width, height, pixels);
   const previewDataUrl = `data:image/png;base64,${previewPng.toString('base64')}`;
+
+  const document: RenderedThermalDocument = {
+    widthDots: width,
+    heightDots: height,
+    monochromePixels: pixels,
+    previewPng,
+    pixelHash,
+    documentKind: request.kind,
+    rendererVersion: '3.11.6',
+  };
 
   const capabilities: ThermalPrinterCapabilities = {
     encoding: { codePages: ['ascii'], preferredCodePage: 'ascii' },
@@ -1618,6 +1623,8 @@ export function renderBrandedReceiptSoftware(
       heightDots: height,
       bandCount: bands.length,
     },
+    document,
+    pixelHash,
   };
 }
 
@@ -1700,7 +1707,17 @@ export async function renderBrandedReceipt(
 ): Promise<BrandedReceiptRenderResult> {
   const startTime = Date.now();
   const transportOverride: RasterImageTransport | undefined = typeof rendererOrTransport === 'string' ? rendererOrTransport : undefined;
-  const renderer = typeof rendererOrTransport === 'object' && rendererOrTransport !== null ? rendererOrTransport : maybeRenderer;
+  let renderer = typeof rendererOrTransport === 'object' && rendererOrTransport !== null ? rendererOrTransport : maybeRenderer;
+
+  if (!renderer) {
+    try {
+      const { getSharedRasterRenderer } = require('./raster-renderer');
+      renderer = getSharedRasterRenderer();
+    } catch {
+      // Renderer unavailable in current environment
+    }
+  }
+
   const transport: RasterImageTransport = transportOverride || resolveRasterTransport(request.transport);
 
   try {
@@ -1729,7 +1746,41 @@ export async function renderBrandedReceipt(
       clearTimeout(warnTimer);
       clearTimeout(timerId!);
 
-      if (result && result.ok === true && result.unit) {
+      if (result && result.ok === false) {
+        if (result.code === 'font-unavailable') {
+          return {
+            ok: false,
+            code: 'font-unavailable',
+            error: result.detail || 'Font unavailable',
+            stage: 'render',
+            renderTimeMs: Date.now() - startTime,
+          };
+        }
+        console.warn(`[Branded Receipt] Renderer returned error: ${result?.detail || 'unknown'}. Falling back to software compositor.`);
+      } else if (result && result.ok === true && result.unit) {
+        const widthDots = request.widthDots;
+        const totalHeight = result.unit.bands.reduce((sum: number, b: RasterBand) => sum + b.heightDots, 0);
+        const fullPixels = new Uint8Array(widthDots * totalHeight);
+        let offset = 0;
+        for (const band of result.unit.bands) {
+          fullPixels.set(band.pixels, offset);
+          offset += band.pixels.length;
+        }
+
+        const pixelHash = crypto.createHash('sha256').update(fullPixels).digest('hex');
+        const previewPng = createMonochromePngBuffer(widthDots, totalHeight, fullPixels);
+        const previewDataUrl = `data:image/png;base64,${previewPng.toString('base64')}`;
+
+        const document: RenderedThermalDocument = {
+          widthDots,
+          heightDots: totalHeight,
+          monochromePixels: fullPixels,
+          previewPng,
+          pixelHash,
+          documentKind: request.kind,
+          rendererVersion: '3.11.6',
+        };
+
         const capabilities: ThermalPrinterCapabilities = {
           encoding: { codePages: ['ascii'], preferredCodePage: 'ascii' },
           shaping: { arabic: true },
@@ -1749,26 +1800,29 @@ export async function renderBrandedReceipt(
           ok: true,
           unit: result.unit,
           rasterBytes,
-          previewDataUrl: result.previewDataUrl,
+          previewDataUrl,
           renderTimeMs: Date.now() - startTime,
           dimensions: {
             widthDots: request.widthDots,
-            heightDots: result.unit.bands.reduce((sum: number, b: RasterBand) => sum + b.heightDots, 0),
+            heightDots: totalHeight,
             bandCount: result.unit.bands.length,
           },
+          document,
+          pixelHash,
         };
       }
-
-      console.warn(`[Branded Receipt] Renderer returned error: ${result?.detail || 'unknown'}. Falling back to software compositor.`);
     }
 
     // Default: use software compositor (100% reliable, zero native dependencies)
     const output = renderBrandedReceiptSoftware(request, transport);
     return output;
   } catch (error: any) {
+    const errorMsg = error?.message || String(error);
+    const isFontUnavailable = errorMsg.includes('font-unavailable');
     return {
       ok: false,
-      error: error?.message || String(error),
+      code: isFontUnavailable ? 'font-unavailable' : 'render-failed',
+      error: errorMsg,
       stage: 'render',
       renderTimeMs: Date.now() - startTime,
     };

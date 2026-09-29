@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. 点击“打印 GS v 0 品牌测试”。",
     "transportHelperStep2": "2. 点击“打印 ESC * 兼容测试”。",
     "transportHelperStep3": "3. 检查打印结果，选择没有乱码且清晰的传输模式。",
-    "transportHelperStep4": "4. 保存设置以应用到所有收据和厨房小票。"
+    "transportHelperStep4": "4. 保存设置以应用到所有收据和厨房小票。",
+    "brandedRasterTransportStatusNote": "品牌打印使用与预览完全一致的完整位图。传输模式仅改变位图发送到打印机的方式。"
   },
   "setup": {
     "alreadyCompleted": "此安装已完成设置。正在跳转到登录…",

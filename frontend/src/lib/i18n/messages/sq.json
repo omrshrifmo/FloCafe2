@@ -2127,7 +2127,8 @@
     "transportHelperStep1": "1. Klikoni 'Printo provën e markës GS v 0'.",
     "transportHelperStep2": "2. Klikoni 'Printo provën e përputhshmërisë ESC *'.",
     "transportHelperStep3": "3. Kontrolloni fletët e printuara dhe zgjidhni mënyrën që printoi pa gabime.",
-    "transportHelperStep4": "4. Ruani për ta zbatuar në të gjitha faturat dhe porositë."
+    "transportHelperStep4": "4. Ruani për ta zbatuar në të gjitha faturat dhe porositë.",
+    "brandedRasterTransportStatusNote": "Printimi me markë përdor një hartë bitesh të plotë të përputhur me pamjen paraprake. Mënyra e transmetimit ndryshon vetëm mënyrën e dërgimit te printeri."
   },
   "setup": {
     "alreadyCompleted": "Konfigurimi në këtë instalim është përfunduar. Po ridrejtohemi te hyrja...",
