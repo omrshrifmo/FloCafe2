@@ -60,7 +60,10 @@ function executeWorkflowStep(step: any, options: {
   fakeNodeVersion?: string;
   fakeCommands?: Record<string, string>;
 } = {}): { status: number | null; stdout: string; stderr: string; outputs: Record<string, string>; log: string } {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flocafe-release-config-'));
+  const tempBase = fs.existsSync(path.join(__dirname, '../dist'))
+    ? path.join(__dirname, '../dist')
+    : path.join(__dirname, '..');
+  const tempDir = fs.mkdtempSync(path.join(tempBase, '.tmp-flocafe-release-config-'));
   const binDir = path.join(tempDir, 'bin');
   const outputPath = path.join(tempDir, 'github-output');
   const logPath = path.join(tempDir, 'commands.log');
@@ -240,18 +243,19 @@ function run() {
   assertShellStep(masJob, 'Validate MAS release provenance');
   assert.equal(masProvenance.env.GH_TOKEN, '${{ github.token }}');
   assert.equal(masProvenance.env.RELEASE_TAG, '${{ inputs.release_tag }}');
+  const releaseCandidateTag = pkg.version;
   const masProvenanceExecution = executeWorkflowStep(masProvenance, {
-    env: { RELEASE_REF_NAME: '3.4.0', RELEASE_REF_TYPE: 'tag', RELEASE_TAG: '3.4.0' },
+    env: { RELEASE_REF_NAME: releaseCandidateTag, RELEASE_REF_TYPE: 'tag', RELEASE_TAG: releaseCandidateTag },
     expressions: { 'github.repository': 'FreeOpenSourcePOS/FloCafe', 'github.sha': 'a'.repeat(40) },
     fakeCommands: { node: captureNodeArgs },
   });
   assert.equal(masProvenanceExecution.status, 0, masProvenanceExecution.stderr);
   assert.equal(
     masProvenanceExecution.log.trim(),
-    `node scripts/release-gate/validate-release-ref.cjs --repo FreeOpenSourcePOS/FloCafe --tag 3.4.0 --commit ${'a'.repeat(40)} --main-ref main`,
+    `node scripts/release-gate/validate-release-ref.cjs --repo FreeOpenSourcePOS/FloCafe --tag ${releaseCandidateTag} --commit ${'a'.repeat(40)} --main-ref main`,
   );
   const masBranchExecution = executeWorkflowStep(masProvenance, {
-    env: { RELEASE_REF_NAME: 'main', RELEASE_REF_TYPE: 'branch', RELEASE_TAG: '3.4.0' },
+    env: { RELEASE_REF_NAME: 'main', RELEASE_REF_TYPE: 'branch', RELEASE_TAG: releaseCandidateTag },
     expressions: { 'github.repository': 'FreeOpenSourcePOS/FloCafe', 'github.sha': 'a'.repeat(40) },
     fakeCommands: { node: captureNodeArgs },
   });
@@ -275,14 +279,14 @@ function run() {
   assert.equal(validateProvenance.env.GH_TOKEN, '${{ github.token }}');
   assert.equal(validateProvenance.env.RELEASE_TAG, '${{ steps.release-metadata.outputs.tag }}');
   const validateProvenanceExecution = executeWorkflowStep(validateProvenance, {
-    env: { RELEASE_TAG: '3.4.0' },
+    env: { RELEASE_TAG: releaseCandidateTag },
     expressions: { 'github.repository': 'FreeOpenSourcePOS/FloCafe', 'github.sha': 'a'.repeat(40) },
     fakeCommands: { node: captureNodeArgs },
   });
   assert.equal(validateProvenanceExecution.status, 0, validateProvenanceExecution.stderr);
   assert.equal(
     validateProvenanceExecution.log.trim(),
-    `node scripts/release-gate/validate-release-ref.cjs --repo FreeOpenSourcePOS/FloCafe --tag 3.4.0 --commit ${'a'.repeat(40)} --main-ref main`,
+    `node scripts/release-gate/validate-release-ref.cjs --repo FreeOpenSourcePOS/FloCafe --tag ${releaseCandidateTag} --commit ${'a'.repeat(40)} --main-ref main`,
   );
   assert.deepEqual(Object.keys(createRelease.outputs).sort(), ['channel', 'make_latest', 'manifest_prefix', 'prerelease', 'promotion_only', 'version']);
   assert.deepEqual(triggers.workflow_dispatch.inputs.channel.options, ['stable', 'beta'],

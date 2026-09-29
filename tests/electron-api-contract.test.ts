@@ -80,7 +80,7 @@ async function run(): Promise<void> {
     'dbInitialize', 'getAppInfo', 'getApplicationMenu', 'getBetaChannel', 'getDailySummary', 'getKdsInfo',
     'getLogTail', 'getMasterPinStatus', 'getPrinters', 'getSettings', 'getStatus', 'getUpdateStatus',
     'getWindowState', 'onMenuAction', 'onUpdateStatus', 'onWindowStateChanged', 'openApplicationMenu', 'openKdsWindow', 'openWhatsAppShare', 'platform', 'reportRendererError', 'restartAndInstall',
-    'rasterizeKotDocument', 'rasterizePrintDocument', 'restoreBackup', 'savePrinter', 'setBetaChannel', 'setSetting', 'setThemeEffective',
+    'rasterizeKotDocument', 'rasterizePrintDocument', 'restoreBackup', 'savePrinter', 'setApplicationMenuLocale', 'setBetaChannel', 'setSetting', 'setThemeEffective',
     'windowAction', 'windowReady',
   ].sort());
 
@@ -147,7 +147,7 @@ async function run(): Promise<void> {
     { channel: 'get-window-state', args: [] },
     { channel: 'whatsapp-open-share', args: ['https://wa.me/15555550100?text=test'] },
     { channel: 'report-renderer-error', args: [{ message: 'boom', stack: 'stack', digest: 'd1', route: '/dashboard' }] },
-    { channel: 'get-application-menu', args: [] },
+    { channel: 'get-application-menu', args: [undefined] },
     { channel: 'open-application-menu', args: ['0', 12, 0] },
   ]);
 

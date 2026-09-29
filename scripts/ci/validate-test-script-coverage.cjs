@@ -12,6 +12,7 @@ const TEST_EXCLUSIONS = {
   'test:e2e': 'Alias for the dedicated browser Playwright job.',
   'test:upgrade-regression': 'Alias of test:upgrade-path, which is in the default suite.',
   'test:currency-split': 'Subset alias already executed by test:currency in the default suite.',
+  'test:branded-raster-transport': 'Subset alias already executed inline by test:receipt-branding in the default suite.',
 };
 
 // Suite files that a real script runs but that `pretest`/`test` does not reach.
