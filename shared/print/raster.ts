@@ -303,6 +303,39 @@ export function encodeEscStar24Document(
 }
 
 /**
+ * Applies horizontal thermal ink-gain (dot expansion) to a 1-bit per byte pixel buffer.
+ *
+ * Each non-zero pixel (black dot) is expanded rightwards by inkGainDots (clamped to 0..2).
+ * This widens vertical stems and diagonal strokes on thermal printheads without closing
+ * Arabic loops ('م', 'و', 'ه', 'ص') or bleeding vertically between rows.
+ */
+export function applyThermalInkGain(
+  widthDots: number,
+  heightDots: number,
+  pixels: Uint8Array,
+  inkGainDots = 0,
+): Uint8Array {
+  const gain = Math.max(0, Math.min(2, Math.round(inkGainDots)));
+  if (gain === 0) return new Uint8Array(pixels);
+
+  const out = new Uint8Array(pixels.length);
+  for (let y = 0; y < heightDots; y++) {
+    const rowOffset = y * widthDots;
+    for (let x = 0; x < widthDots; x++) {
+      if (pixels[rowOffset + x] === 1) {
+        out[rowOffset + x] = 1;
+        for (let g = 1; g <= gain; g++) {
+          if (x + g < widthDots) {
+            out[rowOffset + x + g] = 1;
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Encodes a complete RenderedThermalDocument using the chosen transport (gs_v_0 or esc_star_24)
  * followed by standard feed and cut commands.
  */

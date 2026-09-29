@@ -90,6 +90,7 @@ export interface BrandedReceiptRequest {
   readonly geometry: BrandedGeometry;
   readonly ditheringMode: DitheringMode;
   readonly threshold: number;
+  readonly inkGain?: number;
   readonly header: {
     readonly businessName: string;
     readonly address?: string;
@@ -397,6 +398,8 @@ export function buildBrandedReceiptRequest(options: {
   requestId?: string;
   documentVariant?: CustomerDocumentVariant;
   source?: CustomerDocumentSource;
+  style?: ResolvedPrintStyle;
+  inkGain?: number;
   transport?: BrandedRasterTransport;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? DEFAULT_RASTER_WIDTH_80MM;
@@ -499,8 +502,10 @@ export function buildBrandedReceiptRequest(options: {
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     logo: logoPayload,
     geometry,
-    ditheringMode: options.ditheringMode ?? 'threshold',
-    threshold: options.threshold ?? 128,
+    style: options.style,
+    ditheringMode: options.ditheringMode ?? options.style?.contrast?.ditheringMode ?? 'threshold',
+    threshold: options.threshold ?? options.style?.contrast?.threshold ?? 140,
+    inkGain: options.inkGain ?? options.style?.contrast?.inkGain ?? 0,
     header: {
       businessName: business.name || 'FloCafe',
       address: business.address || undefined,
@@ -542,6 +547,9 @@ export function buildBrandedDiagnosticRequest(options: {
   logoAsset?: BrandedLogoAsset | null;
   requestId?: string;
   transport?: BrandedRasterTransport;
+  threshold?: number;
+  inkGain?: number;
+  style?: ResolvedPrintStyle;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
   const geometry = computeBrandedGeometry({ widthDots });
@@ -564,8 +572,8 @@ export function buildBrandedDiagnosticRequest(options: {
 
   const isEscStar = options.transport === 'esc_star_24';
   const transportBanner = isEscStar
-    ? '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: ESC * 24-DOT COMPATIBILITY / وضع التوافق ESC *\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.7)\nاختبار طابعة FloCafe — ليست فاتورة بيع'
-    : '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: GS v 0 RASTER / نمط الصور النقطية GS v 0\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.7)\nاختبار طابعة FloCafe — ليست فاتورة بيع';
+    ? '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: ESC * 24-DOT COMPATIBILITY / وضع التوافق ESC *\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.8)\nاختبار طابعة FloCafe — ليست فاتورة بيع'
+    : '▲ TOP MARKER / بداية الفحص النقطي\nTRANSPORT: GS v 0 RASTER / نمط الصور النقطية GS v 0\nFLOCAFE PRINTER DIAGNOSTIC — NOT A SALES RECEIPT (v3.11.8)\nاختبار طابعة FloCafe — ليست فاتورة بيع';
   const transportLabel = isEscStar ? 'ESC * 24-Dot Mode' : 'GS v 0 Raster Mode';
 
   const items: BrandedReceiptItem[] = [
@@ -636,8 +644,9 @@ export function buildBrandedDiagnosticRequest(options: {
     logo: logoPayload,
     geometry,
     ditheringMode: 'threshold',
-    threshold: 128,
-    style: {
+    threshold: options.threshold ?? options.style?.contrast?.threshold ?? 160,
+    inkGain: options.inkGain ?? options.style?.contrast?.inkGain ?? 1,
+    style: options.style ?? {
       target: 'receipt',
       renderMode: 'branded_raster',
       typography: {
@@ -670,6 +679,12 @@ export function buildBrandedDiagnosticRequest(options: {
         showPrices: false,
         showTotals: false,
       },
+      contrast: {
+        densityPreset: 'dark',
+        threshold: 160,
+        inkGain: 1,
+        ditheringMode: 'threshold',
+      },
     },
     header: {
       businessName: business.name || 'FloCafe POS',
@@ -681,7 +696,7 @@ export function buildBrandedDiagnosticRequest(options: {
       orderNumber: 'DIAG-RASTER-PROBE',
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
       tableName: `Printer: ${printerName} | ${transportLabel}`,
-      customerName: `Format: ${paperSpec} | Version: 3.11.7`,
+      customerName: `Format: ${paperSpec} | Version: 3.11.8`,
       customerPhone: `Margin: [|<-- ${widthDots} dots -->|]`,
     },
     items,
@@ -706,6 +721,8 @@ export function buildBrandedKotRequest(options: {
   logoAsset?: BrandedLogoAsset | null;
   style?: ResolvedPrintStyle;
   transport?: BrandedRasterTransport;
+  threshold?: number;
+  inkGain?: number;
   requestId?: string;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
@@ -769,8 +786,9 @@ export function buildBrandedKotRequest(options: {
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     logo: logoPayload,
     geometry,
-    ditheringMode: 'threshold',
-    threshold: 128,
+    ditheringMode: options.style?.contrast?.ditheringMode ?? 'threshold',
+    threshold: options.threshold ?? options.style?.contrast?.threshold ?? 140,
+    inkGain: options.inkGain ?? options.style?.contrast?.inkGain ?? 0,
     header: {
       businessName: options.stationName || 'Kitchen',
       banner: 'تذكرة طلب المطبخ / Kitchen Order Ticket',
@@ -800,7 +818,10 @@ export function buildBrandedReportRequest(options: {
   printer?: any;
   widthDots?: number;
   fontFamily?: BrandedFontFamily;
+  style?: ResolvedPrintStyle;
   transport?: BrandedRasterTransport;
+  threshold?: number;
+  inkGain?: number;
   requestId?: string;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
@@ -851,8 +872,10 @@ export function buildBrandedReportRequest(options: {
     fontFamily,
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     geometry,
-    ditheringMode: 'threshold',
-    threshold: 128,
+    style: options.style,
+    ditheringMode: options.style?.contrast?.ditheringMode ?? 'threshold',
+    threshold: options.threshold ?? options.style?.contrast?.threshold ?? 140,
+    inkGain: options.inkGain ?? options.style?.contrast?.inkGain ?? 0,
     header: {
       businessName: business.name || 'FloCafe',
       banner: options.title || 'FINANCIAL REPORT / تقرير مالي',
