@@ -35,9 +35,11 @@ const originalResolveFilename = moduleApi._resolveFilename;
 moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
   const resolvedRequest = request === '@countries'
     ? path.resolve(ROOT, 'main/countries.ts')
-    : request.startsWith('@/')
-      ? path.resolve(ROOT, 'frontend/src', request.slice(2))
-      : request;
+    : request.startsWith('@print/')
+      ? path.resolve(ROOT, 'shared/print', request.slice('@print/'.length))
+      : request.startsWith('@/')
+        ? path.resolve(ROOT, 'frontend/src', request.slice(2))
+        : request;
   return originalResolveFilename.call(this, resolvedRequest, parent, isMain, options);
 };
 const React = frontendRequire('react');
@@ -277,8 +279,9 @@ async function runModalKeypadIntegrationTests() {
     itemCount: () => 0,
   };
   const currentTenant = { currency: 'JPY', country: 'JP' };
+  const FRONTEND_SRC = path.resolve(ROOT, 'frontend/src');
   const mocks: Record<string, unknown> = {
-    'lucide-react': { X: Icon, Wallet: Icon, ArrowLeftRight: Icon, CheckCircle2: Icon, Sparkles: Icon, User: Icon, Percent: Icon, Send: Icon, ChevronDown: Icon, Banknote: Icon, CreditCard: Icon },
+    'lucide-react': { X: Icon, Wallet: Icon, ArrowLeftRight: Icon, CheckCircle2: Icon, Sparkles: Icon, User: Icon, Percent: Icon, Send: Icon, ChevronDown: Icon, Banknote: Icon, CreditCard: Icon, Printer: Icon },
     '@/components/ui/button': {
       Button: ({ children, variant: _variant, size: _size, ...props }: any) => React.createElement('button', props, children),
     },
@@ -286,8 +289,9 @@ async function runModalKeypadIntegrationTests() {
     '@/lib/api': { __esModule: true, default: { get: async () => ({ data: {} }), patch: async () => ({ data: {} }) } },
     'react-hot-toast': { __esModule: true, default: { success: () => undefined, error: () => undefined } },
     '@/lib/printer/tax-components': { resolveTaxComponents: () => [] },
-    '@/store/cart': { useCartStore: (selector?: (state: typeof cart) => unknown) => selector ? selector(cart) : cart },
+    '@/store/cart': { useCartStore: (selector?: (state: typeof cart) => unknown) => selector ? selector(cart) : cart, buildActiveCartPayload: () => ({}) },
     '@/hooks/use-confirm': { useConfirm: () => ({ confirm: async () => true, ConfirmDialog: null }) },
+    '@/hooks/usePrinter': { usePrinterStore: (selector?: (s: any) => unknown) => { const s = { printPreliminaryReceipt: async () => undefined }; return selector ? selector(s) : s; } },
     'use-intl': { useTranslations: () => translate, useLocale: () => 'en-US' },
     '@/lib/payment-methods': { PAYMENT_METHODS: [{ key: 'cash', icon: Icon }, { key: 'card', icon: Icon }] },
     '@/hooks/useFormatCurrency': { useFormatCurrency: () => (amount: number) => String(amount) },
@@ -298,11 +302,29 @@ async function runModalKeypadIntegrationTests() {
     '@/store/auth': { useAuthStore: () => ({ currentTenant }) },
     '@/hooks/use-tax-preview': { useTaxPreview: () => ({ tax: null, loading: false, error: null }) },
     '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
+    '@/lib/countries': { getCountryByCode: () => null, getCurrencyMinorUnitFactor: () => 1 },
+    '@/lib/discount-settings': {
+      defaultDiscountTypeForMode: () => 'percentage',
+      isDiscountTypeAllowed: () => true,
+      normalizeDiscountMode: (m: string) => m,
+    },
+    '@/lib/payment-idempotency': { createPaymentIdempotencyKey: () => 'test-key' },
   };
+
+  // Build absolute-path keyed lookup so the hook works after @/… aliases are resolved.
+  const absoluteMocks: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(mocks)) {
+    absoluteMocks[key] = value;
+    if (key.startsWith('@/')) {
+      const absKey = path.resolve(FRONTEND_SRC, key.slice(2));
+      absoluteMocks[absKey] = value;
+    }
+  }
+
   const originalLoad = moduleApi._load;
   const originalUseState = React.useState;
   moduleApi._load = function (request: string, parent: any, isMain: boolean) {
-    if (request in mocks) return mocks[request];
+    if (request in absoluteMocks) return absoluteMocks[request];
     return originalLoad.call(this, request, parent, isMain);
   };
 
