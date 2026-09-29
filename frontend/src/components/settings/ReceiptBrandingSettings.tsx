@@ -18,6 +18,7 @@ import {
   Info,
   Sliders,
   Maximize2,
+  ChevronDown,
 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
@@ -97,6 +98,9 @@ export function ReceiptBrandingSettings({
   const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewPixelHash, setPreviewPixelHash] = useState<string | null>(null);
+  const [legacyCodePage, setLegacyCodePage] = useState<string>('default');
+  const [showAdvancedLegacy, setShowAdvancedLegacy] = useState<boolean>(false);
   const [receiptData, setReceiptData] = useState<ReceiptPreviewData | null>(null);
   const [kotData, setKotData] = useState<KotPreviewData | null>(null);
   const [sampleText, setSampleText] = useState<string | null>(null);
@@ -245,6 +249,16 @@ export function ReceiptBrandingSettings({
       } finally {
         if (!ignore) setLoadingLogo(false);
       }
+
+      // Fetch legacy code page from settings
+      try {
+        const sRes = await api.get('/settings');
+        if (!ignore && sRes.data?.settings?.legacy_code_page) {
+          setLegacyCodePage(sRes.data.settings.legacy_code_page);
+        }
+      } catch {
+        // Non-fatal fallback
+      }
     }, 0);
 
     return () => {
@@ -253,16 +267,17 @@ export function ReceiptBrandingSettings({
     };
   }, []);
 
-  // Fetch live preview from backend route whenever preferences, active doc, script, or paper width change
+  // Fetch live preview from backend route whenever preferences, active doc, script, view mode, or paper width change
   useEffect(() => {
     let ignore = false;
     const timer = setTimeout(async () => {
       try {
         setPreviewLoading(true);
         setPreviewError(null);
+        const targetDocType = previewViewMode === 'diagnostic' ? 'diagnostic' : activeDoc;
         const res = await api.get('/settings/receipt-preview', {
           params: {
-            document_type: activeDoc,
+            document_type: targetDocType,
             language: previewScript,
             paper_width: is58mm ? '58mm' : '80mm',
             style_preferences: JSON.stringify(currentPrefs),
@@ -272,6 +287,7 @@ export function ReceiptBrandingSettings({
         if (ignore) return;
         if (res.data?.success) {
           setPreviewImageUrl(res.data.preview_image_url || null);
+          setPreviewPixelHash(res.data.pixel_hash || null);
           setReceiptData(res.data.receipt_data || null);
           setKotData(res.data.kot_data || null);
           setSampleText(res.data.sample_text || null);
@@ -294,10 +310,21 @@ export function ReceiptBrandingSettings({
   }, [
     activeDoc,
     previewScript,
+    previewViewMode,
     is58mm,
     currentPrefs,
     refreshCount,
   ]);
+
+  const handleSelectLegacyCodePage = async (codePageId: string) => {
+    setLegacyCodePage(codePageId);
+    try {
+      await api.put('/settings/legacy_code_page', { value: codePageId });
+      toast.success(t('printerUpdated') || 'Legacy code page updated');
+    } catch {
+      toast.error('Failed to update legacy code page');
+    }
+  };
 
   // Upload store logo
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1163,6 +1190,75 @@ export function ReceiptBrandingSettings({
                 💡 <strong>WebUSB Printer Notice:</strong> WebUSB communicates directly with browser sessions (via the POS toolbar Connect button). For desktop test prints, use <strong>Print / Save as PDF</strong> above, or configure a <strong>USB</strong> / <strong>Network</strong> printer in Settings &gt; Printers.
               </div>
             )}
+
+            {/* ADVANCED: LEGACY ESC/POS TEXT COMPATIBILITY */}
+            <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedLegacy((prev) => !prev)}
+                className="w-full flex items-center justify-between text-left cursor-pointer"
+              >
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <Sliders size={15} className="text-muted-foreground" />
+                    Advanced → Legacy ESC/POS Text Compatibility
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Emergency hardware code page fallback for plain unbranded text printing only.
+                  </p>
+                </div>
+                <ChevronDown
+                  size={16}
+                  className={`text-muted-foreground transition-transform ${showAdvancedLegacy ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {showAdvancedLegacy && (
+                <div className="pt-2 border-t border-border space-y-3">
+                  {activeResolvedStyle.renderMode === 'branded_raster' ? (
+                    <div className="text-[11px] text-muted-foreground bg-muted/40 border border-border rounded-lg p-3 leading-relaxed">
+                      ℹ️ <strong>Disabled in Branded Raster Mode:</strong> Legacy code pages (PC864, PC720, WPC1256) are emergency unbranded text fallback choices only. They are inactive while Full-Page Branded Raster is selected because FloCafe renders full Unicode-aware pages with native fonts directly to raster bitmap, without using printer text code pages.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Select the exclusive hardware code page for legacy ESC/POS text printing:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {[
+                          { id: 'default', label: 'Printer Default', desc: 'Standard ASCII / Auto' },
+                          { id: 'pc864', label: 'PC864 (Arabic)', desc: 'Standard 8-bit Arabic codepage' },
+                          { id: 'pc720', label: 'PC720 (Arabic)', desc: 'MS-DOS Arabic codepage' },
+                          { id: 'wpc1256', label: 'WPC1256 (Windows Arabic)', desc: 'Windows-1256 codepage' },
+                        ].map((cp) => (
+                          <label
+                            key={cp.id}
+                            className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                              legacyCodePage === cp.id
+                                ? 'border-brand bg-brand/5 text-foreground'
+                                : 'border-border hover:bg-muted/30 text-muted-foreground'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="legacyCodePage"
+                              value={cp.id}
+                              checked={legacyCodePage === cp.id}
+                              onChange={() => handleSelectLegacyCodePage(cp.id)}
+                              className="mt-0.5 text-brand focus:ring-brand"
+                            />
+                            <div className="text-xs">
+                              <div className="font-semibold text-foreground">{cp.label}</div>
+                              <div className="text-[10px] text-muted-foreground">{cp.desc}</div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1281,19 +1377,25 @@ export function ReceiptBrandingSettings({
                 <AlertCircle size={24} />
                 <span className="text-xs">{previewError}</span>
               </div>
-            ) : previewViewMode === 'raster' ? (
-              /* Backend 1-bit ESC/POS Raster Preview */
+            ) : activeResolvedStyle.renderMode === 'branded_raster' || previewViewMode === 'raster' || (previewViewMode === 'diagnostic' && previewImageUrl) ? (
+              /* Canonical Full-Page 1-Bit Rendered Bitmap Preview */
               <div className="w-full flex flex-col items-center font-sans">
                 {previewImageUrl ? (
                   <>
                     <img
                       src={previewImageUrl}
-                      alt="Raster Preview"
-                      className="w-full h-auto object-contain border border-gray-200 rounded"
+                      alt="Canonical Rendered Preview"
+                      className="w-full h-auto object-contain border border-gray-200 rounded shadow-xs"
                     />
-                    <p className="text-[10px] text-gray-500 text-center mt-2 font-mono">
-                      1-bit monochrome ESC/POS raster output
-                    </p>
+                    <div className="w-full mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+                      <span>{is58mm ? '384 dots' : '576 dots'}</span>
+                      {previewPixelHash && (
+                        <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-700" title={`SHA-256: ${previewPixelHash}`}>
+                          Hash: {previewPixelHash.slice(0, 8)}
+                        </span>
+                      )}
+                      <span>Branded Raster</span>
+                    </div>
                   </>
                 ) : (
                   <div className="py-16 text-center text-xs text-gray-400">

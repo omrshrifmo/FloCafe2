@@ -41,6 +41,16 @@ export interface RasterSemanticUnit {
   readonly bands: readonly RasterBand[];
 }
 
+export type ThermalDocumentKind =
+  | 'receipt'
+  | 'preliminary'
+  | 'kot'
+  | 'financial_report'
+  | 'diagnostic'
+  | 'branded-receipt'
+  | 'branded-kot'
+  | 'branded-report';
+
 /**
  * Canonical visual document artifact produced by the unified raster renderer.
  * Both visual preview and physical printer payloads consume the exact same
@@ -49,12 +59,15 @@ export interface RasterSemanticUnit {
 export interface RenderedThermalDocument {
   readonly widthDots: number;
   readonly heightDots: number;
-  readonly rgbaPixels?: Uint8Array;
+  readonly monochromeBitmap: Uint8Array;
   readonly monochromePixels: Uint8Array;
   readonly previewPng: Buffer;
   readonly pixelHash: string;
-  readonly documentKind: 'branded-receipt' | 'branded-kot' | 'branded-report';
-  readonly rendererVersion: string;
+  readonly rendererId: string;
+  readonly selectedFontSet: string[];
+  readonly documentKind: ThermalDocumentKind;
+  readonly rendererVersion?: string;
+  readonly rgbaPixels?: Uint8Array;
 }
 
 export interface RasterSemanticLineGroup {
@@ -171,6 +184,42 @@ export function encodeGsV0Band(band: RasterBand, maxBandHeight = DEFAULT_RASTER_
 }
 
 /**
+ * Encode a full monochrome pixel buffer using sequential GS v 0 raster bands.
+ *
+ * Slices the full document into horizontal bands <= maxBandHeight, emitting
+ * standard GS v 0 commands in strict top-to-bottom visual order with NO intermediate
+ * line feeds, resets, or gaps.
+ */
+export function encodeGsV0Document(
+  widthDots: number,
+  heightDots: number,
+  pixels: Uint8Array,
+  maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT,
+): Uint8Array {
+  if (!Number.isSafeInteger(widthDots) || widthDots <= 0 || widthDots > MAX_RASTER_WIDTH_DOTS) {
+    throw new Error('Raster width must be a positive integer within valid limits');
+  }
+  if (!Number.isSafeInteger(heightDots) || heightDots <= 0) {
+    throw new Error('Raster height must be a positive integer');
+  }
+  if (pixels.length !== widthDots * heightDots) {
+    throw new Error('Raster pixels must contain one value per pixel');
+  }
+
+  const parts: Uint8Array[] = [];
+  // Initialize printer: ESC @ (0x1B, 0x40)
+  parts.push(new Uint8Array([0x1B, 0x40]));
+
+  for (let offset = 0; offset < heightDots; offset += maxBandHeight) {
+    const bandHeight = Math.min(maxBandHeight, heightDots - offset);
+    const bandPixels = pixels.subarray(offset * widthDots, (offset + bandHeight) * widthDots);
+    parts.push(encodeGsV0Band({ widthDots, heightDots: bandHeight, pixels: bandPixels }, maxBandHeight));
+  }
+
+  return concatBytes(parts);
+}
+
+/**
  * Encode a full monochrome pixel buffer using ESC * m=33 (24-dot double density).
  *
  * Slices vertically only at 24-dot boundaries across the entire document height in
@@ -198,9 +247,8 @@ export function encodeEscStar24Document(
   const nH = (widthDots >> 8) & 0xFF;
   const parts: Uint8Array[] = [];
 
-  // Reset alignment to left: ESC a 0 (0x1B, 0x61, 0x00)
-  // Set line spacing to 24 dots: ESC 3 24 (0x1B, 0x33, 0x18)
-  parts.push(new Uint8Array([0x1B, 0x61, 0x00, 0x1B, 0x33, 24]));
+  // Reset printer, alignment to left, set line spacing to 24 dots: ESC @ ESC a 0 ESC 3 24
+  parts.push(new Uint8Array([0x1B, 0x40, 0x1B, 0x61, 0x00, 0x1B, 0x33, 24]));
 
   for (let sliceY = 0; sliceY < heightDots; sliceY += 24) {
     const sliceHeight = Math.min(24, heightDots - sliceY);
@@ -252,6 +300,26 @@ export function encodeEscStar24Document(
   parts.push(new Uint8Array([0x1B, 0x32, 0x1B, 0x61, 0x00]));
 
   return concatBytes(parts);
+}
+
+/**
+ * Encodes a complete RenderedThermalDocument using the chosen transport (gs_v_0 or esc_star_24)
+ * followed by standard feed and cut commands.
+ */
+export function encodeCanonicalDocumentToRaster(
+  document: RenderedThermalDocument,
+  transport: RasterImageTransport = 'gs_v_0',
+  cutMode: 'full' | 'partial' = 'full',
+  maxBandHeight = DEFAULT_RASTER_MAX_BAND_HEIGHT,
+): Uint8Array {
+  const bitmap = document.monochromeBitmap || document.monochromePixels;
+  let rasterBytes: Uint8Array;
+  if (transport === 'esc_star_24') {
+    rasterBytes = encodeEscStar24Document(document.widthDots, document.heightDots, bitmap);
+  } else {
+    rasterBytes = encodeGsV0Document(document.widthDots, document.heightDots, bitmap, maxBandHeight);
+  }
+  return concatBytes([rasterBytes, encodeRasterFeedAndCut(cutMode)]);
 }
 
 /**

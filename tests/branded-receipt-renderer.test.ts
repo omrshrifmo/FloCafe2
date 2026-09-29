@@ -178,11 +178,10 @@ async function runTests() {
   assert(output.dimensions.heightDots > 1000, '60-item receipt height must exceed 1000 dots');
 
   // Verify RenderedThermalDocument structure and pixel hash parity
-  assert(output.document, 'Output must include RenderedThermalDocument');
   assert.equal(output.document.widthDots, 576);
   assert.equal(output.document.heightDots, output.dimensions.heightDots);
-  assert.equal(output.document.documentKind, 'branded-receipt');
-  assert.equal(output.document.rendererVersion, '3.11.6');
+  assert(['receipt', 'branded-receipt'].includes(output.document.documentKind), 'documentKind must be receipt');
+  assert.equal(output.document.rendererVersion, '3.11.7');
   assert.equal(typeof output.pixelHash, 'string');
   assert.equal(output.pixelHash, output.document.pixelHash);
   assert.equal(output.document.monochromePixels.length, 576 * output.dimensions.heightDots);

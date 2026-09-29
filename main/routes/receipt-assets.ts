@@ -103,6 +103,7 @@ receiptAssetsRouter.get(
     const {
       renderBrandedReceipt,
       buildBrandedKotRequest,
+      buildBrandedDiagnosticRequest,
       computeBrandedGeometry,
       resolveBundledFontList,
       DEFAULT_RASTER_MAX_BAND_HEIGHT,
@@ -182,6 +183,33 @@ receiptAssetsRouter.get(
             { name: 'كرواسون زعتر / Zaatar Croissant', quantity: 2, price: 24.0, unitPrice: 12.0, notes: 'ساخن جداً / Extra hot' },
             { name: 'كيكة العسل / Honey Cake', quantity: 1, price: 22.0, unitPrice: 22.0 },
           ];
+
+    if ((req.query.document_type as string) === 'diagnostic') {
+      const diagnosticRequest = buildBrandedDiagnosticRequest({
+        widthDots,
+        fontFamily: resolvedStyle.typography.fontFamily,
+        logoAsset: activeLogo,
+        printerName: 'XP-K200L Full Raster',
+        printerModel: is58mm ? '58mm Printer' : '80mm Printer (576 dots)',
+        transport: 'gs_v_0',
+      });
+      const brandedOutput = await renderBrandedReceipt(diagnosticRequest);
+      if (!brandedOutput.ok) {
+        res.status(500).json({ error: brandedOutput.error || 'Failed to render diagnostic raster' });
+        return;
+      }
+      res.json({
+        success: true,
+        document_type: 'diagnostic',
+        render_mode: 'branded_raster',
+        resolved_style: resolvedStyle,
+        width_dots: brandedOutput.dimensions.widthDots,
+        height_dots: brandedOutput.dimensions.heightDots,
+        preview_image_url: brandedOutput.previewDataUrl,
+        pixel_hash: (brandedOutput as any).pixelHash,
+      });
+      return;
+    }
 
     if (documentType === 'kot') {
       const dividerChar = resolvedStyle.frame.dividerStyle === 'solid'
@@ -290,6 +318,7 @@ receiptAssetsRouter.get(
         width_dots: brandedOutput.dimensions.widthDots,
         height_dots: brandedOutput.dimensions.heightDots,
         preview_image_url: brandedOutput.previewDataUrl,
+        pixel_hash: (brandedOutput as any).pixelHash,
         kot_data: kotDataPayload,
       });
       return;
@@ -422,6 +451,7 @@ receiptAssetsRouter.get(
       width_dots: brandedOutput.dimensions.widthDots,
       height_dots: brandedOutput.dimensions.heightDots,
       preview_image_url: brandedOutput.previewDataUrl,
+      pixel_hash: (brandedOutput as any).pixelHash,
       receipt_data: receiptDataPayload,
     });
   }),

@@ -32,7 +32,7 @@ export const SUPPORTED_PRINTER_PROFILES: SupportedPrinterProfile[] = [
   {
     id: 'xprinter-xp-k200l',
     make: 'Xprinter',
-    model: 'XP-K200L',
+    model: 'XP-K200L 80 mm – FloCafe Full Raster',
     aliases: ['xprinter xp-k200l', 'xp-k200l', 'k200l', 'xprinter k200l'],
     commandSet: 'escpos',
     defaultPaperWidth: 'cols-48',
@@ -51,7 +51,7 @@ export const SUPPORTED_PRINTER_PROFILES: SupportedPrinterProfile[] = [
         modes: ['mixed', 'whole-receipt'],
       },
     },
-    notes: '80mm thermal receipt printer. Defaults to GS v 0 raster with optional ESC * 24-dot compatibility mode selectable after physical diagnostic test.',
+    notes: 'XP-K200L 80 mm – FloCafe Full Raster. 576 dots primary (72 bytes/row), 512 dots compatibility (64 bytes/row). GS v 0 & ESC * 24-dot transports supported.',
   },
   {
     id: 'xprinter-xp-v320m-v330m',
@@ -189,12 +189,17 @@ export function getPrinterCapabilities(
 
 /** Maps paper_width string to canonical raster dot width, or null if unrecognized. */
 export function dotsForPaperWidth(paperWidth: string): number | null {
-  const colsMatch = String(paperWidth || '').match(/^cols-(3[2-9]|4[0-8])$/);
+  const str = String(paperWidth || '').trim().toLowerCase();
+  if (str === '512' || str === '512dots' || str === '80mm-512' || str === '80mm-compat' || str === 'cols-42') return 512;
+  if (str === '576' || str === '576dots' || str === '80mm' || str === 'cols-48') return 576;
+  if (str === '384' || str === '384dots' || str === '58mm' || str === 'cols-32') return 384;
+  const colsMatch = str.match(/^cols-(3[2-9]|4[0-8])$/);
   const cols = colsMatch ? Number(colsMatch[1]) : ({ '58mm': 32, '58mm-36': 36, '80mm-42': 42, '80mm': 48 } as Record<string, number>)[paperWidth] ?? null;
   if (cols === null) return null;
   if (cols <= 32) return 384;
   if (cols <= 36) return 432;
   if (cols <= 40) return 480;
+  if (cols <= 44) return 512;
   return 576;
 }
 

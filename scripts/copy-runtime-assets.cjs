@@ -10,6 +10,15 @@ fs.copyFileSync(
   path.join(__dirname, '../dist/main/baileys-loader.cjs'),
 );
 
+const workerDestDir = path.join(__dirname, '../dist/main/printers');
+if (!fs.existsSync(workerDestDir)) {
+  fs.mkdirSync(workerDestDir, { recursive: true });
+}
+fs.copyFileSync(
+  path.join(__dirname, '../main/printers/canvas-worker.cjs'),
+  path.join(workerDestDir, 'canvas-worker.cjs'),
+);
+
 // Runtime modules resolve the app version from this sibling package manifest.
 fs.copyFileSync(
   path.join(__dirname, '../package.json'),

@@ -909,6 +909,7 @@ const ALLOWED_WILDCARD_KEYS = new Set([
   'theme_mode',
   'receipt_render_mode', 'receipt_branded_font_family',
   'print_style_preferences',
+  'legacy_code_page',
 ]);
 
 function isAllowedWildcardKey(key: string): boolean {
@@ -988,6 +989,7 @@ const PRINTING_BATCH_KEYS = new Set<string>([
   'receipt_render_mode',
   'receipt_branded_font_family',
   'print_style_preferences',
+  'legacy_code_page',
 ]);
 
 router.put('/printing', settingsWriteRateLimit, requirePermission('printers.manage'), (req: Request, res: Response) => {
@@ -1059,11 +1061,25 @@ router.put('/printing', settingsWriteRateLimit, requirePermission('printers.mana
       return res.status(400).json({ error: 'receipt_branded_font_family must be system, cairo, or almarai' });
     }
 
+    const hasLegacyCodePage = Object.prototype.hasOwnProperty.call(values, 'legacy_code_page');
+    if (
+      hasLegacyCodePage
+      && values.legacy_code_page !== 'default'
+      && values.legacy_code_page !== 'pc864'
+      && values.legacy_code_page !== 'pc720'
+      && values.legacy_code_page !== 'wpc1256'
+    ) {
+      return res.status(400).json({ error: 'legacy_code_page must be default, pc864, pc720, or wpc1256' });
+    }
+
     const entries: Record<string, string> = {
       printer_trim_decimals: values.printer_trim_decimals ? 'true' : 'false',
       [BILL_LANGUAGE_POLICY_KEY]: billLanguagePolicy.stored,
       [KOT_LANGUAGE_POLICY_KEY]: kotLanguagePolicy.stored,
     };
+    if (hasLegacyCodePage) {
+      entries.legacy_code_page = values.legacy_code_page as string;
+    }
     if (zReportLanguagePolicy?.ok) {
       entries[Z_REPORT_LANGUAGE_POLICY_KEY] = zReportLanguagePolicy.stored;
     }

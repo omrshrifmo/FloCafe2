@@ -907,7 +907,16 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
           status: 'print_submitted',
         };
       } else {
-        console.warn('[Printer] Branded raster pre-dispatch rendering failed, falling back to legacy text');
+        console.error('[Printer] Branded raster pre-dispatch rendering failed:', brandedOutput ? (brandedOutput as any).error : 'Render failed');
+        return {
+          ok: false,
+          status: 'failed',
+          detail: brandedOutput ? (brandedOutput as any).error : 'Branded raster rendering failed. Printing refused to prevent unbranded fallback.',
+          failureClass: 'unsupported',
+          canRetryManually: true,
+          userMessageEn: 'Branded raster rendering failed. Check font files and printer settings.',
+          userMessageAr: 'فشل تصيير الطباعة النقطية المخصصة. تحقق من ملفات الخطوط وإعدادات الطابعة.',
+        };
       }
     }
 
@@ -1039,7 +1048,22 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         const dispatch = await dispatchPrint(printer, brandedOutput.rasterBytes, signal);
         return dispatch;
       } else {
-        console.warn('[Printer] Branded raster KOT rendering failed, falling back to document/legacy');
+        console.error('[Printer] Branded raster KOT rendering failed:', brandedOutput ? (brandedOutput as any).error : 'Render failed');
+        return {
+          ok: false,
+          status: 'failed',
+          detail: brandedOutput ? (brandedOutput as any).error : 'Branded raster KOT rendering failed. Printing refused to prevent unbranded fallback.',
+          failureClass: 'unsupported',
+          canRetryManually: true,
+          userMessageEn: 'Branded raster KOT rendering failed. Check font files and printer settings.',
+          userMessageAr: 'فشل تصيير تذكرة المطبخ النقطية. تحقق من ملفات الخطوط وإعدادات الطابعة.',
+          warnings: [{
+            field: 'kot',
+            text: '',
+            message: 'Branded raster KOT rendering failed.',
+            kind: 'line',
+          }],
+        };
       }
     }
 
@@ -2581,42 +2605,14 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
           });
         }
       } else {
-        // Fallback to rasterizeDocumentLines so no financial data is lost or corrupted
-        const rasterGroup: RasterSemanticLineGroup = {
-          groupId: 'z-report-financial-fallback',
-          lineIndex: 0,
-          lineCount: sections.length,
-          financial: true,
+        console.error('[Printer] Branded raster financial report rendering failed:', brandedOutput ? (brandedOutput as any).error : 'Render failed');
+        return {
+          ok: false,
+          detail: 'Financial report branded raster rendering failed. Legacy fallback forbidden in branded raster mode.',
+          userMessageEn: 'Financial report could not be rendered safely. No partial report was printed.',
+          userMessageAr: 'تعذر تجهيز التقرير المالي للطباعة بأمان. لم تتم طباعة تقرير جزئي.',
+          warnings: probeWarnings,
         };
-        const rasterized = await rasterizeDocumentLines(sections, probeWarnings, {
-          useUnicode: false,
-          cutMode: 'full',
-          arabicShaping: false,
-          columns: cols,
-          language: lang,
-          capabilities: capabilities ?? { shaping: { arabic: false }, codePage: { native: false, ascii: true } },
-          requestPrefix: 'z-report',
-          transport: zTransport,
-        }, [rasterGroup]);
-        if (!rasterized.rasterFailed) {
-          baseBody = rasterized.data;
-          warnings.push(...rasterized.warnings.filter((w) => w.kind !== 'financial'));
-          warnings.push({
-            field: 'z-report',
-            text: '',
-            message: 'Z-report printed via raster fallback: financial rows contained unsupported characters for this printer profile.',
-            kind: 'line',
-          });
-        } else {
-          // Raster also failed — refuse safely with localized messages so no partial report is printed
-          return {
-            ok: false,
-            detail: 'Financial report could not be rendered safely. No partial report was printed.',
-            userMessageEn: 'Financial report could not be rendered safely. No partial report was printed.',
-            userMessageAr: 'تعذر تجهيز التقرير المالي للطباعة بأمان. لم تتم طباعة تقرير جزئي.',
-            warnings: probeWarnings,
-          };
-        }
       }
     } else {
       baseBody = buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, warnings);

@@ -6,6 +6,7 @@ import { CURRENCY_TOKEN_PATTERN } from './currency';
  */
 
 export type ThermalCodePage = 'ascii' | 'cp437' | 'cp850' | 'cp858' | 'windows1252';
+export type LegacyArabicCodePage = 'default' | 'pc864' | 'pc720' | 'wpc1256';
 export type ThermalScript = 'ascii' | 'latin' | 'arabic';
 export type UnsupportedTextPolicy = 'skip';
 export type FinancialTextPolicy = 'refuse';
