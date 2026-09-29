@@ -7,6 +7,7 @@
 export type PrintRenderMode = 'legacy_text' | 'branded_raster';
 export type PrintFontFamily = 'system' | 'cairo' | 'almarai';
 export type PrintFontSize = 'small' | 'medium' | 'large' | 'xlarge';
+export type PrintFontWeight = 'regular' | 'bold';
 export type FontSizeStep = PrintFontSize;
 export type PrintBorderStyle = 'none' | 'solid' | 'dashed' | 'dotted' | 'double';
 export type BorderStyleType = PrintBorderStyle;
@@ -16,7 +17,51 @@ export type PrintDirection = 'auto' | 'rtl' | 'ltr';
 export type KotStyleMode = 'inherit' | 'custom';
 export type KotRenderModePreference = 'inherit' | PrintRenderMode;
 
-/** Complete typography scale */
+export type ThermalDensityPreset = 'light' | 'normal' | 'dark' | 'extra_dark' | 'custom';
+
+/** Software-side thermal contrast and black-pixel expansion controls */
+export interface ThermalContrastStyle {
+  readonly densityPreset: ThermalDensityPreset;
+  readonly threshold: number; // 80 to 220 dots, default 135
+  readonly inkGain: number;   // 0 to 2 physical dots expansion, default 0
+  readonly ditheringMode: 'threshold' | 'error-diffusion';
+}
+
+export const DEFAULT_THERMAL_CONTRAST: ThermalContrastStyle = Object.freeze({
+  densityPreset: 'normal' as const,
+  threshold: 135,
+  inkGain: 0,
+  ditheringMode: 'threshold' as const,
+});
+
+/** Resolves density preset into concrete threshold and ink gain values */
+export function resolveDensitySettings(
+  preset: ThermalDensityPreset = 'normal',
+  customThreshold?: number,
+  customInkGain?: number,
+): { threshold: number; inkGain: number } {
+  switch (preset) {
+    case 'light':
+      return { threshold: 110, inkGain: 0 };
+    case 'normal':
+      return { threshold: 135, inkGain: 0 };
+    case 'dark':
+      return { threshold: 160, inkGain: 1 };
+    case 'extra_dark':
+      return { threshold: 185, inkGain: 1 };
+    case 'custom': {
+      const th = typeof customThreshold === 'number'
+        ? Math.max(80, Math.min(220, Math.round(customThreshold)))
+        : 135;
+      const ig = typeof customInkGain === 'number'
+        ? Math.max(0, Math.min(2, Math.round(customInkGain)))
+        : 0;
+      return { threshold: th, inkGain: ig };
+    }
+  }
+}
+
+/** Complete typography scale and role-based weights */
 export interface TypographyStyle {
   readonly fontFamily: PrintFontFamily;
   readonly storeNameSize: PrintFontSize;    // Default: 'large'
@@ -26,6 +71,23 @@ export interface TypographyStyle {
   readonly itemNotesSize: PrintFontSize;     // Default: 'small'
   readonly totalsSize: PrintFontSize;        // Default: 'large'
   readonly footerSize: PrintFontSize;        // Default: 'small'
+  readonly kotItemSize?: PrintFontSize;      // Default: 'large'
+  readonly kotNotesSize?: PrintFontSize;     // Default: 'medium'
+  readonly reportSize?: PrintFontSize;       // Default: 'medium'
+  readonly reportTotalsSize?: PrintFontSize; // Default: 'large'
+
+  // Per-role font weights
+  readonly storeNameWeight?: PrintFontWeight; // Default: 'bold'
+  readonly itemNamesWeight?: PrintFontWeight; // Default: 'regular'
+  readonly totalsWeight?: PrintFontWeight;    // Default: 'bold'
+  readonly kotItemWeight?: PrintFontWeight;   // Default: 'bold'
+  readonly kotNotesWeight?: PrintFontWeight;  // Default: 'bold'
+  readonly reportTotalsWeight?: PrintFontWeight; // Default: 'bold'
+
+  // Advanced Global Scales (percentages)
+  readonly receiptScalePercent?: number; // 75 to 220, default 100
+  readonly kotScalePercent?: number;     // 75 to 260, default 100
+  readonly reportScalePercent?: number;  // 75 to 180, default 100
 }
 
 /** Frame and border attributes */
@@ -52,6 +114,7 @@ export interface DocumentVisualPreferences {
   readonly frame: FrameStyle;
   readonly logo: LogoStyle;
   readonly direction: PrintDirection;
+  readonly contrast?: ThermalContrastStyle;
 }
 
 /** KOT-specific operational options (content toggles, strictly non-financial) */
@@ -70,6 +133,7 @@ export interface KotVisualOverrides {
   readonly logo?: Partial<LogoStyle>;
   readonly direction?: PrintDirection;
   readonly operational?: Partial<KotOperationalPreferences>;
+  readonly contrast?: Partial<ThermalContrastStyle>;
 }
 
 /** Canonical print style preferences stored in database */
@@ -108,6 +172,19 @@ export const DEFAULT_PRINT_STYLE_PREFERENCES: StorePrintStylePreferences = Objec
       itemNotesSize: 'small' as const,
       totalsSize: 'large' as const,
       footerSize: 'small' as const,
+      kotItemSize: 'large' as const,
+      kotNotesSize: 'medium' as const,
+      reportSize: 'medium' as const,
+      reportTotalsSize: 'large' as const,
+      storeNameWeight: 'bold' as const,
+      itemNamesWeight: 'regular' as const,
+      totalsWeight: 'bold' as const,
+      kotItemWeight: 'bold' as const,
+      kotNotesWeight: 'bold' as const,
+      reportTotalsWeight: 'bold' as const,
+      receiptScalePercent: 100,
+      kotScalePercent: 100,
+      reportScalePercent: 100,
     },
     frame: {
       borderStyle: 'none' as const,
@@ -123,6 +200,7 @@ export const DEFAULT_PRINT_STYLE_PREFERENCES: StorePrintStylePreferences = Objec
       alignment: 'center' as const,
     },
     direction: 'auto' as const,
+    contrast: DEFAULT_THERMAL_CONTRAST,
   },
   kotStyleMode: 'inherit' as const,
   kotOverrides: {
@@ -152,6 +230,7 @@ export interface ResolvedPrintStyle {
   readonly logo: LogoStyle;
   readonly direction: 'rtl' | 'ltr';
   readonly operational: KotOperationalPreferences;
+  readonly contrast: ThermalContrastStyle;
 }
 
 /**
@@ -172,6 +251,8 @@ export function resolveEffectivePrintStyle(
     ? (isRtlPrintLanguage(baseLanguage) ? 'rtl' : 'ltr')
     : safePrefs.receipt.direction;
 
+  const receiptContrast: ThermalContrastStyle = safePrefs.receipt.contrast || DEFAULT_THERMAL_CONTRAST;
+
   if (target === 'receipt') {
     return Object.freeze({
       target: 'receipt',
@@ -180,6 +261,7 @@ export function resolveEffectivePrintStyle(
       frame: Object.freeze({ ...safePrefs.receipt.frame }),
       logo: Object.freeze({ ...safePrefs.receipt.logo }),
       direction: receiptDir,
+      contrast: Object.freeze({ ...receiptContrast }),
       operational: Object.freeze({
         headerCompact: false,
         prominentNotes: false,
@@ -199,6 +281,7 @@ export function resolveEffectivePrintStyle(
       frame: Object.freeze({ ...safePrefs.receipt.frame }),
       logo: Object.freeze({ ...safePrefs.receipt.logo }),
       direction: receiptDir,
+      contrast: Object.freeze({ ...receiptContrast }),
       // Operational properties (content safety toggles independent from visual style)
       operational: Object.freeze({
         headerCompact: safePrefs.kotOverrides?.operational?.headerCompact ?? false,
@@ -223,6 +306,11 @@ export function resolveEffectivePrintStyle(
     ? (isRtlPrintLanguage(baseLanguage) ? 'rtl' : 'ltr')
     : kotDirPreference;
 
+  const kotContrast: ThermalContrastStyle = {
+    ...receiptContrast,
+    ...(o.contrast || {}),
+  };
+
   return Object.freeze({
     target: 'kot',
     renderMode: resolvedKotRenderMode,
@@ -239,6 +327,7 @@ export function resolveEffectivePrintStyle(
       ...(o.logo || {}),
     }),
     direction: resolvedKotDir,
+    contrast: Object.freeze(kotContrast),
     operational: Object.freeze({
       headerCompact: o.operational?.headerCompact ?? false,
       prominentNotes: o.operational?.prominentNotes ?? false,
@@ -258,6 +347,7 @@ export function resolveRasterFontSize(
   sizeOrWidth: PrintFontSize | number,
   is58mmOrSize: boolean | number | PrintFontSize = false,
   element?: 'storeName' | 'headerMeta' | 'item' | 'addon' | 'note' | 'total' | 'footer' | string,
+  scalePercent: number = 100,
 ): RasterFontSizeDimension {
   let size: PrintFontSize = 'medium';
   let is58mm = false;
@@ -278,35 +368,43 @@ export function resolveRasterFontSize(
     ? 'note'
     : ((element === 'itemModifiers' || element === 'addon') ? 'addon' : element);
 
+  const factor = Math.max(75, Math.min(300, scalePercent || 100)) / 100;
+
   if (is58mm) {
     // 58mm profile: clamped dimensions to preserve 384-dot budget
+    let baseSize = 16;
+    let baseLine = 21;
     switch (size) {
-      case 'small':
-        return { fontSizePx: 12, lineHeightPx: 16 };
-      case 'medium':
-        return { fontSizePx: 15, lineHeightPx: 20 };
-      case 'large':
-        return { fontSizePx: 19, lineHeightPx: 25 };
-      case 'xlarge':
-        // Clamp item notes & modifiers on 58mm to max 18px to avoid wrapping chaos
-        if (normalizedElement === 'note' || normalizedElement === 'addon') {
-          return { fontSizePx: 18, lineHeightPx: 24 };
-        }
-        return { fontSizePx: 22, lineHeightPx: 28 };
+      case 'small': baseSize = 13; baseLine = 17; break;
+      case 'medium': baseSize = 16; baseLine = 21; break;
+      case 'large': baseSize = 21; baseLine = 27; break;
+      case 'xlarge': baseSize = 26; baseLine = 33; break;
     }
+    let fontSizePx = Math.round(baseSize * factor);
+    let lineHeightPx = Math.round(baseLine * factor);
+    if (normalizedElement === 'note' || normalizedElement === 'addon') {
+      fontSizePx = Math.min(18, fontSizePx);
+      lineHeightPx = Math.min(24, lineHeightPx);
+    } else {
+      fontSizePx = Math.min(26, fontSizePx);
+      lineHeightPx = Math.min(34, lineHeightPx);
+    }
+    return { fontSizePx, lineHeightPx };
   }
 
   // 80mm profile: standard 576-dot budget
+  let baseSize = 19;
+  let baseLine = 25;
   switch (size) {
-    case 'small':
-      return { fontSizePx: 14, lineHeightPx: 19 };
-    case 'medium':
-      return { fontSizePx: 18, lineHeightPx: 24 };
-    case 'large':
-      return { fontSizePx: 24, lineHeightPx: 31 };
-    case 'xlarge':
-      return { fontSizePx: 30, lineHeightPx: 38 };
+    case 'small': baseSize = 15; baseLine = 20; break;
+    case 'medium': baseSize = 19; baseLine = 25; break;
+    case 'large': baseSize = 26; baseLine = 34; break;
+    case 'xlarge': baseSize = 34; baseLine = 44; break;
   }
+  return {
+    fontSizePx: Math.round(baseSize * factor),
+    lineHeightPx: Math.round(baseLine * factor),
+  };
 }
 
 /**
@@ -388,6 +486,37 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
   const footerSize = (typeof rt.footerSize === 'string' && VALID_FONT_SIZES.has(rt.footerSize as PrintFontSize))
     ? (rt.footerSize as PrintFontSize)
     : d.receipt.typography.footerSize;
+  const kotItemSize = (typeof rt.kotItemSize === 'string' && VALID_FONT_SIZES.has(rt.kotItemSize as PrintFontSize))
+    ? (rt.kotItemSize as PrintFontSize)
+    : (d.receipt.typography.kotItemSize || 'large');
+  const kotNotesSize = (typeof rt.kotNotesSize === 'string' && VALID_FONT_SIZES.has(rt.kotNotesSize as PrintFontSize))
+    ? (rt.kotNotesSize as PrintFontSize)
+    : (d.receipt.typography.kotNotesSize || 'medium');
+  const reportSize = (typeof rt.reportSize === 'string' && VALID_FONT_SIZES.has(rt.reportSize as PrintFontSize))
+    ? (rt.reportSize as PrintFontSize)
+    : (d.receipt.typography.reportSize || 'medium');
+  const reportTotalsSize = (typeof rt.reportTotalsSize === 'string' && VALID_FONT_SIZES.has(rt.reportTotalsSize as PrintFontSize))
+    ? (rt.reportTotalsSize as PrintFontSize)
+    : (d.receipt.typography.reportTotalsSize || 'large');
+
+  const normalizeWeight = (w: unknown, fallback: PrintFontWeight): PrintFontWeight =>
+    w === 'regular' || w === 'bold' ? w : fallback;
+
+  const storeNameWeight = normalizeWeight(rt.storeNameWeight, 'bold');
+  const itemNamesWeight = normalizeWeight(rt.itemNamesWeight, 'regular');
+  const totalsWeight = normalizeWeight(rt.totalsWeight, 'bold');
+  const kotItemWeight = normalizeWeight(rt.kotItemWeight, 'bold');
+  const kotNotesWeight = normalizeWeight(rt.kotNotesWeight, 'bold');
+  const reportTotalsWeight = normalizeWeight(rt.reportTotalsWeight, 'bold');
+
+  const normalizeScale = (val: unknown, min: number, max: number, def: number): number => {
+    if (typeof val !== 'number' || !Number.isFinite(val)) return def;
+    return Math.max(min, Math.min(max, Math.round(val)));
+  };
+
+  const receiptScalePercent = normalizeScale(rt.receiptScalePercent, 75, 220, 100);
+  const kotScalePercent = normalizeScale(rt.kotScalePercent, 75, 260, 100);
+  const reportScalePercent = normalizeScale(rt.reportScalePercent, 75, 180, 100);
 
   const rf = (r.frame && typeof r.frame === 'object' && !Array.isArray(r.frame))
     ? (r.frame as Record<string, unknown>)
@@ -420,6 +549,26 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
     : d.receipt.logo.spacingBottomDots;
   const alignment = 'center' as const;
 
+  const rc = (r.contrast && typeof r.contrast === 'object' && !Array.isArray(r.contrast))
+    ? (r.contrast as Record<string, unknown>)
+    : {};
+  const validPresets = new Set<ThermalDensityPreset>(['light', 'normal', 'dark', 'extra_dark', 'custom']);
+  const densityPreset = (typeof rc.densityPreset === 'string' && validPresets.has(rc.densityPreset as ThermalDensityPreset))
+    ? (rc.densityPreset as ThermalDensityPreset)
+    : DEFAULT_THERMAL_CONTRAST.densityPreset;
+  const resolvedDensity = resolveDensitySettings(
+    densityPreset,
+    typeof rc.threshold === 'number' ? rc.threshold : undefined,
+    typeof rc.inkGain === 'number' ? rc.inkGain : undefined,
+  );
+  const ditheringMode = rc.ditheringMode === 'error-diffusion' ? 'error-diffusion' : 'threshold';
+  const receiptContrast: ThermalContrastStyle = {
+    densityPreset,
+    threshold: resolvedDensity.threshold,
+    inkGain: resolvedDensity.inkGain,
+    ditheringMode,
+  };
+
   const ko = (rawObj.kotOverrides && typeof rawObj.kotOverrides === 'object' && !Array.isArray(rawObj.kotOverrides))
     ? (rawObj.kotOverrides as Record<string, unknown>)
     : {};
@@ -438,6 +587,20 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
     : undefined;
   const kotLogo = (ko.logo && typeof ko.logo === 'object' && !Array.isArray(ko.logo))
     ? (ko.logo as Partial<LogoStyle>)
+    : undefined;
+
+  const koc = (ko.contrast && typeof ko.contrast === 'object' && !Array.isArray(ko.contrast))
+    ? (ko.contrast as Record<string, unknown>)
+    : undefined;
+  const kotContrast: Partial<ThermalContrastStyle> | undefined = koc
+    ? {
+        densityPreset: typeof koc.densityPreset === 'string' && validPresets.has(koc.densityPreset as ThermalDensityPreset)
+          ? (koc.densityPreset as ThermalDensityPreset)
+          : undefined,
+        threshold: typeof koc.threshold === 'number' ? Math.max(80, Math.min(220, Math.round(koc.threshold))) : undefined,
+        inkGain: typeof koc.inkGain === 'number' ? Math.max(0, Math.min(2, Math.round(koc.inkGain))) : undefined,
+        ditheringMode: koc.ditheringMode === 'error-diffusion' ? 'error-diffusion' : 'threshold',
+      }
     : undefined;
 
   const kop = (ko.operational && typeof ko.operational === 'object' && !Array.isArray(ko.operational))
@@ -467,6 +630,19 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
         itemNotesSize,
         totalsSize,
         footerSize,
+        kotItemSize,
+        kotNotesSize,
+        reportSize,
+        reportTotalsSize,
+        storeNameWeight,
+        itemNamesWeight,
+        totalsWeight,
+        kotItemWeight,
+        kotNotesWeight,
+        reportTotalsWeight,
+        receiptScalePercent,
+        kotScalePercent,
+        reportScalePercent,
       },
       frame: {
         borderStyle,
@@ -482,6 +658,7 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
         alignment,
       },
       direction,
+      contrast: receiptContrast,
     },
     kotStyleMode,
     kotOverrides: {
@@ -490,9 +667,63 @@ export function normalizePrintStylePreferences(raw: unknown): StorePrintStylePre
       ...(kotTypo ? { typography: kotTypo } : {}),
       ...(kotFrame ? { frame: kotFrame } : {}),
       ...(kotLogo ? { logo: kotLogo } : {}),
+      ...(kotContrast ? { contrast: kotContrast } : {}),
       operational,
     },
     ...(stationOverrides ? { stationOverrides } : {}),
+  };
+}
+
+/**
+ * Returns the recommended XP-K200L High Readability preset.
+ * Applies 125% receipt scale, 145% KOT scale, 115% report scale, bold item names and totals,
+ * and dark thermal density with 1-dot ink gain without modifying printer hardware settings.
+ */
+export function getHighReadabilityPreset(
+  basePrefs?: StorePrintStylePreferences,
+): StorePrintStylePreferences {
+  const base = basePrefs || DEFAULT_PRINT_STYLE_PREFERENCES;
+  const darkDensity = resolveDensitySettings('dark');
+
+  return {
+    ...base,
+    receipt: {
+      ...base.receipt,
+      renderMode: 'branded_raster',
+      typography: {
+        ...base.receipt.typography,
+        receiptScalePercent: 125,
+        kotScalePercent: 145,
+        reportScalePercent: 115,
+        itemNamesWeight: 'bold',
+        totalsWeight: 'bold',
+        kotItemWeight: 'bold',
+        kotNotesWeight: 'bold',
+        reportTotalsWeight: 'bold',
+      },
+      contrast: {
+        densityPreset: 'dark',
+        threshold: darkDensity.threshold,
+        inkGain: darkDensity.inkGain,
+        ditheringMode: 'threshold',
+      },
+    },
+    kotOverrides: {
+      ...base.kotOverrides,
+      typography: {
+        ...base.kotOverrides.typography,
+        itemNamesWeight: 'bold',
+        kotItemWeight: 'bold',
+        kotNotesWeight: 'bold',
+        kotScalePercent: 145,
+      },
+      contrast: {
+        densityPreset: 'dark',
+        threshold: darkDensity.threshold,
+        inkGain: darkDensity.inkGain,
+        ditheringMode: 'threshold',
+      },
+    },
   };
 }
 

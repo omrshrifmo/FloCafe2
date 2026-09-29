@@ -26,13 +26,18 @@ import toast from 'react-hot-toast';
 import type { PrintingForm, HwPrinter } from './PrintersSettingsTab';
 import {
   DEFAULT_PRINT_STYLE_PREFERENCES,
+  DEFAULT_THERMAL_CONTRAST,
   resolveEffectivePrintStyle,
+  getHighReadabilityPreset,
+  resolveDensitySettings,
   type StorePrintStylePreferences,
   type FontSizeStep,
   type BorderStyleType,
   type DividerStyleType,
   type ResolvedPrintStyle,
   type PrintFontFamily,
+  type PrintFontWeight,
+  type ThermalDensityPreset,
 } from '@print/style';
 
 export interface ReceiptLogoMetadata {
@@ -620,6 +625,37 @@ export function ReceiptBrandingSettings({
             </div>
           )}
 
+          {/* RECOMMENDED XP-K200L HIGH READABILITY PRESET BANNER */}
+          <div className="bg-brand/10 border border-brand/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-brand shrink-0" />
+                <span className="text-xs font-bold text-foreground">XP-K200L 80 mm – High Readability</span>
+                <span className="text-[10px] font-medium bg-brand/20 text-brand px-2 py-0.5 rounded-full">Recommended</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                One-click physical preset: 125% Receipt scale, 145% KOT scale, 115% Report scale, Bold items & totals, Dark thermal density (threshold 160, +1 dot ink gain). Retains existing printer hardware, port, width, and logo settings.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await confirm(
+                  'Apply recommended XP-K200L High Readability typography and contrast settings? Your printer connection, paper width, and logo will remain unchanged.',
+                  { title: 'Apply XP-K200L Preset', confirmLabel: 'Apply Preset' }
+                );
+                if (ok) {
+                  const updated = getHighReadabilityPreset(currentPrefs);
+                  updatePrefs(() => updated);
+                  toast.success('Applied XP-K200L High Readability Preset');
+                }
+              }}
+              className="shrink-0 px-3.5 py-1.5 rounded-lg bg-brand hover:bg-brand/90 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
+            >
+              Apply Preset / تطبيق الإعداد
+            </button>
+          </div>
+
           {/* RENDER MODE (Receipt or Custom KOT) */}
           {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
             <div className="space-y-3">
@@ -751,10 +787,211 @@ export function ReceiptBrandingSettings({
                     <Sliders size={16} className="text-brand" />
                     {t('typographySection')}
                   </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Configure document scaling, font weights, and per-role text sizes.
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Quick Typography Presets */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-foreground block">Typography Preset / حجم الخط العام</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['small', 'medium', 'large', 'xlarge'] as const).map((sizePreset) => (
+                    <button
+                      key={sizePreset}
+                      type="button"
+                      onClick={() => {
+                        if (activeDoc === 'receipt') {
+                          updatePrefs((p) => ({
+                            ...p,
+                            receipt: {
+                              ...p.receipt,
+                              typography: {
+                                ...p.receipt.typography,
+                                itemNamesSize: sizePreset,
+                                totalsSize: sizePreset === 'small' ? 'medium' : sizePreset,
+                                storeNameSize: sizePreset === 'small' ? 'medium' : sizePreset,
+                              },
+                            },
+                          }));
+                        } else {
+                          updatePrefs((p) => ({
+                            ...p,
+                            kotOverrides: {
+                              ...p.kotOverrides,
+                              typography: {
+                                ...p.kotOverrides?.typography,
+                                itemNamesSize: sizePreset,
+                                kotItemSize: sizePreset,
+                                totalsSize: sizePreset === 'small' ? 'medium' : sizePreset,
+                                storeNameSize: sizePreset === 'small' ? 'medium' : sizePreset,
+                              },
+                            },
+                          }));
+                        }
+                      }}
+                      className="p-2 rounded-lg border border-border hover:bg-muted/40 text-xs font-medium capitalize text-center transition-all cursor-pointer"
+                    >
+                      {sizePreset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global Scale Sliders */}
+              <div className="grid grid-cols-1 gap-3 bg-card p-3 rounded-xl border border-border">
+                {activeDoc === 'receipt' ? (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-foreground">Global Receipt Scale / مقياس الفاتورة العام</span>
+                      <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded text-foreground font-bold">
+                        {currentPrefs.receipt.typography.receiptScalePercent || 100}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="75"
+                      max="220"
+                      step="5"
+                      value={currentPrefs.receipt.typography.receiptScalePercent || 100}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: {
+                            ...p.receipt,
+                            typography: { ...p.receipt.typography, receiptScalePercent: val },
+                          },
+                        }));
+                      }}
+                      className="w-full accent-brand cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>75% (Compact)</span>
+                      <span>100% (Default)</span>
+                      <span>125% (XP-K200L Rec.)</span>
+                      <span>220% (Max)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-foreground">Global KOT Scale / مقياس تذكرة المطبخ العام</span>
+                      <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded text-foreground font-bold">
+                        {currentPrefs.kotOverrides?.typography?.kotScalePercent || currentPrefs.receipt.typography.kotScalePercent || 100}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="75"
+                      max="260"
+                      step="5"
+                      value={currentPrefs.kotOverrides?.typography?.kotScalePercent || currentPrefs.receipt.typography.kotScalePercent || 100}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        updatePrefs((p) => ({
+                          ...p,
+                          kotOverrides: {
+                            ...p.kotOverrides,
+                            typography: { ...p.kotOverrides?.typography, kotScalePercent: val },
+                          },
+                        }));
+                      }}
+                      className="w-full accent-brand cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>75% (Compact)</span>
+                      <span>100% (Default)</span>
+                      <span>145% (XP-K200L Rec.)</span>
+                      <span>260% (Max)</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Per-Role Font Weights */}
+              <div className="space-y-2 pt-1">
+                <span className="text-xs font-semibold text-foreground block">Font Weights / سماكة الخط للأدوار</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {/* Store Name Weight */}
+                  <div className="p-2 rounded-lg border border-border bg-card flex items-center justify-between">
+                    <span className="text-xs text-foreground font-medium">Store Name</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextWeight: PrintFontWeight = currentPrefs.receipt.typography.storeNameWeight === 'regular' ? 'bold' : 'regular';
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: { ...p.receipt, typography: { ...p.receipt.typography, storeNameWeight: nextWeight } },
+                        }));
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                        (currentPrefs.receipt.typography.storeNameWeight ?? 'bold') === 'bold'
+                          ? 'bg-brand text-white'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {(currentPrefs.receipt.typography.storeNameWeight ?? 'bold').toUpperCase()}
+                    </button>
+                  </div>
+
+                  {/* Item Names Weight */}
+                  <div className="p-2 rounded-lg border border-border bg-card flex items-center justify-between">
+                    <span className="text-xs text-foreground font-medium">Item Names</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeDoc === 'receipt') {
+                          const nextWeight: PrintFontWeight = currentPrefs.receipt.typography.itemNamesWeight === 'bold' ? 'regular' : 'bold';
+                          updatePrefs((p) => ({
+                            ...p,
+                            receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemNamesWeight: nextWeight } },
+                          }));
+                        } else {
+                          const nextWeight: PrintFontWeight = (currentPrefs.kotOverrides?.typography?.kotItemWeight ?? 'bold') === 'bold' ? 'regular' : 'bold';
+                          updatePrefs((p) => ({
+                            ...p,
+                            kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, kotItemWeight: nextWeight } },
+                          }));
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                        (activeDoc === 'receipt' ? currentPrefs.receipt.typography.itemNamesWeight === 'bold' : (currentPrefs.kotOverrides?.typography?.kotItemWeight ?? 'bold') === 'bold')
+                          ? 'bg-brand text-white'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {(activeDoc === 'receipt' ? (currentPrefs.receipt.typography.itemNamesWeight === 'bold' ? 'BOLD' : 'REGULAR') : ((currentPrefs.kotOverrides?.typography?.kotItemWeight ?? 'bold') === 'bold' ? 'BOLD' : 'REGULAR'))}
+                    </button>
+                  </div>
+
+                  {/* Totals Weight */}
+                  <div className="p-2 rounded-lg border border-border bg-card flex items-center justify-between">
+                    <span className="text-xs text-foreground font-medium">Totals</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextWeight: PrintFontWeight = currentPrefs.receipt.typography.totalsWeight === 'regular' ? 'bold' : 'regular';
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: { ...p.receipt, typography: { ...p.receipt.typography, totalsWeight: nextWeight } },
+                        }));
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                        (currentPrefs.receipt.typography.totalsWeight ?? 'bold') === 'bold'
+                          ? 'bg-brand text-white'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {(currentPrefs.receipt.typography.totalsWeight ?? 'bold').toUpperCase()}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-Role Sizing Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 {/* Store Name Size */}
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-foreground">{t('storeNameSize')}</span>
@@ -802,13 +1039,13 @@ export function ReceiptBrandingSettings({
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-foreground">{t('itemNamesSize')}</span>
                   <select
-                    value={activeResolvedStyle.typography.itemNamesSize}
+                    value={activeDoc === 'receipt' ? activeResolvedStyle.typography.itemNamesSize : (currentPrefs.kotOverrides?.typography?.kotItemSize || 'large')}
                     onChange={(e) => {
                       const val = e.target.value as FontSizeStep;
                       if (activeDoc === 'receipt') {
                         updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemNamesSize: val } } }));
                       } else {
-                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNamesSize: val } } }));
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNamesSize: val, kotItemSize: val } } }));
                       }
                     }}
                     className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
@@ -816,6 +1053,7 @@ export function ReceiptBrandingSettings({
                     <option value="small">{t('sizeSmall')}</option>
                     <option value="medium">{t('sizeMedium')}</option>
                     <option value="large">{t('sizeLarge')}</option>
+                    <option value="xlarge">{t('sizeXLarge')}</option>
                   </select>
                 </div>
 
@@ -843,13 +1081,13 @@ export function ReceiptBrandingSettings({
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-foreground">{t('itemNotesSize')}</span>
                   <select
-                    value={activeResolvedStyle.typography.itemNotesSize}
+                    value={activeDoc === 'receipt' ? activeResolvedStyle.typography.itemNotesSize : (currentPrefs.kotOverrides?.typography?.kotNotesSize || 'medium')}
                     onChange={(e) => {
                       const val = e.target.value as FontSizeStep;
                       if (activeDoc === 'receipt') {
                         updatePrefs((p) => ({ ...p, receipt: { ...p.receipt, typography: { ...p.receipt.typography, itemNotesSize: val } } }));
                       } else {
-                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNotesSize: val } } }));
+                        updatePrefs((p) => ({ ...p, kotOverrides: { ...p.kotOverrides, typography: { ...p.kotOverrides?.typography, itemNotesSize: val, kotNotesSize: val } } }));
                       }
                     }}
                     className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
@@ -857,6 +1095,7 @@ export function ReceiptBrandingSettings({
                     <option value="small">{t('sizeSmall')}</option>
                     <option value="medium">{t('sizeMedium')}</option>
                     <option value="large">{t('sizeLarge')}</option>
+                    <option value="xlarge">{t('sizeXLarge')}</option>
                   </select>
                 </div>
 
@@ -878,7 +1117,240 @@ export function ReceiptBrandingSettings({
                     <option value="small">{t('sizeSmall')}</option>
                     <option value="medium">{t('sizeMedium')}</option>
                     <option value="large">{t('sizeLarge')}</option>
+                    <option value="xlarge">{t('sizeXLarge')}</option>
                   </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* THERMAL CONTRAST & DENSITY SECTION */}
+          {(activeDoc === 'receipt' || currentPrefs.kotStyleMode === 'custom') && (
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <Sliders size={16} className="text-brand" />
+                    Thermal Contrast &amp; Darkness / كثافة الطباعة الحرارية
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Software-side 1-bit thermal bitmap contrast and dot expansion.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const darkDensity = resolveDensitySettings('dark');
+                    if (activeDoc === 'receipt') {
+                      updatePrefs((p) => ({
+                        ...p,
+                        receipt: {
+                          ...p.receipt,
+                          contrast: {
+                            densityPreset: 'dark',
+                            threshold: darkDensity.threshold,
+                            inkGain: darkDensity.inkGain,
+                            ditheringMode: 'threshold',
+                          },
+                        },
+                      }));
+                    } else {
+                      updatePrefs((p) => ({
+                        ...p,
+                        kotOverrides: {
+                          ...p.kotOverrides,
+                          contrast: {
+                            densityPreset: 'dark',
+                            threshold: darkDensity.threshold,
+                            inkGain: darkDensity.inkGain,
+                            ditheringMode: 'threshold',
+                          },
+                        },
+                      }));
+                    }
+                    toast.success('Reset to recommended Dark contrast');
+                  }}
+                  className="text-xs text-brand hover:underline cursor-pointer"
+                >
+                  Reset to Defaults
+                </button>
+              </div>
+
+              {/* Bilingual Explanation Box */}
+              <div className="bg-muted/40 border border-border/60 rounded-xl p-3 text-xs leading-relaxed space-y-1">
+                <p className="text-foreground font-medium">
+                  Darkness affects the final black-and-white thermal bitmap. Darker settings increase black dots and improve thin text visibility.
+                </p>
+                <p className="text-muted-foreground font-arabic" dir="rtl">
+                  تؤثر درجة الكثافة على الصورة الحرارية النهائية بالأبيض والأسود. تزيد الإعدادات الداكنة النقاط السوداء لتحسين وضوح النصوص الرفيعة.
+                </p>
+              </div>
+
+              {/* Density Presets */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-foreground block">Density Preset / مستوى الكثافة</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['light', 'normal', 'dark', 'extra_dark'] as const).map((preset) => {
+                    const activePreset = activeResolvedStyle.contrast?.densityPreset || 'dark';
+                    const isSelected = activePreset === preset;
+                    const labels: Record<Exclude<ThermalDensityPreset, 'custom'>, { en: string; ar: string }> = {
+                      light: { en: 'Light', ar: 'فاتح' },
+                      normal: { en: 'Normal', ar: 'عادي' },
+                      dark: { en: 'Dark (Rec.)', ar: 'داكن (موصى به)' },
+                      extra_dark: { en: 'Extra Dark', ar: 'داكن جداً' },
+                    };
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          const resolved = resolveDensitySettings(preset);
+                          if (activeDoc === 'receipt') {
+                            updatePrefs((p) => ({
+                              ...p,
+                              receipt: {
+                                ...p.receipt,
+                                contrast: {
+                                  densityPreset: preset,
+                                  threshold: resolved.threshold,
+                                  inkGain: resolved.inkGain,
+                                  ditheringMode: p.receipt.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                                },
+                              },
+                            }));
+                          } else {
+                            updatePrefs((p) => ({
+                              ...p,
+                              kotOverrides: {
+                                ...p.kotOverrides,
+                                contrast: {
+                                  densityPreset: preset,
+                                  threshold: resolved.threshold,
+                                  inkGain: resolved.inkGain,
+                                  ditheringMode: p.kotOverrides?.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                                },
+                              },
+                            }));
+                          }
+                        }}
+                        className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-brand bg-brand/10 font-bold text-foreground shadow-xs'
+                            : 'border-border hover:bg-muted/40 text-muted-foreground'
+                        }`}
+                      >
+                        <div className="text-xs font-medium">{labels[preset].en}</div>
+                        <div className="text-[10px] text-muted-foreground font-arabic">{labels[preset].ar}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Advanced Threshold & Ink Gain */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                {/* Monochrome Threshold Slider */}
+                <div className="space-y-1.5 bg-card p-3 rounded-lg border border-border">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-foreground">Black Threshold / حساسية السواد</span>
+                    <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded text-foreground font-bold">
+                      {activeResolvedStyle.contrast?.threshold ?? 160}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="80"
+                    max="220"
+                    step="5"
+                    value={activeResolvedStyle.contrast?.threshold ?? 160}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: {
+                            ...p.receipt,
+                            contrast: {
+                              densityPreset: 'custom',
+                              threshold: val,
+                              inkGain: p.receipt.contrast?.inkGain ?? DEFAULT_THERMAL_CONTRAST.inkGain,
+                              ditheringMode: p.receipt.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                            },
+                          },
+                        }));
+                      } else {
+                        updatePrefs((p) => ({
+                          ...p,
+                          kotOverrides: {
+                            ...p.kotOverrides,
+                            contrast: {
+                              densityPreset: 'custom',
+                              threshold: val,
+                              inkGain: p.kotOverrides?.contrast?.inkGain ?? DEFAULT_THERMAL_CONTRAST.inkGain,
+                              ditheringMode: p.kotOverrides?.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                            },
+                          },
+                        }));
+                      }
+                    }}
+                    className="w-full accent-brand cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Lighter (80)</span>
+                    <span>Standard (140)</span>
+                    <span>Darker (220)</span>
+                  </div>
+                </div>
+
+                {/* Thermal Ink Gain */}
+                <div className="space-y-1.5 bg-card p-3 rounded-lg border border-border">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-foreground">Thermal Ink Gain / التمدد النقطي</span>
+                    <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded text-foreground font-bold">
+                      +{activeResolvedStyle.contrast?.inkGain ?? 0} dot(s)
+                    </span>
+                  </div>
+                  <select
+                    value={activeResolvedStyle.contrast?.inkGain ?? 0}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (activeDoc === 'receipt') {
+                        updatePrefs((p) => ({
+                          ...p,
+                          receipt: {
+                            ...p.receipt,
+                            contrast: {
+                              densityPreset: 'custom',
+                              threshold: p.receipt.contrast?.threshold ?? DEFAULT_THERMAL_CONTRAST.threshold,
+                              inkGain: val,
+                              ditheringMode: p.receipt.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                            },
+                          },
+                        }));
+                      } else {
+                        updatePrefs((p) => ({
+                          ...p,
+                          kotOverrides: {
+                            ...p.kotOverrides,
+                            contrast: {
+                              densityPreset: 'custom',
+                              threshold: p.kotOverrides?.contrast?.threshold ?? DEFAULT_THERMAL_CONTRAST.threshold,
+                              inkGain: val,
+                              ditheringMode: p.kotOverrides?.contrast?.ditheringMode ?? DEFAULT_THERMAL_CONTRAST.ditheringMode,
+                            },
+                          },
+                        }));
+                      }
+                    }}
+                    className="w-full text-xs p-2 rounded-lg border border-border bg-card text-foreground"
+                  >
+                    <option value="0">0 dots (Off / قياسي)</option>
+                    <option value="1">1 dot (+1 Dot Gain – Recommended / موصى به)</option>
+                    <option value="2">2 dots (+2 Dots Gain – Heavy Black / تمدد مضاعف)</option>
+                  </select>
+                  <p className="text-[10px] text-muted-foreground leading-tight">
+                    Horizontally expands thin strokes by physical dots to ensure crisp Arabic details on 203 DPI heads.
+                  </p>
                 </div>
               </div>
             </div>

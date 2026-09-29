@@ -181,7 +181,7 @@ async function runTests() {
   assert.equal(output.document.widthDots, 576);
   assert.equal(output.document.heightDots, output.dimensions.heightDots);
   assert(['receipt', 'branded-receipt'].includes(output.document.documentKind), 'documentKind must be receipt');
-  assert.equal(output.document.rendererVersion, '3.11.7');
+  assert.equal(output.document.rendererVersion, '3.11.8');
   assert.equal(typeof output.pixelHash, 'string');
   assert.equal(output.pixelHash, output.document.pixelHash);
   assert.equal(output.document.monochromePixels.length, 576 * output.dimensions.heightDots);

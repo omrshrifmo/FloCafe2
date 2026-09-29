@@ -156,6 +156,66 @@ receiptAssetsRouter.get(
         kotStyleMode: req.query.kot_mode,
       };
     }
+    if (req.query.density_preset) {
+      stylePrefs = {
+        ...stylePrefs,
+        receipt: {
+          ...stylePrefs.receipt,
+          contrast: {
+            ...stylePrefs.receipt.contrast,
+            densityPreset: req.query.density_preset as any,
+          },
+        },
+      };
+    }
+    if (req.query.threshold) {
+      const th = parseInt(String(req.query.threshold), 10);
+      if (!isNaN(th)) {
+        stylePrefs = {
+          ...stylePrefs,
+          receipt: {
+            ...stylePrefs.receipt,
+            contrast: { ...stylePrefs.receipt.contrast, threshold: th },
+          },
+        };
+      }
+    }
+    if (req.query.ink_gain !== undefined) {
+      const ig = parseInt(String(req.query.ink_gain), 10);
+      if (!isNaN(ig)) {
+        stylePrefs = {
+          ...stylePrefs,
+          receipt: {
+            ...stylePrefs.receipt,
+            contrast: { ...stylePrefs.receipt.contrast, inkGain: ig },
+          },
+        };
+      }
+    }
+    if (req.query.receipt_scale) {
+      const sc = parseInt(String(req.query.receipt_scale), 10);
+      if (!isNaN(sc)) {
+        stylePrefs = {
+          ...stylePrefs,
+          receipt: {
+            ...stylePrefs.receipt,
+            typography: { ...stylePrefs.receipt.typography, receiptScalePercent: sc },
+          },
+        };
+      }
+    }
+    if (req.query.kot_scale) {
+      const ksc = parseInt(String(req.query.kot_scale), 10);
+      if (!isNaN(ksc)) {
+        stylePrefs = {
+          ...stylePrefs,
+          receipt: {
+            ...stylePrefs.receipt,
+            typography: { ...stylePrefs.receipt.typography, kotScalePercent: ksc },
+          },
+        };
+      }
+    }
 
     const resolvedStyle = resolveEffectivePrintStyle(stylePrefs, documentType, language);
     const activeLogo = getActiveReceiptLogoAsset();
@@ -192,6 +252,9 @@ receiptAssetsRouter.get(
         printerName: 'XP-K200L Full Raster',
         printerModel: is58mm ? '58mm Printer' : '80mm Printer (576 dots)',
         transport: 'gs_v_0',
+        style: resolvedStyle,
+        threshold: resolvedStyle.contrast.threshold,
+        inkGain: resolvedStyle.contrast.inkGain,
       });
       const brandedOutput = await renderBrandedReceipt(diagnosticRequest);
       if (!brandedOutput.ok) {
@@ -413,8 +476,9 @@ receiptAssetsRouter.get(
       bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
       logo: logoPayload,
       geometry,
-      ditheringMode: 'threshold' as const,
-      threshold: 128,
+      ditheringMode: resolvedStyle.contrast.ditheringMode,
+      threshold: resolvedStyle.contrast.threshold,
+      inkGain: resolvedStyle.contrast.inkGain,
       header: {
         businessName,
         address: businessAddress,

@@ -862,6 +862,9 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
         widthDots,
         fontFamily,
         logoAsset,
+        style: resolvedReceiptStyle,
+        threshold: resolvedReceiptStyle.contrast?.threshold,
+        inkGain: resolvedReceiptStyle.contrast?.inkGain,
         borderThicknessDots: resolvedReceiptStyle.frame.borderStyle !== 'none' ? resolvedReceiptStyle.frame.borderThickness : 0,
         borderInsetDots: resolvedReceiptStyle.frame.borderPadding,
         documentVariant: isPreliminary ? 'preliminary' : (isReprint ? 'reprint' : 'final'),
@@ -1033,6 +1036,8 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         fontFamily,
         logoAsset,
         style: resolvedKotStyle,
+        threshold: resolvedKotStyle.contrast?.threshold,
+        inkGain: resolvedKotStyle.contrast?.inkGain,
         transport: kotTransport,
       });
 
@@ -2583,6 +2588,9 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         sections,
         widthDots,
         fontFamily,
+        style: resolvedReceiptStyle,
+        threshold: resolvedReceiptStyle.contrast?.threshold,
+        inkGain: resolvedReceiptStyle.contrast?.inkGain,
         transport: zTransport,
         printer,
       });

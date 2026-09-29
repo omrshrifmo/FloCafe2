@@ -67,9 +67,12 @@ function decodeJsonContent(file, description) {
   }
 }
 
-async function resolveSignedTag(apiBase, tag, request = githubJson, { requireVerification = true } = {}) {
+async function resolveSignedTag(apiBase, tag, request = githubJson, { requireVerification = true, allowHistoricalPromotion = false } = {}) {
   const ref = await request(`${apiBase}/git/ref/tags/${encodeURIComponent(tag)}`);
   if (ref?.object?.type !== 'tag') {
+    if (allowHistoricalPromotion && ref?.object?.type === 'commit' && COMMIT.test(ref.object.sha || '')) {
+      return ref.object.sha.toLowerCase();
+    }
     throw new Error(`release tag ${tag} must be an annotated signed tag, not a lightweight tag`);
   }
   const tagObject = await request(`${apiBase}/git/tags/${encodeURIComponent(ref.object.sha)}`);
@@ -88,7 +91,10 @@ async function validateReleaseRef({ repo, tag, commit, mainRef = 'main', require
   if (allowHistoricalPromotion && requireMain) {
     throw new Error('historical promotion validation requires main-history checks to be disabled');
   }
-  const resolvedCommit = await resolveSignedTag(apiBase, tag, request, { requireVerification: !allowHistoricalPromotion });
+  const resolvedCommit = await resolveSignedTag(apiBase, tag, request, {
+    requireVerification: !allowHistoricalPromotion,
+    allowHistoricalPromotion,
+  });
   if (resolvedCommit !== expectedCommit) {
     throw new Error(`release tag ${tag} resolves to ${resolvedCommit}, not the workflow commit ${expectedCommit}`);
   }

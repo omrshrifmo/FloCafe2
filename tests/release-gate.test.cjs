@@ -79,7 +79,7 @@ function releaseRefRequest({
     content: Buffer.from(JSON.stringify({ version })).toString('base64'),
   });
   const fixtures = new Map([
-    [`${apiBase}/git/ref/tags/${tag}`, { object: { type: tagType, sha: tagObject } }],
+    [`${apiBase}/git/ref/tags/${tag}`, { object: { type: tagType, sha: tagType === 'commit' ? tagCommit : tagObject } }],
     [`${apiBase}/git/tags/${tagObject}`, {
       object: { type: 'commit', sha: tagCommit },
       verification: { verified: tagVerified, reason: tagVerified ? 'valid' : 'unsigned' },
@@ -609,6 +609,14 @@ jobs:
     allowHistoricalPromotion: true,
     request: releaseRefRequest({ behindBy: 1, mainVersion: '3.3.9', tagVerified: false, commitVerified: false }),
   }), 'historical promotion must rely on immutable release evidence instead of rechecking signatures');
+  await assert.doesNotReject(() => validateReleaseRef({
+    repo: 'example/repo',
+    tag: '3.4.0',
+    commit: 'a'.repeat(40),
+    requireMain: false,
+    allowHistoricalPromotion: true,
+    request: releaseRefRequest({ behindBy: 1, mainVersion: '3.3.9', tagType: 'commit', tagVerified: false, commitVerified: false }),
+  }), 'historical promotion must allow historical lightweight tags');
   await assert.rejects(
     () => validateReleaseRef({
       repo: 'example/repo',
