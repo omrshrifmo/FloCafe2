@@ -1,4 +1,4 @@
-import { canonicalizeLocalizedAmount } from '@countries';
+import { canonicalizeLocalizedAmount, normalizeNumericInput } from '@countries';
 
 export type CurrencyAmountTarget = 'payment' | 'wallet' | 'discount';
 export type CurrencyDiscountType = 'percentage' | 'amount';
@@ -12,13 +12,14 @@ export interface AmountFormat {
 }
 
 /** Keeps only digits and, when the currency has fraction digits, a single decimal separator with at most
- * currencyFractionDigits digits after it — as the user types. */
+ * currencyFractionDigits digits after it — as the user types. Normalizes Arabic-Indic and Persian digits to Western 0-9. */
 export function sanitizeAmountKeystrokes(raw: string, format: AmountFormat): string {
+  const normalized = normalizeNumericInput(raw);
   const allowDecimal = format.currencyFractionDigits > 0;
   let out = '';
   let seenDecimal = false;
   let fractionDigits = 0;
-  for (const ch of raw) {
+  for (const ch of normalized) {
     if (ch >= '0' && ch <= '9') {
       if (seenDecimal) {
         if (fractionDigits >= format.currencyFractionDigits) continue;
@@ -27,8 +28,8 @@ export function sanitizeAmountKeystrokes(raw: string, format: AmountFormat): str
       out += ch;
       continue;
     }
-    if (allowDecimal && !seenDecimal && ch === format.decimalSeparator) {
-      out += ch;
+    if (allowDecimal && !seenDecimal && (ch === format.decimalSeparator || ch === '.')) {
+      out += format.decimalSeparator;
       seenDecimal = true;
     }
   }

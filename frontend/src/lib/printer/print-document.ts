@@ -159,8 +159,8 @@ export function buildBillPrintData(bill: Bill, opts: BillBusinessOptions = {}): 
       items: items.map((item) => ({
         productName: String(item?.product_name ?? ''),
         quantity: Number(item?.quantity) || 0,
-        unitPrice: Number(item?.unit_price) || 0,
-        total: Number(item?.total) || 0,
+        unitPrice: Number(item?.unit_price ?? 0) || 0,
+        total: Number(item?.total ?? item?.subtotal ?? ((Number(item?.unit_price ?? 0) || 0) * (Number(item?.quantity) || 0))) || 0,
         addons: (Array.isArray(item?.addons) ? item.addons : []).map((addon) => {
           const addonQty = (addon !== null && typeof addon === 'object' && 'quantity' in addon
             && typeof addon.quantity === 'number' && addon.quantity) || 1;

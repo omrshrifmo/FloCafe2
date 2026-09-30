@@ -15,6 +15,7 @@ import {
 } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { CustomerDocumentSource, CustomerDocumentVariant, ResolvedPrintStyle } from '../../shared/print';
+import { toWesternDigits } from '../../shared/digits';
 
 export type { RenderedThermalDocument, RasterBand, RasterSemanticUnit };
 
@@ -427,22 +428,87 @@ export function buildBrandedReceiptRequest(options: {
   }
 
   const items: BrandedReceiptItem[] = [];
-  const rawItems = order.items || bill.items || [];
+  const rawItems = (options as any).items || order.items || bill.items || [];
+
+  // Pre-dispatch document validation: check bill and order totals
+  const isPreliminary = options.documentVariant === 'preliminary' || bill.documentVariant === 'preliminary';
+  const isCart = options.source?.kind === 'active_cart' || bill.source?.kind === 'active_cart';
+  const docRef = order.order_number || bill.bill_number || order.id || bill.id || options.requestId || 'unknown';
+
+  let rawDocTotal = bill.total !== undefined ? bill.total : (order.total !== undefined ? order.total : ((options as any).totals?.total !== undefined ? (options as any).totals.total : undefined));
+  if (rawDocTotal === undefined && rawItems.length > 0) {
+    let computedSum = 0;
+    for (const it of rawItems) {
+      const itTot = it.total ?? it.total_price ?? it.totalPrice ?? it.lineTotal ?? it.itemTotal ?? it.subtotal;
+      if (itTot !== undefined && !isNaN(Number(itTot))) {
+        computedSum += Number(itTot);
+      } else if (it.unit_price !== undefined && !isNaN(Number(it.unit_price))) {
+        computedSum += Number(it.unit_price) * (Number(it.quantity) || 1);
+      } else if (it.unitPrice !== undefined && !isNaN(Number(it.unitPrice))) {
+        computedSum += Number(it.unitPrice) * (Number(it.quantity) || 1);
+      } else if (it.price !== undefined && !isNaN(Number(it.price))) {
+        computedSum += Number(it.price) * (Number(it.quantity) || 1);
+      }
+    }
+    rawDocTotal = computedSum;
+  }
+
+  if (rawDocTotal === undefined || rawDocTotal === null || isNaN(Number(rawDocTotal)) || !isFinite(Number(rawDocTotal))) {
+    throw new Error(`[Receipt Error] Required document total missing or invalid: "${rawDocTotal}" in order/bill ${docRef}`);
+  }
+
   for (const item of rawItems) {
     const name = String(item.product_name || item.name || 'Item');
-    const quantity = Number(item.quantity || 1);
-    const price = Number(item.total_price || item.price || 0);
-    const unitPrice = item.unit_price !== undefined ? Number(item.unit_price) : undefined;
+    const quantity = Number(item.quantity !== undefined ? item.quantity : 1);
+    if (isNaN(quantity) || quantity <= 0) {
+      throw new Error(`[Receipt Error] Invalid quantity (${item.quantity}) for item "${name}" in order/bill ${docRef}`);
+    }
+
+    const rawUnitPrice = item.unit_price !== undefined ? item.unit_price : (item.unitPrice !== undefined ? item.unitPrice : undefined);
+    const rawTotal = item.total !== undefined ? item.total : (item.total_price !== undefined ? item.total_price : (item.totalPrice !== undefined ? item.totalPrice : (item.lineTotal !== undefined ? item.lineTotal : (item.itemTotal !== undefined ? item.itemTotal : item.subtotal))));
+
+    let price: number;
+    let unitPrice: number | undefined;
+
+    if (rawTotal !== undefined && rawTotal !== null && !isNaN(Number(rawTotal))) {
+      price = Number(rawTotal);
+      if (rawUnitPrice !== undefined && rawUnitPrice !== null && !isNaN(Number(rawUnitPrice))) {
+        unitPrice = Number(rawUnitPrice);
+      } else if (quantity > 0) {
+        unitPrice = price / quantity;
+      }
+    } else if (rawUnitPrice !== undefined && rawUnitPrice !== null && !isNaN(Number(rawUnitPrice))) {
+      unitPrice = Number(rawUnitPrice);
+      price = unitPrice * quantity;
+    } else if (item.price !== undefined && item.price !== null && !isNaN(Number(item.price))) {
+      unitPrice = Number(item.price);
+      price = unitPrice * quantity;
+    } else {
+      throw new Error(`[Receipt Error] Required monetary value missing for item "${name}" (ID: ${item.id || item.product_id || 'unknown'}) in order/bill ${docRef}`);
+    }
+
+    if (isNaN(price) || !isFinite(price)) {
+      throw new Error(`[Receipt Error] Invalid calculated price (${price}) for item "${name}" in order/bill ${docRef}`);
+    }
+
     const addons = Array.isArray(item.addons)
-      ? item.addons.map((a: any) => ({ name: String(a.name || a.addon_name || ''), price: Number(a.price || 0) }))
+      ? item.addons.map((a: any) => {
+          const addonName = String(a.name || a.addon_name || '');
+          const addonPrice = a.price !== undefined ? Number(a.price) : (a.unit_price !== undefined ? Number(a.unit_price) : 0);
+          if (isNaN(addonPrice) || !isFinite(addonPrice)) {
+            throw new Error(`[Receipt Error] Invalid addon price (${addonPrice}) for addon "${addonName}" on item "${name}" in order/bill ${docRef}`);
+          }
+          return { name: addonName, price: addonPrice };
+        })
       : undefined;
-    const notes = item.notes ? String(item.notes) : undefined;
+
+    const notes = item.notes ? String(item.notes) : (item.special_instructions ? String(item.special_instructions) : undefined);
 
     items.push({ name, quantity, price, unitPrice, addons, notes });
   }
 
   const currencySymbol = business.currency_symbol || business.currency || '$';
-  const formatAmt = (amt: number): string => `${currencySymbol} ${amt.toFixed(business.trim_decimals ? 0 : 2)}`;
+  const formatAmt = (amt: number): string => toWesternDigits(`${currencySymbol} ${amt.toFixed(business.trim_decimals ? 0 : 2)}`);
 
   const totals: BrandedReceiptTotalRow[] = [];
   if (bill.subtotal !== undefined) {
@@ -463,13 +529,10 @@ export function buildBrandedReceiptRequest(options: {
 
   totals.push({
     label: 'Total / الإجمالي',
-    value: formatAmt(Number(bill.total || order.total || 0)),
+    value: formatAmt(Number(rawDocTotal)),
     isBold: true,
     isLarge: true,
   });
-
-  const isPreliminary = options.documentVariant === 'preliminary' || bill.documentVariant === 'preliminary';
-  const isCart = options.source?.kind === 'active_cart' || bill.source?.kind === 'active_cart';
 
   if (isPreliminary) {
     if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
@@ -477,7 +540,7 @@ export function buildBrandedReceiptRequest(options: {
     }
     const balanceRemaining = bill.balance !== undefined
       ? Number(bill.balance)
-      : Math.max(0, Number(bill.total || order.total || 0) - Number(bill.paid_amount || 0));
+      : Math.max(0, Number(rawDocTotal) - Number(bill.paid_amount || 0));
     totals.push({ label: 'Balance Due / المتبقي', value: formatAmt(balanceRemaining) });
   } else {
     if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
@@ -509,20 +572,20 @@ export function buildBrandedReceiptRequest(options: {
     header: {
       businessName: business.name || 'FloCafe',
       address: business.address || undefined,
-      phone: business.phone || undefined,
-      taxId: business.taxRegistrationNumber || undefined,
+      phone: business.phone ? toWesternDigits(business.phone) : undefined,
+      taxId: business.taxRegistrationNumber ? toWesternDigits(business.taxRegistrationNumber) : undefined,
       banner: isPreliminary ? preliminaryBanner : defaultBanner,
     },
     meta: {
-      invoiceNumber: isCart ? undefined : (bill.bill_number ? String(bill.bill_number) : undefined),
-      orderNumber: isCart ? undefined : (order.order_number ? String(order.order_number) : undefined),
-      quoteReference: isCart ? (options.source && 'quoteId' in options.source ? options.source.quoteId : (bill.quoteId || '')) : undefined,
-      timestamp: bill.created_at || order.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+      invoiceNumber: isCart ? undefined : (bill.bill_number ? toWesternDigits(String(bill.bill_number)) : undefined),
+      orderNumber: isCart ? undefined : (order.order_number ? toWesternDigits(String(order.order_number)) : undefined),
+      quoteReference: isCart ? (options.source && 'quoteId' in options.source ? toWesternDigits(options.source.quoteId) : (bill.quoteId ? toWesternDigits(bill.quoteId) : '')) : undefined,
+      timestamp: toWesternDigits(bill.created_at || order.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19)),
       tableName: order.table?.name || business.table_name || undefined,
       customerName: order.customer?.name || business.customer_name || undefined,
-      customerPhone: order.customer?.phone || business.customer_phone || undefined,
+      customerPhone: order.customer?.phone || business.customer_phone ? toWesternDigits(order.customer?.phone || business.customer_phone) : undefined,
       onlinePlatform: order.online_platform || business.online_platform || undefined,
-      externalOrderId: order.external_order_id || business.external_order_id || undefined,
+      externalOrderId: order.external_order_id || business.external_order_id ? toWesternDigits(order.external_order_id || business.external_order_id) : undefined,
     },
     items,
     totals,
@@ -748,13 +811,40 @@ export function buildBrandedKotRequest(options: {
 
   const kotItems: BrandedReceiptItem[] = items.map((item: any) => {
     const name = String(item.product_name || item.name || 'Item');
-    const quantity = Number(item.quantity || 1);
-    const price = showPrices ? Number(item.total_price || item.price || 0) : 0;
-    const unitPrice = showPrices && item.unit_price !== undefined ? Number(item.unit_price) : undefined;
+    const quantity = Number(item.quantity !== undefined ? item.quantity : 1);
+    let price = 0;
+    let unitPrice: number | undefined = undefined;
+
+    if (showPrices) {
+      const rawUnitPrice = item.unit_price !== undefined ? item.unit_price : (item.unitPrice !== undefined ? item.unitPrice : undefined);
+      const rawTotal = item.total !== undefined ? item.total : (item.total_price !== undefined ? item.total_price : (item.lineTotal !== undefined ? item.lineTotal : (item.itemTotal !== undefined ? item.itemTotal : item.subtotal)));
+
+      if (rawTotal !== undefined && rawTotal !== null && !isNaN(Number(rawTotal))) {
+        price = Number(rawTotal);
+        if (rawUnitPrice !== undefined && rawUnitPrice !== null && !isNaN(Number(rawUnitPrice))) {
+          unitPrice = Number(rawUnitPrice);
+        } else if (quantity > 0) {
+          unitPrice = price / quantity;
+        }
+      } else if (rawUnitPrice !== undefined && rawUnitPrice !== null && !isNaN(Number(rawUnitPrice))) {
+        unitPrice = Number(rawUnitPrice);
+        price = unitPrice * quantity;
+      } else if (item.price !== undefined && item.price !== null && !isNaN(Number(item.price))) {
+        unitPrice = Number(item.price);
+        price = unitPrice * quantity;
+      } else {
+        throw new Error(`[KOT Error] Required price missing for item "${name}" when showPrices is enabled in order ${order.order_number || order.id || 'unknown'}`);
+      }
+
+      if (isNaN(price) || !isFinite(price)) {
+        throw new Error(`[KOT Error] Invalid calculated price (${price}) for item "${name}" in order ${order.order_number || order.id || 'unknown'}`);
+      }
+    }
+
     const addons = Array.isArray(item.addons)
       ? item.addons.map((a: any) => ({ name: String(a.name || a.addon_name || ''), price: showPrices ? Number(a.price || 0) : 0 }))
       : undefined;
-    const notes = item.notes ? String(item.notes) : undefined;
+    const notes = item.notes ? String(item.notes) : (item.special_instructions ? String(item.special_instructions) : undefined);
     return { name, quantity, price, unitPrice, addons, notes };
   });
 
@@ -764,7 +854,7 @@ export function buildBrandedKotRequest(options: {
     const currency = business.currency_symbol || business.currency || '';
     totals.push({
       label: 'Items Subtotal / مجموع الأصناف',
-      value: `${sum.toFixed(2)} ${currency}`.trim(),
+      value: toWesternDigits(`${sum.toFixed(2)} ${currency}`.trim()),
       isBold: true,
     });
   }
@@ -794,9 +884,9 @@ export function buildBrandedKotRequest(options: {
       banner: 'تذكرة طلب المطبخ / Kitchen Order Ticket',
     },
     meta: {
-      orderNumber: orderNum,
+      orderNumber: orderNum ? toWesternDigits(orderNum) : undefined,
       tableName,
-      timestamp: serverName ? `${timestamp} | Server: ${serverName}` : timestamp,
+      timestamp: toWesternDigits(serverName ? `${timestamp} | Server: ${serverName}` : timestamp),
       serverName,
       stationName: options.stationName,
     },

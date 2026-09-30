@@ -418,7 +418,7 @@ receiptAssetsRouter.get(
         `     الرقم الضريبي: ${taxRegNumber} `,
         dividerLine,
         'فاتورة ضريبية مبسطة / Tax Invoice',
-        `التاريخ: ${new Date().toLocaleDateString('ar-SA')} 12:30`,
+        `التاريخ: ${new Date().toLocaleDateString('ar-SA-u-nu-latn')} 12:30`,
         'رقم الفاتورة: #INV-2026-001',
         dividerLine,
         'الصنف            الكمية    السعر',

@@ -347,6 +347,13 @@ export function getCanvasDocumentRenderFunction(): string {
         ctx.fillRect(0, 0, width, 8000);
         ctx.fillStyle = '#000000';
 
+        const toWestern = (s) => {
+          if (s === undefined || s === null) return '';
+          return String(s)
+            .replace(/[\u0660-\u0669]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x0660 + 48))
+            .replace(/[\u06F0-\u06F9]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x06F0 + 48));
+        };
+
         const drawLine = (lineY, thickness = 2, style = 'solid') => {
           ctx.fillStyle = '#000000';
           if (style === 'dotted') {
@@ -365,8 +372,9 @@ export function getCanvasDocumentRenderFunction(): string {
           }
         };
 
-        const drawText = (str, x, textY, opts = {}) => {
-          if (!str) return 0;
+        const drawText = (rawStr, x, textY, opts = {}) => {
+          if (rawStr === undefined || rawStr === null || rawStr === '') return 0;
+          const str = toWestern(rawStr);
           const size = opts.size || 16;
           const bold = opts.bold || false;
           const align = opts.align || 'left';
@@ -379,8 +387,9 @@ export function getCanvasDocumentRenderFunction(): string {
           return ctx.measureText(str).width;
         };
 
-        const wrapText = (str, maxWidth, size, bold = false) => {
-          if (!str) return [];
+        const wrapText = (rawStr, maxWidth, size, bold = false) => {
+          if (rawStr === undefined || rawStr === null || rawStr === '') return [];
+          const str = toWestern(rawStr);
           ctx.font = (bold ? 'bold ' : 'normal ') + size + 'px ' + fontStack;
           const words = str.split(' ');
           const lines = [];
@@ -486,7 +495,7 @@ export function getCanvasDocumentRenderFunction(): string {
           y += 18;
           drawText('WIDTH: ' + width + ' dots (' + Math.round(width / 8) + ' bytes/row)', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 18;
-          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.8', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
+          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.10', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 22;
           drawLine(y, 1);
           y += 12;
@@ -623,6 +632,12 @@ export function getCanvasDocumentRenderFunction(): string {
               drawText(nameLines[l], contentLeft + priceW + qtyW, y + 2 + l * itemLineH, { align: 'left', size: itemNamesSize, bold: itemNamesBold });
             }
             y += Math.max(itemLineH + 6, nameLines.length * itemLineH + 6);
+
+            // Multi-quantity unit price breakdown
+            if (hasPrices && item.quantity > 1 && item.unitPrice !== undefined && Number(item.unitPrice) > 0) {
+              drawText(item.quantity + ' x ' + Number(item.unitPrice).toFixed(2), contentLeft + priceW + qtyW, y, { align: 'left', size: itemModifiersSize });
+              y += modLineH;
+            }
 
             if (item.addons && item.addons.length > 0) {
               for (const addon of item.addons) {

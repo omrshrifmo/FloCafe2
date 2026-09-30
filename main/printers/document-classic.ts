@@ -118,8 +118,8 @@ export function buildBillPrintData(
       items: items.map((item: any) => ({
         productName: String(item?.product_name ?? ''),
         quantity: Number(item?.quantity) || 0,
-        unitPrice: Number(item?.unit_price ?? item?.price ?? 0) || 0,
-        total: Number(item?.total) || 0,
+        unitPrice: Number(item?.unit_price ?? item?.unitPrice ?? item?.price ?? 0) || 0,
+        total: Number(item?.total ?? item?.total_price ?? item?.lineTotal ?? item?.subtotal ?? ((Number(item?.unit_price ?? item?.unitPrice ?? item?.price ?? 0) || 0) * (Number(item?.quantity) || 0))) || 0,
         addons: (Array.isArray(item?.addons) ? item.addons : []).map((addon: any) => {
           const addonQuantity = (addon !== null && typeof addon === 'object' && 'quantity' in addon
             && typeof addon.quantity === 'number' && addon.quantity) || 1;

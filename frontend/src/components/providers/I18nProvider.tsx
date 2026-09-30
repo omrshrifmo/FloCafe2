@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type ComponentProps } from 'react';
 import { IntlProvider } from 'use-intl';
 import { usePosSettingsStore } from '@/store/pos-settings';
 import { LANGUAGES, getBrowserLanguage, isLanguage, type Language } from '@/lib/i18n';
 import { getCachedMessages, loadLocaleMessages } from '@/lib/i18n/loader';
+import { enforceLatnLocale } from '@/lib/countries';
 
 /** Wraps application in use-intl's IntlProvider with lazy-loaded messages,
  * packaged English fallback, and atomic locale switching. */
@@ -83,7 +84,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   return (
     <IntlProvider
-      locale={config.locale}
+      locale={enforceLatnLocale(config.locale) as unknown as ComponentProps<typeof IntlProvider>['locale']}
       messages={messages}
       timeZone={getDefaultTimeZone()}
       onError={handleI18nError}

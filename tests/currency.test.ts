@@ -46,9 +46,9 @@ test('formatCurrencyForTenant: COP uses zero fraction digits', () => {
   assert.doesNotMatch(out, /[,.]00(?:\D|$)/);
 });
 
-test('formatCurrencyForTenant: KWD uses three fraction digits', () => {
+test('formatCurrencyForTenant: KWD uses three fraction digits with Western digits', () => {
   const out = formatCurrencyForTenant(1.25, 'KW', 'KWD');
-  assert.match(out, /١٫٢٥٠/);
+  assert.match(out, /1\.250/);
 });
 
 test('formatCurrencyForTenant: unknown country falls back to en-US', () => {

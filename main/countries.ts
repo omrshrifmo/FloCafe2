@@ -1,5 +1,8 @@
 import { getCountryCallingCode, type CountryCode } from 'libphonenumber-js';
 import { isSyntacticallyValidCurrencyCode } from '../shared/print/currency';
+import { toWesternDigits, normalizeNumericInput, parseWesternNumber, enforceLatnLocale } from '../shared/digits';
+
+export { toWesternDigits, normalizeNumericInput, parseWesternNumber, enforceLatnLocale };
 
 export interface TaxIdFormat {
   // JS RegExp source (no slashes/flags) — validated case-insensitively.
@@ -59,8 +62,8 @@ const SUPPORTED: Record<string, Row> = {
   VN: { locale: 'vi-VN', currency: 'VND', tz: 'Asia/Ho_Chi_Minh',                taxIdLabel: 'MST',   taxName: 'VAT' },
   AU: { locale: 'en-AU', currency: 'AUD', tz: 'Australia/Sydney',                taxIdLabel: 'ABN',   taxName: 'GST' },
   NZ: { locale: 'en-NZ', currency: 'NZD', tz: 'Pacific/Auckland',                taxIdLabel: 'IRD',   taxName: 'GST' },
-  AE: { locale: 'ar-AE', currency: 'AED', tz: 'Asia/Dubai',                      taxIdLabel: 'TRN',   taxName: 'VAT' },
-  SA: { locale: 'ar-SA', currency: 'SAR', tz: 'Asia/Riyadh',                     taxIdLabel: 'VAT',   taxName: 'VAT' },
+  AE: { locale: 'ar-AE-u-nu-latn', currency: 'AED', tz: 'Asia/Dubai',                      taxIdLabel: 'TRN',   taxName: 'VAT' },
+  SA: { locale: 'ar-SA-u-nu-latn', currency: 'SAR', tz: 'Asia/Riyadh',                     taxIdLabel: 'VAT',   taxName: 'VAT' },
   ZA: { locale: 'en-ZA', currency: 'ZAR', tz: 'Africa/Johannesburg',             taxIdLabel: 'VAT',   taxName: 'VAT' },
   MA: { locale: 'fr-MA', currency: 'MAD', tz: 'Africa/Casablanca',               taxIdLabel: 'Tax ID',taxName: 'VAT' },
   KE: { locale: 'en-KE', currency: 'KES', tz: 'Africa/Nairobi',                  taxIdLabel: 'PIN',   taxName: 'VAT' },
@@ -79,7 +82,7 @@ const SUPPORTED: Record<string, Row> = {
   BD: { locale: 'bn-BD', currency: 'BDT', tz: 'Asia/Dhaka',                      taxIdLabel: 'TIN',   taxName: 'VAT' },
   LK: { locale: 'en-LK', currency: 'LKR', tz: 'Asia/Colombo',                    taxIdLabel: 'TIN',   taxName: 'VAT' },
   NP: { locale: 'ne-NP', currency: 'NPR', tz: 'Asia/Kathmandu',                  taxIdLabel: 'TIN',   taxName: 'VAT' },
-  EG: { locale: 'ar-EG', currency: 'EGP', tz: 'Africa/Cairo',                    taxIdLabel: 'TIN',   taxName: 'VAT' },
+  EG: { locale: 'ar-EG-u-nu-latn', currency: 'EGP', tz: 'Africa/Cairo',                    taxIdLabel: 'TIN',   taxName: 'VAT' },
   IL: { locale: 'he-IL', currency: 'ILS', tz: 'Asia/Jerusalem',                                                      taxName: 'VAT' },
   TR: { locale: 'tr-TR', currency: 'TRY', tz: 'Europe/Istanbul',                 taxIdLabel: 'VKN',   taxName: 'KDV' },
   IR: { locale: 'fa-IR', currency: 'IRR', tz: 'Asia/Tehran',                     taxIdLabel: 'Economic Code', taxName: 'VAT',
@@ -133,14 +136,14 @@ const SUPPORTED: Record<string, Row> = {
   AZ: { locale: 'az-AZ', currency: 'AZN', tz: 'Asia/Baku' },
 
   // Middle East (GCC & Levant)
-  QA: { locale: 'ar-QA', currency: 'QAR', tz: 'Asia/Qatar' },
-  KW: { locale: 'ar-KW', currency: 'KWD', tz: 'Asia/Kuwait' },
-  BH: { locale: 'ar-BH', currency: 'BHD', tz: 'Asia/Bahrain' },
-  OM: { locale: 'ar-OM', currency: 'OMR', tz: 'Asia/Muscat' },
-  JO: { locale: 'ar-JO', currency: 'JOD', tz: 'Asia/Amman' },
-  LB: { locale: 'ar-LB', currency: 'LBP', tz: 'Asia/Beirut' },
-  IQ: { locale: 'ar-IQ', currency: 'IQD', tz: 'Asia/Baghdad' },
-  YE: { locale: 'ar-YE', currency: 'YER', tz: 'Asia/Aden' },
+  QA: { locale: 'ar-QA-u-nu-latn', currency: 'QAR', tz: 'Asia/Qatar' },
+  KW: { locale: 'ar-KW-u-nu-latn', currency: 'KWD', tz: 'Asia/Kuwait' },
+  BH: { locale: 'ar-BH-u-nu-latn', currency: 'BHD', tz: 'Asia/Bahrain' },
+  OM: { locale: 'ar-OM-u-nu-latn', currency: 'OMR', tz: 'Asia/Muscat' },
+  JO: { locale: 'ar-JO-u-nu-latn', currency: 'JOD', tz: 'Asia/Amman' },
+  LB: { locale: 'ar-LB-u-nu-latn', currency: 'LBP', tz: 'Asia/Beirut' },
+  IQ: { locale: 'ar-IQ-u-nu-latn', currency: 'IQD', tz: 'Asia/Baghdad' },
+  YE: { locale: 'ar-YE-u-nu-latn', currency: 'YER', tz: 'Asia/Aden' },
 
   // Africa
   GH: { locale: 'en-GH', currency: 'GHS', tz: 'Africa/Accra' },
@@ -153,8 +156,8 @@ const SUPPORTED: Record<string, Row> = {
   CM: { locale: 'fr-CM', currency: 'XAF', tz: 'Africa/Douala' },
   ZM: { locale: 'en-ZM', currency: 'ZMW', tz: 'Africa/Lusaka' },
   MU: { locale: 'en-MU', currency: 'MUR', tz: 'Indian/Mauritius' },
-  TN: { locale: 'ar-TN', currency: 'TND', tz: 'Africa/Tunis' },
-  DZ: { locale: 'ar-DZ', currency: 'DZD', tz: 'Africa/Algiers' },
+  TN: { locale: 'ar-TN-u-nu-latn', currency: 'TND', tz: 'Africa/Tunis' },
+  DZ: { locale: 'ar-DZ-u-nu-latn', currency: 'DZD', tz: 'Africa/Algiers' },
   BW: { locale: 'en-BW', currency: 'BWP', tz: 'Africa/Gaborone' },
   NA: { locale: 'en-NA', currency: 'NAD', tz: 'Africa/Windhoek' },
   MZ: { locale: 'pt-MZ', currency: 'MZN', tz: 'Africa/Maputo' },
@@ -310,11 +313,19 @@ const normalizePreferences = (prefs?: LocalePreferences): Required<LocalePrefere
 });
 
 export const formatCurrency = (amount: number, currency: string, locale = 'en-US'): string => {
-  if (!currency) return amount.toFixed(2);
+  if (!currency) return toWesternDigits(amount.toFixed(2));
+  const isArabic = locale.startsWith('ar') || locale.includes('-ar');
+  const targetLocale = isArabic ? enforceLatnLocale(locale) : locale;
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'narrowSymbol' }).format(amount);
+    const formatted = new Intl.NumberFormat(targetLocale, {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'narrowSymbol',
+      ...(isArabic ? { numberingSystem: 'latn' } : {}),
+    }).format(amount);
+    return isArabic ? toWesternDigits(formatted) : formatted;
   } catch {
-    return `${currency} ${amount.toFixed(2)}`;
+    return toWesternDigits(`${currency} ${amount.toFixed(2)}`);
   }
 };
 
@@ -326,35 +337,44 @@ export const formatMoney = (
   prefs?: LocalePreferences,
 ): string => {
   const { currencyDisplay, digits } = normalizePreferences(prefs);
-  const numberingSystem = digits === 'latin' ? 'latn' : undefined;
+  const isArabic = locale.startsWith('ar') || locale.includes('-ar');
+  const numberingSystem = digits === 'latin' || isArabic ? 'latn' : undefined;
+  const targetLocale = isArabic ? enforceLatnLocale(locale) : locale;
 
   if (currency === IRAN_CURRENCY && currencyDisplay !== 'rial') {
     // 1 Toman = 10 Rial; divide for display only, never for storage.
     const toman = amount / TOMAN_PER_RIAL;
     if (currencyDisplay === 'toman') {
-      return `${formatNumber(toman, locale, numberingSystem)} تومان`;
+      const out = `${formatNumber(toman, targetLocale, numberingSystem)} تومان`;
+      return isArabic ? toWesternDigits(out) : out;
     }
     // toman_short — colloquial shorthand, Persian/Latin suffix by digit mode.
-    return `${formatNumber(toman, locale, numberingSystem)}${digits === 'latin' ? 'T' : 'ت'}`;
+    const out = `${formatNumber(toman, targetLocale, numberingSystem)}${digits === 'latin' ? 'T' : 'ت'}`;
+    return isArabic ? toWesternDigits(out) : out;
   }
 
-  if (!currency) return formatNumber(amount, locale, numberingSystem);
+  if (!currency) {
+    const out = formatNumber(amount, targetLocale, numberingSystem);
+    return isArabic ? toWesternDigits(out) : out;
+  }
   try {
-    const formatted = new Intl.NumberFormat(locale, {
+    let formatted = new Intl.NumberFormat(targetLocale, {
       style: 'currency',
       currency,
       currencyDisplay: 'narrowSymbol',
       numberingSystem,
     }).format(amount);
-    if (!formatted.includes('¤')) return formatted;
-    return new Intl.NumberFormat(locale, {
+    if (!formatted.includes('¤')) return isArabic ? toWesternDigits(formatted) : formatted;
+    formatted = new Intl.NumberFormat(targetLocale, {
       style: 'currency',
       currency,
       currencyDisplay: 'code',
       numberingSystem,
     }).format(amount);
+    return isArabic ? toWesternDigits(formatted) : formatted;
   } catch {
-    return `${currency} ${formatNumber(amount, locale, numberingSystem)}`;
+    const out = `${currency} ${formatNumber(amount, targetLocale, numberingSystem)}`;
+    return isArabic ? toWesternDigits(out) : out;
   }
 };
 
@@ -442,8 +462,12 @@ export const formatCurrencyForTenant = (
 
 // Formats a plain number using the given locale's digits and grouping.
 export const formatNumber = (value: number, locale = 'en-US', numberingSystem?: string): string => {
+  const isArabic = locale.startsWith('ar') || locale.includes('-ar');
+  const numSys = isArabic ? 'latn' : numberingSystem;
+  const targetLocale = isArabic ? enforceLatnLocale(locale) : locale;
   try {
-    return new Intl.NumberFormat(locale, numberingSystem ? { numberingSystem } : undefined).format(value);
+    const formatted = new Intl.NumberFormat(targetLocale, numSys ? { numberingSystem: numSys } : undefined).format(value);
+    return isArabic ? toWesternDigits(formatted) : formatted;
   } catch {
     return String(value);
   }
@@ -456,10 +480,12 @@ export const formatNumberForTenant = (
   prefs?: LocalePreferences,
 ): string => {
   const { digits } = normalizePreferences(prefs);
+  const tenantLocale = getCountryByCode(countryCode)?.locale ?? 'en-US';
+  const isArabic = tenantLocale.startsWith('ar') || tenantLocale.includes('-ar');
   return formatNumber(
     value,
-    getCountryByCode(countryCode)?.locale ?? 'en-US',
-    digits === 'latin' ? 'latn' : undefined,
+    tenantLocale,
+    digits === 'latin' || isArabic ? 'latn' : undefined,
   );
 };
 
@@ -481,18 +507,21 @@ export const formatDateForTenant = (
   const { digits, calendar } = normalizePreferences(prefs);
   const tenantLocale = getCountryByCode(countryCode)?.locale || 'en-US';
   const locale = localeOverride || tenantLocale;
+  const isArabic = locale.startsWith('ar') || locale.includes('-ar') || tenantLocale.startsWith('ar');
   try {
     // Tenant preferences belong to the tenant profile; resolve defaults before UI override.
     const tenantDateDefaults = new Intl.DateTimeFormat(tenantLocale).resolvedOptions();
     const tenantNumberDefaults = new Intl.NumberFormat(tenantLocale).resolvedOptions();
-    const numberingSystem = digits === 'latin' ? 'latn' : tenantNumberDefaults.numberingSystem;
+    const numberingSystem = digits === 'latin' || isArabic ? 'latn' : tenantNumberDefaults.numberingSystem;
     const calendarValue = calendarOption(calendar) || tenantDateDefaults.calendar;
-    return new Intl.DateTimeFormat(locale, {
+    const targetLocale = isArabic ? enforceLatnLocale(locale) : locale;
+    const formatted = new Intl.DateTimeFormat(targetLocale, {
       timeZone: timezone,
       ...(numberingSystem ? { numberingSystem } : {}),
       ...(calendarValue ? { calendar: calendarValue } : {}),
       ...options,
     }).format(date);
+    return isArabic ? toWesternDigits(formatted) : formatted;
   } catch {
     return date.toISOString();
   }
@@ -660,7 +689,8 @@ function hasValidLocaleGrouping(digits: string, format: Pick<AmountFormat, 'grou
  * grouping that doesn't match this locale's actual pattern.
  */
 export function canonicalizeLocalizedAmount(raw: string, format: AmountFormat): string | null {
-  let cleaned = String(raw ?? '').trim();
+  const normalizedRaw = normalizeNumericInput(raw);
+  let cleaned = String(normalizedRaw ?? '').trim();
   if (!cleaned) return null;
 
   if (format.currencySymbol) {
