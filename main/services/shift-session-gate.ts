@@ -44,11 +44,12 @@ export function isCashTender(db: ReturnType<typeof getDatabase>, payment: unknow
   if (typeof method !== 'string') return false;
   if (BUILT_IN_PAYMENT_METHODS.has(method)) return method === 'cash';
   const row = (method === 'custom'
-    ? db.prepare('SELECT name FROM payment_methods WHERE id = ? AND is_active = 1')
+    ? db.prepare('SELECT name, counts_as_cash_drawer_tender FROM payment_methods WHERE id = ? AND is_active = 1')
       .get((payment as { payment_method_id?: unknown }).payment_method_id)
-    : db.prepare('SELECT name FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1')
-      .get(method)) as { name?: string } | undefined;
-  return typeof row?.name === 'string' && row.name.toLowerCase() === 'cash';
+    : db.prepare('SELECT name, counts_as_cash_drawer_tender FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1')
+      .get(method)) as { name?: string; counts_as_cash_drawer_tender?: number } | undefined;
+  if (!row) return false;
+  return Boolean(row.counts_as_cash_drawer_tender) || (typeof row.name === 'string' && row.name.toLowerCase() === 'cash');
 }
 
 /**

@@ -28,7 +28,12 @@ function countUsage(id: number): number {
 
 function list(includeInactive = false) {
   const rows = getDatabase().prepare(`SELECT * FROM payment_methods ${includeInactive ? '' : 'WHERE is_active = 1'} ORDER BY sort_order, id`).all() as any[];
-  return rows.map((row) => ({ ...row, is_active: Boolean(row.is_active), ...(includeInactive ? { usage_count: countUsage(row.id) } : {}) }));
+  return rows.map((row) => ({
+    ...row,
+    is_active: Boolean(row.is_active),
+    counts_as_cash_drawer_tender: Boolean(row.counts_as_cash_drawer_tender),
+    ...(includeInactive ? { usage_count: countUsage(row.id) } : {}),
+  }));
 }
 
 router.get('/merge-history', requirePermission('payment-methods.manage'), (_req, res) => {
@@ -43,10 +48,11 @@ router.get('/', requirePermission('payment-methods.view'), (req: Request, res: R
 router.post('/', requirePermission('payment-methods.manage'), (req: Request, res: Response) => {
   try {
     const name = normalizeName(req.body?.name);
+    const countsAsCash = req.body?.counts_as_cash_drawer_tender ? 1 : 0;
     const db = getDatabase();
     const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM payment_methods').get() as { n: number };
-    const result = db.prepare('INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, ?, ?, ?)')
-      .run(name, Number(max.n) + 10, now(), now());
+    const result = db.prepare('INSERT INTO payment_methods (name, is_active, sort_order, counts_as_cash_drawer_tender, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?)')
+      .run(name, Number(max.n) + 10, countsAsCash, now(), now());
     void sendEvent('feature_used', { feature: 'custom_payment_methods', action: 'added' });
     res.status(201).json({ payment_method: list(true).find((row) => row.id === Number(result.lastInsertRowid)) });
   } catch (error: any) {
@@ -64,9 +70,12 @@ router.put('/:id', requirePermission('payment-methods.manage'), (req: Request, r
     const name = req.body?.name === undefined ? current.name : normalizeName(req.body.name);
     const active = req.body?.is_active === undefined ? current.is_active : req.body.is_active ? 1 : 0;
     const order = req.body?.sort_order === undefined ? current.sort_order : Number(req.body.sort_order);
+    const countsAsCash = req.body?.counts_as_cash_drawer_tender === undefined
+      ? (current.counts_as_cash_drawer_tender ? 1 : 0)
+      : (req.body.counts_as_cash_drawer_tender ? 1 : 0);
     if (!Number.isSafeInteger(order) || order < 0) return res.status(400).json({ error: 'Invalid sort order' });
-    db.prepare('UPDATE payment_methods SET name = ?, is_active = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-      .run(name, active, order, now(), id);
+    db.prepare('UPDATE payment_methods SET name = ?, is_active = ?, sort_order = ?, counts_as_cash_drawer_tender = ?, updated_at = ? WHERE id = ?')
+      .run(name, active, order, countsAsCash, now(), id);
     if (active !== current.is_active) void sendEvent('feature_used', { feature: 'custom_payment_methods', action: active ? 'enabled' : 'disabled' });
     res.json({ payment_method: list(true).find((row) => row.id === id) });
   } catch (error: any) {

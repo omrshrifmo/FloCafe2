@@ -21,7 +21,7 @@ import { validateOrderNotes, validateItemNotes, validateProductQuantity } from '
 import { hasPermission, requirePermission } from '../services/authorization';
 import { ROLE_ACCESS, hasRole } from '../../shared/role-permissions';
 import { getCurrencyFractionDigits, getCurrencyMinorUnitFactor } from '../countries';
-import { getTenantCurrency, syncUnpaidBillsForOrder } from './bills';
+import { getTenantCurrency, syncUnpaidBillsForOrder, getOrCreateBillForOrder } from './bills';
 import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 
@@ -242,6 +242,22 @@ router.get('/', orderReadRateLimit, requirePermission('orders.read'), (req: Requ
       wheres.push('table_id = ?');
       params.push(req.query.table_id);
     }
+    if (req.query.internal_label) {
+      wheres.push('internal_label LIKE ?');
+      params.push(`%${String(req.query.internal_label).trim()}%`);
+    }
+    if (req.query.payment_status) {
+      const paymentStatuses = (req.query.payment_status as string).split(',').map((s) => s.trim()).filter(Boolean);
+      if (paymentStatuses.length > 0) {
+        wheres.push(`id IN (SELECT order_id FROM bills WHERE payment_status IN (${paymentStatuses.map(() => '?').join(',')}))`);
+        params.push(...paymentStatuses);
+      }
+    }
+    if (req.query.search) {
+      const term = `%${String(req.query.search).trim()}%`;
+      wheres.push('(order_number LIKE ? OR internal_label LIKE ?)');
+      params.push(term, term);
+    }
     // Cursor pagination: `before` / `after` are ORDER BY keys (created_at),
     // composed with `id` to break ties when many orders share a second.
     if (typeof req.query.before_id === 'string' && /^\d+$/.test(req.query.before_id)) {
@@ -453,7 +469,7 @@ router.get('/:id', orderReadRateLimit, requirePermission('orders.read'), (req: R
 router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: Request, res: Response) => {
   try {
     const body = req.body || {};
-    const { table_id, customer_id, type, guest_count, special_instructions, packaging_charge, delivery_charge, service_charge, items, online_platform, external_order_id } = body;
+    const { table_id, customer_id, type, guest_count, special_instructions, packaging_charge, delivery_charge, service_charge, items, online_platform, external_order_id, internal_label } = body;
     // Carries optional service charge without automatic calculation policy.
     const idempotencyKey = orderIdempotencyKey(req);
     const idempotencyUserId = String((req as any).user.userId);
@@ -501,6 +517,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
     }
     const onlinePlatform = typeof online_platform === 'string' ? online_platform.trim().slice(0, 100) : null;
     const externalOrderId = typeof external_order_id === 'string' ? external_order_id.trim().slice(0, 100) : null;
+    const internalLabel = typeof internal_label === 'string' ? internal_label.trim().slice(0, 100) || null : null;
 
     const db = getDatabase();
 
@@ -570,13 +587,13 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       const orderResult = db.prepare(`
         INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
           packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
-          service_charge, service_charge_tax_category_id, online_platform, external_order_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+          service_charge, service_charge_tax_category_id, online_platform, external_order_id, internal_label, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
         special_instructions || null, pkgCharge, delCharge,
         chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
         serviceCharge, chargeContext.service_charge_tax_category_id,
-        onlinePlatform || null, externalOrderId || null, now(), now());
+        onlinePlatform || null, externalOrderId || null, internalLabel, now(), now());
 
       const orderId = orderResult.lastInsertRowid;
 
@@ -2032,6 +2049,441 @@ router.patch('/:orderId/items/:itemId/restore', (req: Request, res: Response) =>
     console.error('[Orders] Restore item error:', error);
     console.error("[API] Internal error:", error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
+  }
+});
+
+export function recalculateAndPersistOrder(db: ReturnType<typeof getDatabase>, orderId: number | string): any {
+  const currentOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+  if (!currentOrder) return null;
+
+  const orderTotals = calculateOrderTotals(db, orderId);
+  const subtotal = orderTotals.subtotal;
+  const currency = getTenantCurrency();
+  const decimals = getCurrencyFractionDigits(currency);
+
+  const existingDiscountAmount = currentOrder.discount_amount || 0;
+  let newDiscountAmount = existingDiscountAmount;
+  if (existingDiscountAmount > 0 && currentOrder.subtotal > 0) {
+    if (currentOrder.discount_type === 'percentage') {
+      const pct = currentOrder.discount_value || 0;
+      newDiscountAmount = Number((subtotal * pct / 100).toFixed(decimals));
+    } else {
+      newDiscountAmount = Math.min(existingDiscountAmount, subtotal);
+    }
+  }
+
+  const tenantInfo = {
+    country: getSettingValue('country') || '',
+    business_type: getSettingValue('business_type') || 'restaurant',
+    state_code: getSettingValue('state_code') || '',
+    currency,
+    taxes_enabled: getSettingValue('taxes_enabled') === 'true',
+  };
+  const customer = currentOrder.customer_id
+    ? db.prepare('SELECT * FROM customers WHERE id = ?').get(currentOrder.customer_id) as any
+    : null;
+
+  const { taxRollup, total, roundOff } = recomputeOrderTotals({
+    tenantInfo,
+    chargeContext: currentOrder,
+    customer,
+    totals: orderTotals,
+    discountAmount: newDiscountAmount,
+    taxScaling: 'when-discounted',
+  });
+
+  const activeItemsCount = orderTotals.activeItems.length;
+  if (activeItemsCount === 0 && currentOrder.status !== 'cancelled' && currentOrder.status !== 'completed') {
+    db.prepare(`
+      UPDATE orders SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, total = ?, round_off = ?,
+        status = 'cancelled', cancelled_at = ?, cancellation_reason = ?, updated_at = ? WHERE id = ?
+    `).run(subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newDiscountAmount, total, roundOff, now(), 'All items transferred or cancelled', now(), orderId);
+    if (currentOrder.table_id) {
+      const remainingOrder = db.prepare("SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND status NOT IN ('completed', 'cancelled') LIMIT 1").get(currentOrder.table_id, orderId);
+      if (!remainingOrder) {
+        db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
+          .run(now(), currentOrder.table_id);
+      }
+    }
+  } else {
+    db.prepare(`
+      UPDATE orders SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, total = ?, round_off = ?, updated_at = ? WHERE id = ?
+    `).run(subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newDiscountAmount, total, roundOff, now(), orderId);
+  }
+
+  syncUnpaidBillsForOrder(db, orderId, {
+    subtotal,
+    taxAmount: taxRollup.taxAmount,
+    taxBreakdown: JSON.stringify(taxRollup.breakdowns),
+    taxSnapshot: taxRollup.snapshotJson,
+    discountAmount: newDiscountAmount,
+    deliveryCharge: currentOrder.delivery_charge || 0,
+    packagingCharge: currentOrder.packaging_charge || 0,
+    serviceCharge: currentOrder.service_charge || 0,
+    total,
+  }, tenantInfo.country);
+
+  return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+}
+
+router.patch('/:id/internal-label', orderWriteRateLimit, requirePermission('tables.orders.move'), (req: Request, res: Response) => {
+  try {
+    const orderId = String(req.params.id);
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const rawLabel = req.body?.internal_label;
+    const label = typeof rawLabel === 'string' ? rawLabel.trim().slice(0, 100) || null : null;
+    db.prepare('UPDATE orders SET internal_label = ?, updated_at = ? WHERE id = ?').run(label, now(), orderId);
+    const actorId = String((req as any).user?.userId || '');
+    if (actorId) {
+      recordOrderAudit(db, {
+        orderId,
+        actorUserId: actorId,
+        action: 'order.internal_label_updated',
+        details: { internal_label: label },
+      });
+    }
+    const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    res.json({ order: parseRowJson(updated) });
+  } catch (error: any) {
+    console.error('[Orders] internal-label update failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/finish-later', orderWriteRateLimit, requirePermission('held-orders.manage'), (req: Request, res: Response) => {
+  try {
+    const orderId = String(req.params.id);
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (['completed', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ error: 'Cannot finish later a completed or cancelled order' });
+    }
+    const paidBill = db.prepare("SELECT 1 FROM bills WHERE order_id = ? AND payment_status = 'paid' LIMIT 1").get(orderId);
+    if (paidBill) {
+      return res.status(400).json({ error: 'Cannot finish later a paid order' });
+    }
+
+    const keepTable = Boolean(req.body?.keep_table);
+    const actorId = String((req as any).user?.userId || '');
+    const nowStr = now();
+
+    withTxn(() => {
+      if (!keepTable && order.table_id) {
+        db.prepare('UPDATE orders SET table_id = NULL, updated_at = ? WHERE id = ?').run(nowStr, orderId);
+        const remainingTableOrder = db.prepare(`
+          SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND status NOT IN ('completed', 'cancelled') LIMIT 1
+        `).get(order.table_id, orderId);
+        if (!remainingTableOrder) {
+          db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(nowStr, order.table_id);
+        }
+      }
+      if (actorId) {
+        recordOrderAudit(db, {
+          orderId,
+          actorUserId: actorId,
+          action: 'order.finished_later',
+          details: { keep_table: keepTable, detached_table_id: !keepTable ? order.table_id : null },
+        });
+      }
+    });
+
+    const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    res.json({ order: parseRowJson(updated) });
+  } catch (error: any) {
+    console.error('[Orders] finish-later failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/defer-payment', orderWriteRateLimit, requirePermission('orders.status.update'), (req: Request, res: Response) => {
+  try {
+    const orderId = String(req.params.id);
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (['completed', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ error: 'Cannot defer payment for completed or cancelled order' });
+    }
+
+    // Customer requirement
+    const customerId = req.body?.customer_id || order.customer_id;
+    if (!customerId) {
+      return res.status(400).json({ error: 'A customer must be linked to defer payment' });
+    }
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+    if (!customer) {
+      return res.status(400).json({ error: 'Customer not found' });
+    }
+
+    // Reason requirement
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) {
+      return res.status(400).json({ error: 'A deferred payment reason is required' });
+    }
+
+    // Manager / Owner authorization requirement
+    const currentUser = (req as any).user;
+    let authorizedBy = '';
+    if (currentUser && hasRole(currentUser.role, ROLE_ACCESS.ownerManager)) {
+      authorizedBy = currentUser.userId;
+    } else {
+      const overridePin = req.body?.manager_pin || req.body?.override_pin;
+      if (!overridePin) {
+        return res.status(403).json({ error: 'Manager or owner PIN authorization required' });
+      }
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+      const rateLimitKey = `pin:${clientIp}:defer_payment`;
+      if (!checkPinRateLimit(rateLimitKey)) {
+        return res.status(429).json({ error: 'Too many PIN attempts. Try again in 15 minutes.' });
+      }
+      const managerUser = (db.prepare('SELECT * FROM users WHERE is_active = 1 AND pin_hash IS NOT NULL').all() as any[])
+        .find((candidate) => hasRole(candidate.role, ROLE_ACCESS.ownerManager) && verifyPin(candidate.pin_hash, overridePin));
+      if (!managerUser) {
+        return res.status(403).json({ error: 'Invalid manager PIN' });
+      }
+      authorizedBy = managerUser.id;
+    }
+
+    // Financial lifecycle: single source of truth is bills.payment_status = 'deferred'
+    const bill = getOrCreateBillForOrder(db, orderId);
+    if (bill.payment_status === 'paid') {
+      return res.status(400).json({ error: 'Bill is already fully paid' });
+    }
+
+    const actorId = String(currentUser?.userId || '');
+    const nowStr = now();
+
+    withTxn(() => {
+      if (customerId !== order.customer_id) {
+        db.prepare('UPDATE orders SET customer_id = ?, updated_at = ? WHERE id = ?').run(customerId, nowStr, orderId);
+        db.prepare('UPDATE bills SET customer_id = ?, updated_at = ? WHERE id = ?').run(customerId, nowStr, bill.id);
+      }
+      db.prepare(`
+        UPDATE bills
+        SET payment_status = 'deferred',
+            deferred_at = ?,
+            deferred_by_user_id = ?,
+            deferred_reason = ?,
+            deferred_authorized_by = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(nowStr, actorId, reason, authorizedBy, nowStr, bill.id);
+
+      // Service order completed; table released
+      db.prepare("UPDATE orders SET status = 'completed', updated_at = ? WHERE id = ?").run(nowStr, orderId);
+      if (order.table_id) {
+        const remainingTableOrder = db.prepare(`
+          SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND status NOT IN ('completed', 'cancelled') LIMIT 1
+        `).get(order.table_id, orderId);
+        if (!remainingTableOrder) {
+          db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(nowStr, order.table_id);
+        }
+      }
+
+      recordOrderAudit(db, {
+        orderId,
+        actorUserId: actorId,
+        action: 'bill.payment_deferred',
+        details: {
+          bill_id: bill.id,
+          customer_id: customerId,
+          amount: bill.balance,
+          reason,
+          authorized_by: authorizedBy,
+          timestamp: nowStr,
+        },
+      });
+    });
+
+    const updatedOrder = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId));
+    const updatedBill = parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(bill.id));
+    res.json({ order: updatedOrder, bill: updatedBill });
+  } catch (error: any) {
+    console.error('[Orders] defer-payment failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/transfer-items', orderWriteRateLimit, requirePermission('tables.orders.move'), (req: Request, res: Response) => {
+  try {
+    const sourceOrderId = String(req.params.id);
+    const db = getDatabase();
+    const sourceOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(sourceOrderId) as any;
+    if (!sourceOrder) return res.status(404).json({ error: 'Source order not found' });
+    if (['completed', 'cancelled'].includes(sourceOrder.status)) {
+      return res.status(400).json({ error: 'Cannot transfer items from a completed or cancelled order' });
+    }
+
+    // Block item transfer/splitting after ANY confirmed payment has been recorded
+    const bill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id LIMIT 1').get(sourceOrderId) as any;
+    if (bill && (Number(bill.paid_amount || 0) > 0 || ['paid', 'partial', 'refunded', 'partially_refunded'].includes(bill.payment_status))) {
+      return res.status(409).json({ error: 'Cannot split or transfer items from an order with confirmed payments. Settle or refund the bill first.' });
+    }
+
+    const itemsToTransfer = req.body?.items;
+    if (!Array.isArray(itemsToTransfer) || itemsToTransfer.length === 0) {
+      return res.status(400).json({ error: 'At least one item must be specified for transfer' });
+    }
+
+    // Validate requested items
+    for (const reqItem of itemsToTransfer) {
+      const orderItemId = Number(reqItem.order_item_id);
+      const qty = Number(reqItem.quantity);
+      if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0) {
+        return res.status(400).json({ error: 'Invalid order_item_id' });
+      }
+      if (!Number.isSafeInteger(qty) || qty <= 0) {
+        return res.status(400).json({ error: 'Quantity must be a positive integer' });
+      }
+      const existingItem = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?').get(orderItemId, sourceOrderId) as any;
+      if (!existingItem) {
+        return res.status(404).json({ error: `Item ${orderItemId} does not belong to source order` });
+      }
+      if (['cancelled', 'voided'].includes(existingItem.status)) {
+        return res.status(400).json({ error: `Cannot transfer cancelled or voided item ${orderItemId}` });
+      }
+      if (qty > existingItem.quantity) {
+        return res.status(400).json({ error: `Cannot transfer quantity ${qty} greater than existing quantity ${existingItem.quantity}` });
+      }
+    }
+
+    let targetOrderId: number | string | null = req.body?.target_order_id ? Number(req.body.target_order_id) : null;
+    if (targetOrderId && Number(targetOrderId) === Number(sourceOrderId)) {
+      return res.status(400).json({ error: 'Cannot transfer items to the same order' });
+    }
+
+    const authenticatedUserId = String((req as any).user?.userId || sourceOrder.user_id || 'system');
+    const nowStr = now();
+
+    const transferResult = withTxn(() => {
+      if (targetOrderId) {
+        const targetOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(targetOrderId) as any;
+        if (!targetOrder) throw Object.assign(new Error('Target order not found'), { statusCode: 404 });
+        if (['completed', 'cancelled'].includes(targetOrder.status)) {
+          throw Object.assign(new Error('Target order is completed or cancelled'), { statusCode: 400 });
+        }
+        const targetBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id LIMIT 1').get(targetOrderId) as any;
+        if (targetBill && (Number(targetBill.paid_amount || 0) > 0 || ['paid', 'partial'].includes(targetBill.payment_status))) {
+          throw Object.assign(new Error('Cannot transfer items into an order with confirmed payments'), { statusCode: 409 });
+        }
+      } else if (req.body?.target_table_id) {
+        const targetTableId = req.body.target_table_id;
+        const targetTable = db.prepare('SELECT * FROM tables WHERE id = ?').get(targetTableId) as any;
+        if (!targetTable) throw Object.assign(new Error('Target table not found'), { statusCode: 404 });
+
+        const activeTableOrder = db.prepare("SELECT * FROM orders WHERE table_id = ? AND status NOT IN ('completed', 'cancelled') ORDER BY id DESC LIMIT 1").get(targetTableId) as any;
+        if (activeTableOrder) {
+          const targetBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id LIMIT 1').get(activeTableOrder.id) as any;
+          if (targetBill && (Number(targetBill.paid_amount || 0) > 0 || ['paid', 'partial'].includes(targetBill.payment_status))) {
+            throw Object.assign(new Error('Target table active order has confirmed payments'), { statusCode: 409 });
+          }
+          targetOrderId = Number(activeTableOrder.id);
+        } else {
+          const newOrderNumber = generateOrderNumber();
+          const insOrder = db.prepare(`
+            INSERT INTO orders (order_number, table_id, customer_id, user_id, type, internal_label, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'dine_in', ?, 'pending', ?, ?)
+          `).run(newOrderNumber, targetTableId, sourceOrder.customer_id, authenticatedUserId, req.body?.target_internal_label || null, nowStr, nowStr);
+          targetOrderId = Number(insOrder.lastInsertRowid);
+          db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(nowStr, targetTableId);
+        }
+      } else {
+        const newOrderNumber = generateOrderNumber();
+        const targetType = ['takeaway', 'delivery', 'online', 'dine_in'].includes(req.body?.target_type) ? req.body.target_type : 'takeaway';
+        const insOrder = db.prepare(`
+          INSERT INTO orders (order_number, table_id, customer_id, user_id, type, internal_label, status, created_at, updated_at)
+          VALUES (?, NULL, ?, ?, ?, ?, 'pending', ?, ?)
+        `).run(newOrderNumber, sourceOrder.customer_id, authenticatedUserId, targetType, req.body?.target_internal_label || null, nowStr, nowStr);
+        targetOrderId = Number(insOrder.lastInsertRowid);
+      }
+
+      if (targetOrderId === null) {
+        throw Object.assign(new Error('Target order could not be established'), { statusCode: 500 });
+      }
+
+      // Transfer items
+      for (const reqItem of itemsToTransfer) {
+        const orderItemId = Number(reqItem.order_item_id);
+        const qty = Number(reqItem.quantity);
+        const itemRow = db.prepare('SELECT * FROM order_items WHERE id = ?').get(orderItemId) as any;
+
+        if (qty === itemRow.quantity) {
+          // Whole item transfer: move item row intact
+          db.prepare('UPDATE order_items SET order_id = ?, updated_at = ? WHERE id = ?').run(targetOrderId, nowStr, itemRow.id);
+        } else {
+          // Partial quantity split: prorate inventory and amounts
+          const r = qty / itemRow.quantity;
+          const curInvQty = itemRow.inventory_deducted_quantity || 0;
+          const targetInvQty = Number((curInvQty * r).toFixed(4));
+          const sourceInvQty = Number((curInvQty - targetInvQty).toFixed(4));
+          const remQty = itemRow.quantity - qty;
+
+          db.prepare(`
+            UPDATE order_items
+            SET quantity = ?, inventory_deducted_quantity = ?, subtotal = ?, updated_at = ?
+            WHERE id = ?
+          `).run(remQty, sourceInvQty, remQty * itemRow.unit_price, nowStr, itemRow.id);
+
+          const insNewItem = db.prepare(`
+            INSERT INTO order_items (
+              order_id, product_id, product_name, product_sku, unit_price, quantity,
+              inventory_deducted_quantity, inventory_product_id, subtotal, tax_amount,
+              tax_breakdown, tax_snapshot, tax_type, discount_amount, total,
+              variant_selection, modifier_selection, special_instructions,
+              recipe_snapshot, status, created_at, updated_at
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?, ?
+            )
+          `).run(
+            targetOrderId, itemRow.product_id, itemRow.product_name, itemRow.product_sku, itemRow.unit_price, qty,
+            targetInvQty, itemRow.inventory_product_id, qty * itemRow.unit_price, (itemRow.tax_amount ? itemRow.tax_amount * r : 0),
+            itemRow.tax_breakdown, itemRow.tax_snapshot, itemRow.tax_type, (itemRow.discount_amount ? itemRow.discount_amount * r : 0), (itemRow.total ? itemRow.total * r : 0),
+            itemRow.variant_selection, itemRow.modifier_selection, itemRow.special_instructions,
+            itemRow.recipe_snapshot, itemRow.status, nowStr, nowStr
+          );
+          const newOrderItemId = insNewItem.lastInsertRowid;
+
+          const addons = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(itemRow.id) as any[];
+          for (const addon of addons) {
+            db.prepare(`
+              INSERT INTO order_item_addons (order_item_id, addon_id, addon_name, price, quantity, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(newOrderItemId, addon.addon_id, addon.addon_name, addon.price, addon.quantity, nowStr);
+          }
+        }
+      }
+
+      const updatedSource = recalculateAndPersistOrder(db, sourceOrderId);
+      const updatedTarget = recalculateAndPersistOrder(db, targetOrderId);
+
+      recordOrderAudit(db, {
+        orderId: sourceOrderId,
+        actorUserId: authenticatedUserId,
+        action: 'order.items_transferred_out',
+        details: { target_order_id: targetOrderId, items: itemsToTransfer },
+      });
+      recordOrderAudit(db, {
+        orderId: targetOrderId,
+        actorUserId: authenticatedUserId,
+        action: 'order.items_transferred_in',
+        details: { source_order_id: sourceOrderId, items: itemsToTransfer },
+      });
+
+      return { source_order: updatedSource, target_order: updatedTarget };
+    });
+
+    notifyKdsUpdate();
+    res.json(transferResult);
+  } catch (error: any) {
+    console.error('[Orders] transfer-items failed:', error);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Internal server error' });
   }
 });
 

@@ -497,6 +497,37 @@ router.get('/order/:orderId', requirePermission('bills.read'), (req: Request, re
   }
 });
 
+export function getOrCreateBillForOrder(db: ReturnType<typeof getDatabase>, orderId: number | string): any {
+  const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id LIMIT 1').get(orderId) as any;
+  if (existingBill) {
+    return parseRowJson(existingBill);
+  }
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+  if (!order) return null;
+  const billNumber = generateBillNumber();
+  const subtotal = order.subtotal || 0;
+  const taxAmount = order.tax_amount || 0;
+  const discountAmount = order.discount_amount || 0;
+  const deliveryCharge = order.delivery_charge || 0;
+  const packagingCharge = order.packaging_charge || 0;
+  const serviceCharge = order.service_charge || 0;
+  const currency = getTenantCurrency();
+  const pack = getActiveCountryPack(getSettingValue('country') || '');
+  const { total, adjustment: roundOff } = applyPayableRounding(order.total || 0, pack, currency);
+
+  const runResult = db.prepare(`
+    INSERT INTO bills (bill_number, order_id, customer_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
+      discount_amount, discount_type, discount_value, discount_reason,
+      delivery_charge, packaging_charge, service_charge, round_off, total, paid_amount, balance, payment_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)
+  `).run(
+    billNumber, orderId, order.customer_id, subtotal, taxAmount, order.tax_breakdown, order.tax_snapshot,
+    discountAmount, order.discount_type, order.discount_value, order.discount_reason,
+    deliveryCharge, packagingCharge, serviceCharge, roundOff, total, 0, total, now(), now()
+  );
+  return parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(runResult.lastInsertRowid));
+}
+
 router.post('/generate', requirePermission('bills.generate'), (req: Request, res: Response) => {
   try {
     const { order_id } = req.body;
@@ -1989,15 +2020,19 @@ function applyPaymentBatch(
   const newPaidCents = oldPaidCents + totalAppliedCents;
   const newBalanceCents = Math.max(0, totalCents - newPaidCents);
   const paymentStatus = newBalanceCents === 0 ? 'paid' : 'partial';
-  const newPayments = prepared.map((line) => ({
-    ...line.payment,
-    cash_session_id: activeSessionId,
-    amount: line.amountCents / minorFactor,
-    requested_amount: (line.tenderedCents || line.amountCents) / minorFactor,
-    amount_omitted: Boolean(line.amountOmitted),
-    ...(isCashTender(db, line.payment) ? { tendered_amount: (line.tenderedCents || 0) / minorFactor, change_amount: (line.changeCents || 0) / minorFactor } : {}),
-    timestamp: now(),
-  }));
+  const newPayments = prepared.map((line) => {
+    const isDrawerTender = isCashTender(db, line.payment);
+    return {
+      ...line.payment,
+      cash_session_id: activeSessionId,
+      amount: line.amountCents / minorFactor,
+      requested_amount: (line.tenderedCents || line.amountCents) / minorFactor,
+      amount_omitted: Boolean(line.amountOmitted),
+      counts_as_cash_drawer_tender: isDrawerTender,
+      ...(isDrawerTender ? { tendered_amount: (line.tenderedCents || 0) / minorFactor, change_amount: (line.changeCents || 0) / minorFactor } : {}),
+      timestamp: now(),
+    };
+  });
   let walletDebited = false;
   for (const line of prepared) {
     if (line.payment.method !== 'wallet' || line.amountCents <= 0) continue;

@@ -11,4 +11,5 @@ export interface CustomPaymentMethod {
   is_active: boolean;
   sort_order: number;
   usage_count?: number;
+  counts_as_cash_drawer_tender?: boolean;
 }

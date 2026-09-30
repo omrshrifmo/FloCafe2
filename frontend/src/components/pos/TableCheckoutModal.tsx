@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, ShoppingCart, Users, Printer } from 'lucide-react';
+import { X, ShoppingCart, Users, Printer, ArrowRightLeft, Split, Clock, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePrinterStore } from '@/hooks/usePrinter';
 import TaxBreakdown from '@/components/pos/TaxBreakdown';
@@ -11,6 +11,10 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import toast from 'react-hot-toast';
 import type { Table, Order, Bill, OrderItem } from '@/lib/types';
 import { SplitCheckModal } from '@/components/pos/SplitCheckModal';
+import MoveOrderModal from '@/components/pos/MoveOrderModal';
+import TransferItemsModal from '@/components/pos/TransferItemsModal';
+import DeferredCheckoutModal from '@/components/pos/DeferredCheckoutModal';
+import InternalLabelModal from '@/components/pos/InternalLabelModal';
 
 interface Props {
   table: Table;
@@ -46,9 +50,29 @@ export default function TableCheckoutModal({
   const [splitChecksEnabled, setSplitChecksEnabled] = useState(false);
   const [splitBill, setSplitBill] = useState<Bill | null>(null);
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showDeferredModal, setShowDeferredModal] = useState(false);
+  const [showLabelModal, setShowLabelModal] = useState(false);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
   const tOrders = useTranslations('orders');
   const tPrint = useTranslations('print');
+
+  const reloadOrder = async () => {
+    try {
+      const { data } = await api.get(`/tables/${table.id}`);
+      const tbl = data.table;
+      const activeOrder = tbl.activeOrder || tbl.current_order;
+      if (activeOrder) {
+        const orderRes = await api.get(`/orders/${activeOrder.id}`);
+        setOrder(orderRes.data.order);
+      } else {
+        onClose();
+      }
+    } catch {
+      onClose();
+    }
+  };
 
   const handlePrintPreliminary = async () => {
     if (printingPreliminary || !order) return;
@@ -170,6 +194,19 @@ export default function TableCheckoutModal({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{table.name}</h2>
+              {table.internal_label && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 font-medium">
+                  {table.internal_label}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowLabelModal(true)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                title="Edit internal label"
+              >
+                <Tag size={15} />
+              </button>
               <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
                 order.bill?.payment_status === 'paid' 
                   ? 'bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800/40'
@@ -242,6 +279,35 @@ export default function TableCheckoutModal({
             </Button>
           )}
 
+          {order && order.status !== 'completed' && (
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMoveModal(true)}
+                className="text-xs"
+              >
+                <ArrowRightLeft size={13} className="me-1" /> Move Table
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTransferModal(true)}
+                className="text-xs"
+              >
+                <Split size={13} className="me-1" /> Split / Move Items
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeferredModal(true)}
+                className="text-xs"
+              >
+                <Clock size={13} className="me-1" /> Finish Later
+              </Button>
+            </div>
+          )}
+
           {/* Show different buttons based on cart state */}
           {splitBills.length === 0 && splitChecksEnabled && order.type === 'dine_in' && order.bill?.payment_status !== 'paid' && <Button variant="outline" onClick={handleSplitCheck} disabled={generating} className="w-full"><Users size={15} className="me-2" />{t('splitCheck')}</Button>}
           {cartItemCount > 0 ? (
@@ -275,6 +341,49 @@ export default function TableCheckoutModal({
       </div>
     </div>
     {splitBill && <SplitCheckModal bill={splitBill} order={order} onClose={() => setSplitBill(null)} onSplit={(bills) => { setOrder({ ...order, bill: bills[0], bills }); setSplitBill(null); }} />}
+    {showMoveModal && order && (
+      <MoveOrderModal
+        table={table}
+        order={order}
+        onClose={() => setShowMoveModal(false)}
+        onSuccess={() => {
+          setShowMoveModal(false);
+          onClose();
+        }}
+      />
+    )}
+    {showTransferModal && order && (
+      <TransferItemsModal
+        order={order}
+        currentTable={table}
+        onClose={() => setShowTransferModal(false)}
+        onSuccess={() => {
+          setShowTransferModal(false);
+          void reloadOrder();
+        }}
+      />
+    )}
+    {showDeferredModal && order && (
+      <DeferredCheckoutModal
+        order={order}
+        onClose={() => setShowDeferredModal(false)}
+        onSuccess={() => {
+          setShowDeferredModal(false);
+          onClose();
+        }}
+      />
+    )}
+    {showLabelModal && (
+      <InternalLabelModal
+        title={`Table ${table.name} Internal Label`}
+        currentLabel={table.internal_label}
+        onSave={async (lbl) => {
+          await api.patch(`/tables/${table.id}/internal-label`, { internal_label: lbl });
+          void reloadOrder();
+        }}
+        onClose={() => setShowLabelModal(false)}
+      />
+    )}
     </>
   );
 }

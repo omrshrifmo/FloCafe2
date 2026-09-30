@@ -430,7 +430,11 @@ export function cashDrawerSalesAndRefunds(
       ) je
       WHERE b.paid_at >= ? AND b.paid_at < ?
         AND json_type(je.value) = 'object'
-        AND COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '') = 'cash'
+        AND (
+          lower(COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '')) = 'cash'
+          OR json_extract(je.value, '$.counts_as_cash_drawer_tender') = 1
+          OR json_extract(je.value, '$.counts_as_cash_drawer_tender') = true
+        )
     ), cash_refunds AS (
       SELECT COALESCE(SUM(amount_cents), 0) AS refunds_cents
       FROM refunds
@@ -505,6 +509,7 @@ export function sessionExpectedCash(
         COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '') AS method,
         CAST(json_extract(je.value, '$.payment_method_id') AS INTEGER) AS payment_method_id,
         CAST(json_extract(je.value, '$.cash_session_id') AS INTEGER) AS line_session,
+        CAST(json_extract(je.value, '$.counts_as_cash_drawer_tender') AS INTEGER) AS counts_as_cash_drawer_tender,
         COALESCE(
           datetime(NULLIF(json_extract(je.value, '$.timestamp'), '')),
           datetime(NULLIF(b.paid_at, '')),
@@ -530,7 +535,7 @@ export function sessionExpectedCash(
           pl.line_session = ?
           OR (pl.line_session IS NULL AND pl.line_time >= datetime(?) AND pl.line_time < datetime(?))
         )
-        AND (lower(pl.method) = 'cash' OR pm.id IS NOT NULL)
+        AND (lower(pl.method) = 'cash' OR pm.id IS NOT NULL OR pl.counts_as_cash_drawer_tender = 1)
     ),
     cash_refunds AS (
       SELECT COALESCE(SUM(amount_cents), 0) AS refunds_cents

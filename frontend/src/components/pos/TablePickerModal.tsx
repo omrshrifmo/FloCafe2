@@ -295,6 +295,11 @@ export default function TablePickerModal({
                           </span>
                         )}
                         <p className="font-bold text-foreground">{table.name}</p>
+                        {table.internal_label && (
+                          <span className="inline-block mt-0.5 text-[10px] bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded font-medium truncate max-w-full">
+                            {table.internal_label}
+                          </span>
+                        )}
                         <p className="text-xs text-muted-foreground">{t('tableSeats', { count: table.capacity })}</p>
                         {table.status === 'occupied' && (table.current_order || table.activeOrder) && (
                           <p className="text-xs text-orange-600 font-medium mt-1">

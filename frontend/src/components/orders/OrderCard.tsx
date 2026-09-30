@@ -178,8 +178,9 @@ export function OrderCard({
 
   const bill = order.bill;
   const isPaid = bill?.payment_status === 'paid';
+  const isDeferred = bill?.payment_status === 'deferred';
   const payStatus: 'paid' | 'partial' | 'unpaid' | null = (() => {
-    if (order.status === 'cancelled') return null;
+    if (order.status === 'cancelled' || isDeferred) return null;
     if (bill?.payment_status === 'paid') return 'paid';
     if (bill?.payment_status === 'partial') return 'partial';
     return 'unpaid';
@@ -270,9 +271,19 @@ export function OrderCard({
                 {tOrders(statusBadgeInfo.labelKey)}
               </span>
             )}
+            {isDeferred && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">
+                Deferred
+              </span>
+            )}
             {payBadge && (
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${payBadge.bg} ${payBadge.text}`}>
                 {tOrders(payBadge.labelKey)}
+              </span>
+            )}
+            {order.internal_label && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
+                {order.internal_label}
               </span>
             )}
           </div>

@@ -144,6 +144,7 @@ export interface Table {
   reservation_customer_id?: string | null;
   reservation_customer_name?: string | null;
   reservation_customer_phone?: string | null;
+  internal_label?: string | null;
 }
 
 export interface Customer {
@@ -184,6 +185,7 @@ export interface Order {
   total: number;
   guest_count: number | null;
   special_instructions: string | null;
+  internal_label?: string | null;
   online_platform?: string | null;
   external_order_id?: string | null;
   created_by: number;
@@ -234,8 +236,12 @@ export interface Bill {
   total: number;
   paid_amount: number;
   balance: number;
-  payment_status: 'unpaid' | 'partial' | 'paid' | 'refunded' | 'partially_refunded';
-  payment_details: { method: string; payment_method_id?: number; amount: number; timestamp: string; tendered_amount?: number; change_amount?: number }[] | null;
+  payment_status: 'unpaid' | 'partial' | 'paid' | 'deferred' | 'refunded' | 'partially_refunded';
+  deferred_at?: string | null;
+  deferred_by_user_id?: string | null;
+  deferred_reason?: string | null;
+  deferred_authorized_by?: string | null;
+  payment_details: { method: string; payment_method_id?: number; amount: number; timestamp: string; tendered_amount?: number; change_amount?: number; counts_as_cash_drawer_tender?: boolean }[] | null;
   split_group_id?: string | null;
   split_label?: string | null;
   tax_breakdown?: { title: string; rate: number; amount: number }[] | null;

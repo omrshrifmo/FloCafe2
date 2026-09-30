@@ -5369,6 +5369,38 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 97,
+    name: 'order_transfer_deferred_and_drawer_tender_classification',
+    up: () => {
+      if (!getColumns(db, 'tables').includes('internal_label')) {
+        db.exec(`ALTER TABLE tables ADD COLUMN internal_label TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'orders').includes('internal_label')) {
+        db.exec(`ALTER TABLE orders ADD COLUMN internal_label TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'bills').includes('deferred_at')) {
+        db.exec(`ALTER TABLE bills ADD COLUMN deferred_at TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'bills').includes('deferred_by_user_id')) {
+        db.exec(`ALTER TABLE bills ADD COLUMN deferred_by_user_id TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'bills').includes('deferred_reason')) {
+        db.exec(`ALTER TABLE bills ADD COLUMN deferred_reason TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'bills').includes('deferred_authorized_by')) {
+        db.exec(`ALTER TABLE bills ADD COLUMN deferred_authorized_by TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'payment_methods').includes('counts_as_cash_drawer_tender')) {
+        db.exec(`ALTER TABLE payment_methods ADD COLUMN counts_as_cash_drawer_tender INTEGER NOT NULL DEFAULT 0 CHECK (counts_as_cash_drawer_tender IN (0, 1))`);
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_bills_payment_status ON bills(payment_status);
+        CREATE INDEX IF NOT EXISTS idx_orders_internal_label ON orders(internal_label) WHERE internal_label IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_tables_internal_label ON tables(internal_label) WHERE internal_label IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {

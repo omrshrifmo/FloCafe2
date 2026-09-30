@@ -1,6 +1,6 @@
 /** PrintDocument v1 kitchen order ticket renderer; maps KotDocument onto ESC/POS token-line layout. */
 
-import { parseDbTimestamp } from '../db';
+import { parseDbTimestamp, getSettingValue } from '../db';
 import { printLabel } from '../print/print-labels.generated';
 import type { PrintConceptId } from '../../shared/print/concepts';
 import type { PrinterCutMode } from './profiles';
@@ -52,6 +52,9 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
       tableName: String(order?.table?.name ?? ''),
       orderType: String(order?.type ?? '').trim(),
       customerName: String(order?.customer?.name ?? order?.customer_name ?? '').trim(),
+      ...(getSettingValue('kot_show_internal_labels') === 'true' && (order?.internal_label || order?.table?.internal_label)
+        ? { internalLabel: String(order?.internal_label || order?.table?.internal_label) }
+        : {}),
     },
     items: ticketItems.map((item: any) => ({
       productName: String(item?.product_name ?? ''),
@@ -227,6 +230,18 @@ function kotHeaderLines(header: KotHeaderBlock, options: KotDocumentRenderOption
     );
     lines.push(truncateShapedLine(customer, cols, options.arabicShaping, options.language, options.capabilities));
     sourceLines?.push(`${labelOf(header.customer.label)}: ${header.customer.name.text}`);
+    sourceControlLines?.push(lines.at(-1) ?? '');
+  }
+  if (header.internalLabel) {
+    const labelText = thermalSafeText(
+      `Internal: ${header.internalLabel.text}`,
+      `Internal: ${thermalSafeMetadataValue(header.internalLabel.text, options.language, options.arabicShaping, options.capabilities)}`,
+      options.language,
+      options.arabicShaping,
+      options.capabilities,
+    );
+    lines.push(truncateShapedLine(labelText, cols, options.arabicShaping, options.language, options.capabilities));
+    sourceLines?.push(`Internal: ${header.internalLabel.text}`);
     sourceControlLines?.push(lines.at(-1) ?? '');
   }
   lines.push(truncateShapedLine(timeLine, cols, options.arabicShaping, options.language, options.capabilities));

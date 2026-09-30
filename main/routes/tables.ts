@@ -449,6 +449,21 @@ router.post('/:id/move-order', requirePermission('tables.orders.move'), (req: Re
         throw error;
       }
 
+      // Safeguard against moving completed or cancelled orders
+      if (['completed', 'cancelled'].includes(order.status)) {
+        const error: any = new Error('Cannot move a completed or cancelled order');
+        error.status = 400;
+        throw error;
+      }
+
+      // Safeguard against moving fully paid/finalized orders
+      const paidBill = db.prepare("SELECT 1 FROM bills WHERE order_id = ? AND payment_status = 'paid' LIMIT 1").get(order.id);
+      if (paidBill) {
+        const error: any = new Error('Cannot move a paid order');
+        error.status = 400;
+        throw error;
+      }
+
       const targetActiveOrder = activeOrderForTable(db, target_table_id) as any;
       if (targetActiveOrder) {
         const error: any = new Error('Target table already has an active order');
@@ -459,10 +474,31 @@ router.post('/:id/move-order', requirePermission('tables.orders.move'), (req: Re
       const nowStr = now();
       db.prepare('UPDATE orders SET table_id = ?, type = ?, updated_at = ? WHERE id = ?')
         .run(target_table_id, order.type, nowStr, order.id);
-      db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
-        .run(nowStr, sourceTableId);
+
+      // Only free source table if it has no remaining active order
+      const remainingSourceOrder = db.prepare(`
+        SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND ${ACTIVE_ORDER_STATUS_SQL} LIMIT 1
+      `).get(sourceTableId, order.id);
+      if (!remainingSourceOrder) {
+        db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
+          .run(nowStr, sourceTableId);
+      }
       db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
         .run(nowStr, target_table_id);
+
+      // Record audit event
+      const actorUserId = String((req as any).user?.userId || '');
+      if (actorUserId) {
+        db.prepare(`
+          INSERT INTO order_audit_log (order_id, actor_user_id, action, details_json, created_at)
+          VALUES (?, ?, 'order.table_moved', ?, ?)
+        `).run(order.id, actorUserId, JSON.stringify({
+          source_table_id: sourceTableId,
+          source_table_number: sourceTable.number,
+          target_table_id,
+          target_table_number: targetTable.number,
+        }), nowStr);
+      }
 
       const updatedOrder = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id) as any);
       const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
@@ -492,6 +528,24 @@ router.post('/:id/move-order', requirePermission('tables.orders.move'), (req: Re
     const statusCode = error.status || 500;
     console.error('[API] Table move failed:', error);
     res.status(statusCode).json({ error: statusCode >= 500 ? 'Table move failed' : error.message });
+  }
+});
+
+router.patch('/:id/internal-label', requirePermission('tables.orders.move'), (req: Request, res: Response) => {
+  try {
+    const rawLabel = req.body?.internal_label;
+    const label = typeof rawLabel === 'string' ? rawLabel.trim() || null : null;
+    const db = getDatabase();
+    const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id) as any;
+    if (!table) {
+      return res.status(404).json({ error: 'Table not found' });
+    }
+    db.prepare('UPDATE tables SET internal_label = ?, updated_at = ? WHERE id = ?').run(label, now(), req.params.id);
+    const updated = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
+    res.json({ table: tableShape(db, updated as any, activeOrderForTable(db, req.params.id as string)) });
+  } catch (error: any) {
+    console.error('[API] Table internal-label update failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

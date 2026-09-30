@@ -906,6 +906,8 @@ export interface KotOrderSnapshot {
   readonly orderType: string;
   /** Customer display name, when the order carries one. */
   readonly customerName?: string;
+  /** Internal label, included only when explicitly enabled by setting kot_show_internal_labels */
+  readonly internalLabel?: string;
 }
 
 /**
@@ -931,6 +933,8 @@ export interface KotHeaderBlock {
   readonly table: { readonly label: SemanticLabel; readonly name: DirectionalText } | null;
   readonly orderType: { readonly label: SemanticLabel; readonly value: DirectionalText; readonly code: string } | null;
   readonly customer: { readonly label: SemanticLabel; readonly name: DirectionalText } | null;
+  /** Internal label, included only when explicitly enabled by setting kot_show_internal_labels */
+  readonly internalLabel?: DirectionalText | null;
   readonly timeLabel: SemanticLabel;
   /** Canonical stored timestamp; presentation formatting is a renderer duty. */
   readonly timestamp: DirectionalText;
@@ -1185,6 +1189,9 @@ export function buildKotDocument(printData: KotPrintData, printContext: PrintCon
         label: resolveSemanticLabel(labels, 'pos.customer'),
         name: directionalText(printData.order.customerName, base),
       })
+      : null,
+    internalLabel: typeof printData.order?.internalLabel === 'string' && printData.order.internalLabel.length > 0
+      ? directionalText(printData.order.internalLabel, base)
       : null,
     timeLabel: resolveSemanticLabel(labels, 'print.time'),
     timestamp: directionalText(String(printData.order?.createdAt ?? ''), base),
