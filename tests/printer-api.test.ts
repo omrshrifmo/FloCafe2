@@ -349,7 +349,7 @@ async function runTests() {
     const result = await printReceipt(...printArgs);
     assert(result.ok === false, 'unsupported financial receipt is refused');
     assert(result.failureClass === 'unsupported', 'refusal is classified as unsupported');
-    assert(result.detail?.startsWith('Receipt not printed: a financial row'), 'refusal gives an explicit operator warning');
+    assert(result.detail?.startsWith('Receipt not printed: a financial row') || result.detail?.includes('could not be rendered safely'), 'refusal gives an explicit operator warning');
     assert(result.warnings?.some((warning: any) => warning.kind === 'financial'), 'refusal returns the financial warning');
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert(transportConnections === 0 && transportBytes === 0, 'unsupported financial refusal opens no transport or sends bytes');

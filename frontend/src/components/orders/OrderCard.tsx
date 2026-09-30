@@ -254,9 +254,8 @@ export function OrderCard({
 
   return (
     <div
-      className={`bg-card rounded-xl border flex flex-col overflow-hidden transition-shadow hover:shadow-sm ${
-        order.status === 'cancelled' ? 'border-red-200 dark:border-red-900/40 opacity-80' : 'border-border'
-      }`}
+      className={`bg-card rounded-xl border flex flex-col overflow-hidden transition-shadow hover:shadow-sm ${order.status === 'cancelled' ? 'border-red-200 dark:border-red-900/40 opacity-80' : 'border-border'
+        }`}
     >
       {/* ── TOP HEADER ────────────────────────────────────────────────────────── */}
       <div className="px-4 py-3 bg-muted/40 border-b border-border space-y-2">
@@ -273,7 +272,7 @@ export function OrderCard({
             )}
             {isDeferred && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">
-                Deferred
+                {tOrders('deferred')}
               </span>
             )}
             {payBadge && (
@@ -402,12 +401,12 @@ export function OrderCard({
           <span className="truncate">
             {order.cancellation_reason
               ? tOrders('orderCancelledBanner', {
-                  time: formatTime(order.cancelled_at || order.created_at),
-                  reason: order.cancellation_reason,
-                })
+                time: formatTime(order.cancelled_at || order.created_at),
+                reason: order.cancellation_reason,
+              })
               : tOrders('orderCancelledBannerNoReason', {
-                  time: formatTime(order.cancelled_at || order.created_at),
-                })}
+                time: formatTime(order.cancelled_at || order.created_at),
+              })}
           </span>
         </div>
       )}
@@ -540,9 +539,8 @@ export function OrderCard({
             </span>
             <ChevronDown
               size={13}
-              className={`text-amber-600 transition-transform duration-200 ${
-                showOrderNotes ? 'rotate-180' : ''
-              }`}
+              className={`text-amber-600 transition-transform duration-200 ${showOrderNotes ? 'rotate-180' : ''
+                }`}
             />
           </button>
           {showOrderNotes && (
@@ -837,11 +835,10 @@ export function OrderCard({
             <Button
               onClick={() => onCheckout(order.id)}
               disabled={generatingBillId === order.id}
-              className={`flex-1 h-10 justify-center active:scale-95 touch-manipulation font-semibold text-xs ${
-                payStatus === 'partial'
+              className={`flex-1 h-10 justify-center active:scale-95 touch-manipulation font-semibold text-xs ${payStatus === 'partial'
                   ? 'bg-blue-600 hover:bg-blue-700 text-white'
                   : 'bg-foreground text-background hover:bg-foreground/90'
-              }`}
+                }`}
             >
               <CreditCard size={15} className="me-1.5" />
               {checkoutButtonLabel}

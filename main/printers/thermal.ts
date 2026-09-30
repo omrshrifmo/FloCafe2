@@ -81,6 +81,7 @@ import {
   addonRows,
   financialRows,
   formatCurrency,
+  getSafeLatnLocale,
   rightAlign,
   truncate,
   truncateShapedLine,
@@ -1881,8 +1882,9 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   lines.push(`{CENTER}${title}{/CENTER}`);
   lines.push(bar);
   lines.push(normalize(printLabel(lang, 'print.invoiceNumber')) + ' ' + (bill.bill_number || order.order_number));
-  lines.push(normalize(printLabel(lang, 'receipt.date')) + ': ' + date.toLocaleDateString(locale + '-u-nu-latn', tzOptions));
-  lines.push(normalize(printLabel(lang, 'print.time')) + ': ' + date.toLocaleTimeString(locale + '-u-nu-latn', tzOptions));
+  const safeLocale = getSafeLatnLocale(locale);
+  lines.push(normalize(printLabel(lang, 'receipt.date')) + ': ' + date.toLocaleDateString(safeLocale, tzOptions));
+  lines.push(normalize(printLabel(lang, 'print.time')) + ': ' + date.toLocaleTimeString(safeLocale, tzOptions));
   if (biz.show_table_number !== false && order.table?.name) lines.push(truncateShapedLine(formatTableLabel(order.table.name, lang), cols, arabicShaping, lang, capabilities));
   if (biz.show_customer_name !== false && biz.customer_name) lines.push(truncateShapedLine(printLabel(lang, 'pos.customer') + ': ' + biz.customer_name, cols, arabicShaping, lang, capabilities));
   if (biz.show_customer_phone !== false && biz.customer_phone) lines.push(normalize(printLabel(lang, 'print.numberShort')) + ': ' + biz.customer_phone);
@@ -2576,12 +2578,26 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
     const resolvedReceiptStyle = resolveEffectivePrintStyle(stylePrefs, 'receipt');
     const isBrandedRaster = resolvedReceiptStyle.renderMode === 'branded_raster';
 
+    if (!isBrandedRaster && printer.connection_type === 'webusb' && hasFinancialPrintWarning(probeWarnings)) {
+      return {
+        ok: false,
+        detail: 'Financial report could not be rendered safely. No partial report was printed.',
+        userMessageEn: 'Financial report could not be rendered safely. No partial report was printed.',
+        userMessageAr: 'تعذر تجهيز التقرير المالي للطباعة بأمان. لم تتم طباعة تقرير جزئي.',
+        warnings: probeWarnings,
+      };
+    }
+
     let baseBody: Buffer;
     if (isBrandedRaster || hasFinancialPrintWarning(probeWarnings)) {
       const zTransport = resolveRasterTransport(printer?.branded_raster_transport);
       const paperWidth = printer.paper_width || '80mm';
       const widthDots = dotsForPaperWidth(paperWidth) || (paperWidth.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
       const fontFamily = (resolvedReceiptStyle?.typography?.fontFamily as BrandedFontFamily) || 'almarai';
+      const logoAsset = resolvedReceiptStyle.logo.showLogo ? getActiveReceiptLogoAsset() : null;
+      const bizName = getSettingValue('business_name') || 'FloCafe';
+      const bizAddress = getSettingValue('business_address');
+      const bizTaxId = getSettingValue('tax_registration_number');
 
       const brandedRequest = buildBrandedReportRequest({
         title: zWithMarker.__isReprint ? 'Z REPORT (REPRINT) / تقرير إغلاق مالي (إعادة طباعة)' : 'Z REPORT / تقرير الإغلاق المالي',
@@ -2593,6 +2609,12 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         inkGain: resolvedReceiptStyle.contrast?.inkGain,
         transport: zTransport,
         printer,
+        logoAsset,
+        business: {
+          name: bizName,
+          address: bizAddress,
+          tax_registration_number: bizTaxId,
+        },
       });
 
       let brandedOutput: Awaited<ReturnType<typeof renderBrandedReceipt>> | null = null;

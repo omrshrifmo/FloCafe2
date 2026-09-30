@@ -333,6 +333,7 @@ function sha256Hex(value: string): string {
 }
 
 export function getSettingValue(key: string): string | null {
+  if (!db) return null;
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string | null } | undefined;
   return row?.value ?? null;
 }

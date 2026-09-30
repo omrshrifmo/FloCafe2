@@ -151,7 +151,7 @@ export function parseAddons(addons: any): any[] {
   return Array.isArray(addons) ? addons : [];
 }
 
-function getSafeLatnLocale(locale: string | undefined): string {
+export function getSafeLatnLocale(locale: string | undefined): string {
   if (!locale) return 'en-US-u-nu-latn';
   if (/-nu-[a-z0-9]+/i.test(locale)) {
     return locale.replace(/-nu-[a-z0-9]+/i, '-nu-latn');
@@ -382,8 +382,8 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
     line = line.replace(/\{STORE_NAME\}/g, '');
     let printableLine = line.replace(ESC_POS_CONTROL_TOKEN_RE, '');
     const lineBold = line.includes('{BOLD}');
-    const lineDH = line.includes('{DOUBLE_HEIGHT}');
-    let lineDW = line.includes('{DOUBLE_WIDTH}');
+    const lineDH = line.includes('{DOUBLE_HEIGHT}') || line.includes('{DBL_HEIGHT}');
+    let lineDW = line.includes('{DOUBLE_WIDTH}') || line.includes('{DBL_WIDTH}');
     const lineFontB = line.includes('{FONT_B}');
     const center = line.startsWith('{CENTER}') && line.includes('{/CENTER}');
     if (lineDW && Number.isInteger(options.columns) && (options.columns as number) > 0) {

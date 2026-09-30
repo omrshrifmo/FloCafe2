@@ -190,7 +190,7 @@ export function getPrinterCapabilities(
 /** Maps paper_width string to canonical raster dot width, or null if unrecognized. */
 export function dotsForPaperWidth(paperWidth: string): number | null {
   const str = String(paperWidth || '').trim().toLowerCase();
-  if (str === '512' || str === '512dots' || str === '80mm-512' || str === '80mm-compat' || str === 'cols-42') return 512;
+  if (str === '512' || str === '512dots' || str === '80mm-512' || str === '80mm-compat') return 512;
   if (str === '576' || str === '576dots' || str === '80mm' || str === 'cols-48') return 576;
   if (str === '384' || str === '384dots' || str === '58mm' || str === 'cols-32') return 384;
   const colsMatch = str.match(/^cols-(3[2-9]|4[0-8])$/);
@@ -199,7 +199,6 @@ export function dotsForPaperWidth(paperWidth: string): number | null {
   if (cols <= 32) return 384;
   if (cols <= 36) return 432;
   if (cols <= 40) return 480;
-  if (cols <= 44) return 512;
   return 576;
 }
 

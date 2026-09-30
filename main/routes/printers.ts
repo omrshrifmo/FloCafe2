@@ -896,8 +896,10 @@ export function routeItemsToStations(db: any, orderItems: any[]): { stationName:
 
   for (const item of orderItems) {
     const product: any = item.product_id ? db.prepare('SELECT category_id FROM products WHERE id = ?').get(item.product_id) : null;
-    const categoryId = product?.category_id;
-    const matched = categoryId ? stations.find((s) => s.categoryIds.includes(categoryId)) : undefined;
+    const categoryId = item.category_id ?? product?.category_id;
+    const matched = (categoryId !== undefined && categoryId !== null)
+      ? stations.find((s) => s.categoryIds.map(String).includes(String(categoryId)))
+      : undefined;
     if (matched) {
       if (!groups.has(matched.id)) {
         groups.set(matched.id, { stationName: matched.name, printer: matched.printer, items: [] });
@@ -932,7 +934,7 @@ router.post('/print-kot', requirePermission('printing.execute'), asyncHandler(as
     }
 
     const db = getDatabase();
-    const printer = db.prepare(
+    const printer: any = db.prepare(
       `SELECT * FROM printers
        WHERE connection_type != 'webusb'
        ORDER BY is_default DESC, name
@@ -973,6 +975,15 @@ router.post('/print-kot', requirePermission('printing.execute'), asyncHandler(as
     const kotSourceItems = (Array.isArray(items) ? items : orderItems)
       .filter((item: any) => isKotItemPending(item?.status));
 
+    const stationResults: Array<{
+      stationName: string;
+      printerName: string;
+      itemCount: number;
+      ok: boolean;
+      correlationId?: string;
+      detail?: string;
+    }> = [];
+
     if (stationName) {
       const station = stationName || 'Kitchen';
       if (kotSourceItems.length > 0) {
@@ -980,21 +991,49 @@ router.post('/print-kot', requirePermission('printing.execute'), asyncHandler(as
         success = result.ok;
         failure = result.ok ? null : result;
         warnings.push(...(result.warnings || []));
+        const printerName = printer?.name || 'Default Printer';
+        stationResults.push({
+          stationName: station,
+          printerName,
+          itemCount: kotSourceItems.length,
+          ok: result.ok,
+          correlationId: result.correlationId,
+          detail: result.detail,
+        });
+        console.log(`[KOT Job] Order: ${order.id} (#${order.order_number}), Station: ${station}, Printer: ${printerName}, Items: ${kotSourceItems.length}, Result: ${result.ok ? 'SUCCESS' : 'FAILED'}, CorrelationId: ${result.correlationId || 'N/A'}${result.detail ? ` (${result.detail})` : ''}`);
       }
     } else {
       const groups = routeItemsToStations(db, kotSourceItems).filter((g) => g.items.length > 0);
       for (const group of groups) {
+        const printerName = group.printer?.name || printer?.name || 'Default Printer';
         const result = await printKOTDetailed(order, group.items, group.stationName, useUnicode, group.printer || undefined, getHttpRequestSignal(req), arabicShapingOverride, kotLanguage);
         success = success && result.ok;
         warnings.push(...(result.warnings || []));
         if (!result.ok && !failure) failure = result;
+        stationResults.push({
+          stationName: group.stationName,
+          printerName,
+          itemCount: group.items.length,
+          ok: result.ok,
+          correlationId: result.correlationId,
+          detail: result.detail,
+        });
+        console.log(`[KOT Job] Order: ${order.id} (#${order.order_number}), Station: ${group.stationName}, Printer: ${printerName}, Items: ${group.items.length}, Result: ${result.ok ? 'SUCCESS' : 'FAILED'}, CorrelationId: ${result.correlationId || 'N/A'}${result.detail ? ` (${result.detail})` : ''}`);
       }
     }
 
     if (success) {
-      res.json({ success: true, warnings });
+      res.json({ success: true, warnings, station_results: stationResults });
     } else {
-      res.status(502).json({ error: failure?.detail || 'KOT print failed. Check printer connection.', detail: failure?.detail, failure_class: failure?.failureClass, code: failure?.code, correlation_id: failure?.correlationId, stage: failure?.stage });
+      res.status(502).json({
+        error: failure?.detail || 'KOT print failed. Check printer connection.',
+        detail: failure?.detail,
+        failure_class: failure?.failureClass,
+        code: failure?.code,
+        correlation_id: failure?.correlationId,
+        stage: failure?.stage,
+        station_results: stationResults,
+      });
     }
   } catch (error: any) {
     console.error('[Print KOT] Error:', error);

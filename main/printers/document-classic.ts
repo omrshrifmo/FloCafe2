@@ -18,6 +18,7 @@ import {
   buildEscPos,
   financialRows,
   formatCurrency,
+  getSafeLatnLocale,
   itemAmountWidth,
   itemRows,
   itemNameWidth,
@@ -440,8 +441,9 @@ export function renderBillDocumentToClassicLines(
           segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
         }
         const date = parseDbTimestamp(block.timestamp.text);
-        segment.main.push('{CENTER}' + date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions) + '{/CENTER}');
-        segment.sourceLines.main.push(date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions));
+        const safeLocale = getSafeLatnLocale(options.locale);
+        segment.main.push('{CENTER}' + date.toLocaleDateString(safeLocale, tzOptions) + ' ' + date.toLocaleTimeString(safeLocale, tzOptions) + '{/CENTER}');
+        segment.sourceLines.main.push(date.toLocaleDateString(safeLocale, tzOptions) + ' ' + date.toLocaleTimeString(safeLocale, tzOptions));
         segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
         if (block.table) {
           segment.main.push('{CENTER}' + truncateShapedLine(block.table.label.primary.replace('{name}', block.table.name.text), cols, options.arabicShaping, options.language, options.capabilities) + '{/CENTER}');

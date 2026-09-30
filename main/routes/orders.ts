@@ -614,7 +614,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       for (const item of items) {
         const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id) as any;
         if (!product) {
-          throw new Error(`Product ${item.product_id} not found`);
+          throw Object.assign(new Error(`Product ${item.product_id} not found`), { statusCode: 400 });
         }
 
         const unitPrice = parseFloat(product.price);
@@ -626,7 +626,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         validateProductQuantity(product, quantity);
         const deduction = resolveInventoryDeduction(product, quantity);
         if (unitPrice < 0 || !Number.isFinite(unitPrice)) {
-          throw new Error(`Invalid price for ${product.name}: must be a non-negative number`);
+          throw Object.assign(new Error(`Invalid price for ${product.name}: must be a non-negative number`), { statusCode: 400 });
         }
 
         let itemSubtotal = unitPrice * quantity;
@@ -751,15 +751,16 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
 
     res.status(result.idempotentReplay ? 200 : 201).json({ order: Object.assign({}, result.order, { items: result.orderItems }) });
   } catch (error: any) {
-    console.error('[Orders] Create error:', error);
-    console.error("[API] Internal error:", error);
     const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) {
+      console.error('[Orders] Create error:', error.name ?? 'Error', error.message, error.stack);
+    }
     reportOrderCreateFailure(
       statusCode,
       Array.isArray(req.body?.items) ? req.body.items.length : 0,
       error.message === 'Insufficient stock' ? 'inventory_validation' : 'order_insert',
     );
-    res.status(statusCode).json({ error: error.statusCode ? error.message : "Internal server error" });
+    res.status(statusCode).json({ error: error.statusCode ? error.message : 'Internal server error' });
   }
 });
 
@@ -857,7 +858,7 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
       for (const item of items) {
         const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id) as any;
         if (!product) {
-          throw new Error(`Product ${item.product_id} not found`);
+          throw Object.assign(new Error(`Product ${item.product_id} not found`), { statusCode: 400 });
         }
         const unitPrice = parseFloat(product.price);
         const quantity = item.quantity;
@@ -868,7 +869,7 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
         validateProductQuantity(product, quantity);
         const deduction = resolveInventoryDeduction(product, quantity);
         if (unitPrice < 0 || !Number.isFinite(unitPrice)) {
-          throw new Error(`Invalid price for ${product.name}: must be a non-negative number`);
+          throw Object.assign(new Error(`Invalid price for ${product.name}: must be a non-negative number`), { statusCode: 400 });
         }
 
         let itemSubtotal = unitPrice * quantity;

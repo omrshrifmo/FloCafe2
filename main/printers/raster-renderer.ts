@@ -170,7 +170,7 @@ export function rasterRendererHtml(): string {
 
         if (request.header) {
           if (request.header.banner) {
-            for (const bLine of request.header.banner.split('\n')) {
+            for (const bLine of request.header.banner.split('\\n')) {
               drawText(bLine, contentLeft, y, 'center', true, 16);
               y += 22;
             }
@@ -283,7 +283,7 @@ export function rasterRendererHtml(): string {
             y += rowHeight;
           }
           if (request.footer.footerNote) {
-            for (const fLine of request.footer.footerNote.split('\n')) {
+            for (const fLine of request.footer.footerNote.split('\\n')) {
               drawText(fLine, contentLeft, y, 'center', false, 16);
               y += rowHeight;
             }
@@ -574,6 +574,7 @@ export class ChromiumRasterRenderer {
   }
 
   private failSurface(detail: string): void {
+    if (this.destroyed) return;
     this.destroyed = true;
     this.settleReady(detail);
     for (const [requestId, entry] of this.pending.entries()) {
@@ -583,14 +584,14 @@ export class ChromiumRasterRenderer {
     this.pending.clear();
     this.ipc.removeListener('flo:raster-ready', this.onReady);
     this.ipc.removeListener('flo:raster-result', this.onResult);
-    this.surface.removeListener('closed', this.onSurfaceClosed);
-    this.surface.webContents.removeListener('did-fail-load', this.onLoadFailure);
-    this.surface.webContents.removeListener('render-process-gone', this.onRenderProcessGone);
-    if (!this.surface.isDestroyed()) {
-      try {
+    try {
+      if (!this.surface.isDestroyed()) {
+        this.surface.removeListener('closed', this.onSurfaceClosed);
+        this.surface.webContents.removeListener('did-fail-load', this.onLoadFailure);
+        this.surface.webContents.removeListener('render-process-gone', this.onRenderProcessGone);
         this.surface.close();
-      } catch {}
-    }
+      }
+    } catch {}
   }
 
   async render(request: unknown): Promise<RasterRenderResult> {

@@ -203,7 +203,7 @@ export default function TableCheckoutModal({
                 type="button"
                 onClick={() => setShowLabelModal(true)}
                 className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                title="Edit internal label"
+                title={t('editInternalLabel')}
               >
                 <Tag size={15} />
               </button>
@@ -287,7 +287,7 @@ export default function TableCheckoutModal({
                 onClick={() => setShowMoveModal(true)}
                 className="text-xs"
               >
-                <ArrowRightLeft size={13} className="me-1" /> Move Table
+                <ArrowRightLeft size={13} className="me-1" /> {t('moveTable')}
               </Button>
               <Button
                 variant="outline"
@@ -295,7 +295,7 @@ export default function TableCheckoutModal({
                 onClick={() => setShowTransferModal(true)}
                 className="text-xs"
               >
-                <Split size={13} className="me-1" /> Split / Move Items
+                <Split size={13} className="me-1" /> {t('splitMoveItems')}
               </Button>
               <Button
                 variant="outline"
@@ -303,7 +303,7 @@ export default function TableCheckoutModal({
                 onClick={() => setShowDeferredModal(true)}
                 className="text-xs"
               >
-                <Clock size={13} className="me-1" /> Finish Later
+                <Clock size={13} className="me-1" /> {t('finishLater')}
               </Button>
             </div>
           )}

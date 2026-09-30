@@ -912,6 +912,7 @@ export function buildBrandedReportRequest(options: {
   transport?: BrandedRasterTransport;
   threshold?: number;
   inkGain?: number;
+  logoAsset?: BrandedLogoAsset | null;
   requestId?: string;
 }): BrandedReceiptRequest {
   const widthDots = options.widthDots ?? (options.printer?.paper_width?.includes('58') ? DEFAULT_RASTER_WIDTH_58MM : DEFAULT_RASTER_WIDTH_80MM);
@@ -919,6 +920,15 @@ export function buildBrandedReportRequest(options: {
   const fontFamily = options.fontFamily ?? 'almarai';
   const bundledFonts = resolveBundledFontList(fontFamily);
   const business = options.business ?? {};
+
+  let logoPayload: BrandedReceiptRequest['logo'];
+  if (options.style?.logo?.showLogo && options.logoAsset && options.logoAsset.data.length > 0) {
+    logoPayload = {
+      dataUrl: `data:${options.logoAsset.mimeType};base64,${options.logoAsset.data.toString('base64')}`,
+      width: options.logoAsset.width,
+      height: options.logoAsset.height,
+    };
+  }
 
   let parsedSections = options.reportSections;
   if (!parsedSections && options.sections) {
@@ -942,6 +952,17 @@ export function buildBrandedReportRequest(options: {
           align: 'left',
         });
       } else {
+        if ((isRight || rawLine.includes('{FINANCIAL}')) && lines.length > 0) {
+          const prev = lines[lines.length - 1];
+          if (prev && prev.label && !prev.value && !/^[=\-─━_]{3,}$/.test(prev.label)) {
+            lines[lines.length - 1] = {
+              ...prev,
+              value: clean.trim(),
+              isBold: prev.isBold || isBold,
+            };
+            continue;
+          }
+        }
         lines.push({
           label: clean.trim(),
           isBold,
@@ -963,11 +984,14 @@ export function buildBrandedReportRequest(options: {
     bundledFonts: bundledFonts.length > 0 ? bundledFonts : undefined,
     geometry,
     style: options.style,
+    logo: logoPayload,
     ditheringMode: options.style?.contrast?.ditheringMode ?? 'threshold',
     threshold: options.threshold ?? options.style?.contrast?.threshold ?? 140,
     inkGain: options.inkGain ?? options.style?.contrast?.inkGain ?? 0,
     header: {
       businessName: business.name || 'FloCafe',
+      address: business.address,
+      taxId: business.tax_registration_number,
       banner: options.title || 'FINANCIAL REPORT / تقرير مالي',
     },
     meta: {

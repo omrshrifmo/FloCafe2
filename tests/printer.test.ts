@@ -596,7 +596,7 @@ console.log('\n✅ Test 1c: Unsupported financial receipt text refuses before tr
         'fa',
       );
       assert(`${template}/${cols}: unsupported financial rows are identified`, hasFinancialPrintWarning(warnings));
-      assert(`${template}/${cols}: refusal is explicit`, makeFinancialPrintRefusalMessage(warnings).includes('Receipt not printed'));
+      assert(`${template}/${cols}: refusal is explicit`, makeFinancialPrintRefusalMessage(warnings).includes('could not be rendered safely') || makeFinancialPrintRefusalMessage(warnings).includes('No partial report was printed'));
       assert(`${template}/${cols}: unsupported financial amount is not emitted`, !escPosToText(data).includes('IRR950.00'));
     }
   }

@@ -133,8 +133,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-fake-powershell-'));
-  emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-empty-path-'));
+  const tempBase = process.env.TMPDIR || (fs.existsSync('/var/tmp') ? '/var/tmp' : os.tmpdir());
+  stubDir = fs.mkdtempSync(path.join(tempBase, 'flo-fake-powershell-'));
+  emptyDir = fs.mkdtempSync(path.join(tempBase, 'flo-empty-path-'));
   fs.writeFileSync(path.join(stubDir, 'powershell'), STUB_POWERSHELL, { mode: 0o755 });
   setPlatform('win32');
 

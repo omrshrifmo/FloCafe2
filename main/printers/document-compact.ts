@@ -12,6 +12,7 @@ import {
   buildEscPos,
   financialRows,
   formatCurrency,
+  getSafeLatnLocale,
   itemAmountWidth,
   itemRows,
   itemNameWidth,
@@ -215,7 +216,8 @@ export function renderBillDocumentToCompactLines(
       metaSourceLines.push(labelOf(meta.quoteReference.label) + ': ' + meta.quoteReference.value.text);
     }
     const date = parseDbTimestamp(meta.timestamp.text);
-    const dateText = date.toLocaleDateString(options.locale + '-u-nu-latn', tzOptions) + ' ' + date.toLocaleTimeString(options.locale + '-u-nu-latn', tzOptions);
+    const safeLocale = getSafeLatnLocale(options.locale);
+    const dateText = date.toLocaleDateString(safeLocale, tzOptions) + ' ' + date.toLocaleTimeString(safeLocale, tzOptions);
     lines.push(normalize(labelOf(meta.dateLabel) + ': ' + dateText));
     metaSourceLines.push(labelOf(meta.dateLabel) + ': ' + dateText);
     if (meta.table) {

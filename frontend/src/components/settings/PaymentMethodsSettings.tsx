@@ -114,7 +114,7 @@ export function PaymentMethodsSettings({ isAdmin }: { isAdmin: boolean }) {
                 <input disabled={!isAdmin} value={names[method.id] ?? method.name} onChange={(e) => setNames((old) => ({ ...old, [method.id]: e.target.value }))} className="flex-1 px-3 py-2 text-sm border rounded-lg" />
                 <Button variant="outline" size="sm" disabled={!isAdmin || names[method.id] === method.name} onClick={() => update(method, { name: names[method.id] })}><Save size={14} /></Button>
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" disabled={!isAdmin} checked={method.is_active} onChange={(e) => update(method, { is_active: e.target.checked })} /> {t('active')}</label>
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" disabled={!isAdmin} checked={Boolean(method.counts_as_cash_drawer_tender)} onChange={(e) => update(method, { counts_as_cash_drawer_tender: e.target.checked })} /> Drawer cash</label>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" disabled={!isAdmin} checked={Boolean(method.counts_as_cash_drawer_tender)} onChange={(e) => update(method, { counts_as_cash_drawer_tender: e.target.checked })} /> {t('drawerCash')}</label>
                 <Button variant="outline" size="sm" disabled={!isAdmin || Boolean(method.usage_count)} onClick={() => remove(method)}><Trash2 size={14} /></Button>
               </div>
               {Boolean(method.usage_count) && isAdmin && <div className="flex gap-2 items-center">

@@ -139,8 +139,9 @@ async function runEncodingRegression(): Promise<void> {
   }
 
   try {
-    stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "flo-utf8-powershell-"));
-    fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "flo-utf8-fixtures-"));
+    const tempBase = process.env.TMPDIR || (fs.existsSync('/var/tmp') ? '/var/tmp' : os.tmpdir());
+    stubDir = fs.mkdtempSync(path.join(tempBase, "flo-utf8-powershell-"));
+    fixtureDir = fs.mkdtempSync(path.join(tempBase, "flo-utf8-fixtures-"));
     fs.writeFileSync(path.join(stubDir, "powershell"), STUB_POWERSHELL, { mode: 0o755 });
     setPlatform("win32");
 

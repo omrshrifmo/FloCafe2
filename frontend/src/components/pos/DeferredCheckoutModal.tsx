@@ -5,6 +5,7 @@ import { X, Clock, CalendarClock, ShieldCheck, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import type { Order, Customer } from '@/lib/types';
 
@@ -15,6 +16,8 @@ interface Props {
 }
 
 export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Props) {
+  const t = useTranslations('pos');
+  const tCommon = useTranslations('common');
   const fmt = useFormatCurrency();
   const [tab, setTab] = useState<'finish_later' | 'pay_later'>('finish_later');
   const [submitting, setSubmitting] = useState(false);
@@ -60,11 +63,11 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
       await api.post(`/orders/${order.id}/finish-later`, {
         keep_table: keepTable,
       });
-      toast.success('Order held for later completion');
+      toast.success(t('finishLaterSuccess'));
       onSuccess();
       onClose();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || 'Failed to finish later';
+      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || t('finishLaterFailed');
       toast.error(msg);
     } finally {
       setSubmitting(false);
@@ -73,15 +76,15 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
 
   const handlePayLater = async () => {
     if (!selectedCustomerId) {
-      toast.error('A customer is mandatory for Pay Later / Deferred Balance');
+      toast.error(t('customerMandatoryError'));
       return;
     }
     if (!reason.trim()) {
-      toast.error('A deferred payment reason is required');
+      toast.error(t('deferReasonRequiredError'));
       return;
     }
     if (!isOwnerManager && !managerPin) {
-      toast.error('Manager PIN authorization is required');
+      toast.error(t('managerPinRequiredError'));
       return;
     }
 
@@ -92,11 +95,11 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
         reason: reason.trim(),
         manager_pin: managerPin || undefined,
       });
-      toast.success('Bill deferred successfully');
+      toast.success(t('deferPaymentSuccess'));
       onSuccess();
       onClose();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || 'Failed to defer payment';
+      const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as Error)?.message || t('deferPaymentFailed');
       toast.error(msg);
     } finally {
       setSubmitting(false);
@@ -112,12 +115,12 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Clock size={18} className="text-brand" />
-            <h3 className="font-semibold text-foreground">Deferred / Finish Later</h3>
+            <h3 className="font-semibold text-foreground">{t('deferredModalTitle')}</h3>
           </div>
           <button
             onClick={onClose}
             className="p-1 rounded-full text-muted-foreground hover:text-foreground active:bg-muted"
-            aria-label="Close"
+            aria-label={tCommon('cancel')}
           >
             <X size={18} />
           </button>
@@ -134,7 +137,7 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Clock size={14} /> Finish Later
+            <Clock size={14} /> {t('finishLaterTab')}
           </button>
           <button
             type="button"
@@ -145,7 +148,7 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <CalendarClock size={14} /> Pay Later (Defer)
+            <CalendarClock size={14} /> {t('payLaterTab')}
           </button>
         </div>
 
@@ -159,9 +162,9 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
           {tab === 'finish_later' ? (
             <div className="space-y-4">
               <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                <p className="font-semibold">Finish Later Mode</p>
+                <p className="font-semibold">{t('finishLaterModeTitle')}</p>
                 <p>
-                  Keeps the order open without any payment, receipt print, or cash drawer pulse. You can resume and checkout this order at any time.
+                  {t('finishLaterModeDesc')}
                 </p>
               </div>
 
@@ -174,9 +177,9 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
                     className="mt-0.5 rounded border-border text-brand focus:ring-brand"
                   />
                   <div className="text-xs">
-                    <p className="font-semibold text-foreground">Keep Table Occupied</p>
+                    <p className="font-semibold text-foreground">{t('keepTableOccupied')}</p>
                     <p className="text-muted-foreground mt-0.5">
-                      If unchecked, the table is released as available and the order is detached.
+                      {t('keepTableOccupiedDesc')}
                     </p>
                   </div>
                 </label>
@@ -185,9 +188,9 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
           ) : (
             <div className="space-y-3">
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-xs text-amber-700 dark:text-amber-300 space-y-1">
-                <p className="font-semibold">Pay Later / Deferred Balance</p>
+                <p className="font-semibold">{t('payLaterModeTitle')}</p>
                 <p>
-                  Customer is mandatory. Service order will be completed and table released. Bill balance becomes deferred and never enters drawer cash.
+                  {t('payLaterModeDesc')}
                 </p>
               </div>
 
@@ -195,14 +198,14 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
               <div>
                 <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-1">
                   <UserCheck size={14} className="text-brand" />
-                  Mandatory Customer
+                  {t('mandatoryCustomer')}
                 </label>
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => setSelectedCustomerId(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-border bg-card rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/30"
                 >
-                  <option value="">Select a customer…</option>
+                  <option value="">{t('selectCustomerPlaceholder')}</option>
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} {c.phone ? `(${c.phone})` : ''}
@@ -214,12 +217,12 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
               {/* Reason */}
               <div>
                 <label className="text-xs font-semibold text-foreground block mb-1">
-                  Reason for Deferral *
+                  {t('deferralReasonLabel')}
                 </label>
                 <textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value.slice(0, 200))}
-                  placeholder="e.g. Regular VIP guest, House account, Authorized invoice..."
+                  placeholder={t('deferralReasonPlaceholder')}
                   rows={2}
                   className="w-full px-3 py-2 text-sm border border-border bg-card rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-brand/30"
                 />
@@ -230,14 +233,14 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
                 <div>
                   <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-1">
                     <ShieldCheck size={14} className="text-brand" />
-                    Manager / Owner PIN Authorization *
+                    {t('managerPinAuthLabel')}
                   </label>
                   <input
                     type="password"
                     maxLength={10}
                     value={managerPin}
                     onChange={(e) => setManagerPin(e.target.value)}
-                    placeholder="Enter manager PIN"
+                    placeholder={t('enterManagerPinPlaceholder')}
                     className="w-full px-3 py-2 text-sm border border-border bg-card rounded-lg focus:outline-none focus:ring-2 focus:ring-brand/30 font-mono"
                   />
                 </div>
@@ -249,11 +252,11 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
         {/* Footer */}
         <div className="p-4 border-t border-border flex gap-2">
           <Button variant="outline" onClick={onClose} className="flex-1" disabled={submitting}>
-            Cancel
+            {tCommon('cancel')}
           </Button>
           {tab === 'finish_later' ? (
             <Button onClick={handleFinishLater} disabled={submitting} className="flex-1">
-              {submitting ? 'Saving...' : 'Finish Later'}
+              {submitting ? tCommon('saving') : t('finishLater')}
             </Button>
           ) : (
             <Button
@@ -261,7 +264,7 @@ export default function DeferredCheckoutModal({ order, onClose, onSuccess }: Pro
               disabled={submitting || !selectedCustomerId || !reason.trim() || (!isOwnerManager && !managerPin)}
               className="flex-1"
             >
-              {submitting ? 'Deferring...' : 'Confirm Pay Later'}
+              {submitting ? t('deferring') : t('confirmPayLater')}
             </Button>
           )}
         </div>

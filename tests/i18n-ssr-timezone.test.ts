@@ -32,6 +32,10 @@ moduleApi._resolveFilename = function (request: string, parent: any, isMain: boo
     resolvedRequest = path.resolve(ROOT, 'frontend/src', request.slice(2));
   } else if (request.startsWith('@print/')) {
     resolvedRequest = path.resolve(ROOT, 'shared/print', request.slice('@print/'.length));
+  } else if (request === '@countries') {
+    resolvedRequest = path.resolve(ROOT, 'main/countries.ts');
+  } else if (request.startsWith('@shared/')) {
+    resolvedRequest = path.resolve(ROOT, 'shared', request.slice('@shared/'.length));
   }
   return originalResolveFilename.call(this, resolvedRequest, parent, isMain, options);
 };

@@ -8,6 +8,7 @@ import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capa
 import type { RasterSemanticLineGroup } from '../../shared/print/raster';
 import {
   buildEscPos,
+  getSafeLatnLocale,
   truncate,
   truncateShapedLine,
   type PrintWarning,
@@ -189,7 +190,7 @@ function kotHeaderLines(header: KotHeaderBlock, options: KotDocumentRenderOption
         : thermalSafeText(localized, fallback, options.language, options.arabicShaping, options.capabilities);
     })()
     : null;
-  const time = parseDbTimestamp(header.timestamp.text).toLocaleTimeString((options.locale ?? 'en-US') + '-u-nu-latn', tzOptions);
+  const time = parseDbTimestamp(header.timestamp.text).toLocaleTimeString(getSafeLatnLocale(options.locale), tzOptions);
   const timeLine = thermalSafeText(
     `${labelOf(header.timeLabel)}: ${time}`,
     `Time: ${parseDbTimestamp(header.timestamp.text).toLocaleTimeString('en-US-u-nu-latn', tzOptions)}`,
@@ -286,7 +287,7 @@ function kotItemLines(
 
   if (itemSizeSpec.initToken === '{DBL_WIDTH_HEIGHT}') {
     lines.push('{DOUBLE_WIDTH}{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{/DOUBLE_HEIGHT}{/DOUBLE_WIDTH}');
-  } else if (itemSizeSpec.initToken === '{DBL_HEIGHT}') {
+  } else if (itemSizeSpec.initToken === '{DBL_HEIGHT}' || itemSizeSpec.initToken === '{DOUBLE_HEIGHT}') {
     lines.push('{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{/DOUBLE_HEIGHT}');
   } else if (itemSizeSpec.initToken === '{FONT_B}') {
     lines.push('{FONT_B}{BOLD}' + itemPrefix + shapedName + priceSuffix + '{/BOLD}{FONT_A}');

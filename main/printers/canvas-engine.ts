@@ -495,7 +495,7 @@ export function getCanvasDocumentRenderFunction(): string {
           y += 18;
           drawText('WIDTH: ' + width + ' dots (' + Math.round(width / 8) + ' bytes/row)', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 18;
-          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.10', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
+          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.11', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 22;
           drawLine(y, 1);
           y += 12;
@@ -581,16 +581,35 @@ export function getCanvasDocumentRenderFunction(): string {
               y += 8;
             }
             for (const line of (sec.lines || [])) {
+              if (/^[=\-─━_]{3,}$/.test(line.label.trim())) {
+                drawLine(y, line.label.includes('=') ? 2 : 1);
+                y += 8;
+                continue;
+              }
               const isTotLine = Boolean(line.isBold);
               const lSize = isTotLine ? Math.max(reportSize, reportTotalsSize) : reportSize;
               const lBold = isTotLine ? reportTotalsBold : false;
               if (line.value) {
-                drawText(line.label, contentLeft, y, { align: 'left', bold: lBold, size: lSize });
+                const isRecon = /expected|counted|variance|المتوقع|المعدود|الفارق/i.test(line.label);
+                if (isRecon) {
+                  ctx.lineWidth = 1;
+                  ctx.strokeStyle = '#000000';
+                  ctx.strokeRect(contentLeft - 2, y - 2, contentWidth + 4, Math.round(lSize * 1.45) + 4);
+                }
+                ctx.font = (lBold ? 'bold ' : 'normal ') + lSize + 'px ' + fontStack;
+                const valW = ctx.measureText(line.value).width;
+                const maxLabelW = contentWidth - valW - 12;
+                const labelLines = wrapText(line.label, maxLabelW, lSize, lBold);
+                for (let li = 0; li < labelLines.length; li++) {
+                  drawText(labelLines[li], contentLeft, y + li * Math.round(lSize * 1.35), { align: 'left', bold: lBold, size: lSize });
+                }
                 drawText(line.value, contentLeft + contentWidth, y, { align: 'right', bold: lBold, size: lSize });
+                y += Math.max(Math.round(lSize * 1.45), labelLines.length * Math.round(lSize * 1.35) + 4);
+                if (isRecon) y += 4;
               } else {
                 drawText(line.label, contentLeft, y, { align: line.align || 'left', bold: lBold, size: lSize });
+                y += Math.round(lSize * 1.45);
               }
-              y += Math.round(lSize * 1.45);
             }
             drawLine(y, 1);
             y += 12;

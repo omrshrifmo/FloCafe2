@@ -289,9 +289,9 @@ async function main() {
       body: { type: 'dine_in', items: [{ product_id: 'missing-product', quantity: 1 }], table_id: 'diag-table-1' },
     });
     assert(badOrderRes.status >= 400, `order with unknown product is rejected (got ${badOrderRes.status})`);
-    const badOrderQueued = await settle(() => findDiagnosticByStageAndStatus(db, 'order.create.failed', 'order_insert', 500, 1) !== null);
+    const badOrderQueued = await settle(() => findDiagnosticByStageAndStatus(db, 'order.create.failed', 'order_insert', badOrderRes.status, 1) !== null);
     assert(badOrderQueued, 'order.create.failed is enqueued for other create failures too');
-    const badOrderDiag = findDiagnosticByStageAndStatus(db, 'order.create.failed', 'order_insert', 500, 1);
+    const badOrderDiag = findDiagnosticByStageAndStatus(db, 'order.create.failed', 'order_insert', badOrderRes.status, 1);
     assertEqual(badOrderDiag?.metadata.stage, 'order_insert', 'non-inventory failures report the order_insert stage');
 
     console.log('\n9. payment.batch.failed: unexpected 500 from applyPaymentBatch is enqueued');
