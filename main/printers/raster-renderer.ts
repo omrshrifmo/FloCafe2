@@ -496,6 +496,8 @@ export interface RasterRendererOptions {
 /** Main-process owner for the dedicated, hidden Chromium raster surface. */
 export class ChromiumRasterRenderer {
   private readonly surface: RasterSurface;
+  private readonly webContents: Electron.WebContents;
+  private readonly webContentsId: number;
   private readonly timeoutMs: number;
   private readonly ipc: Pick<Electron.IpcMain, 'on' | 'removeListener'>;
   private readonly onActivity?: () => void;
@@ -552,17 +554,27 @@ export class ChromiumRasterRenderer {
         sandbox: true,
       },
     });
+    this.webContents = this.surface.webContents;
+    this.webContentsId = this.surface.webContents?.id ?? 0;
     this.ipc.on('flo:raster-ready', this.onReady);
     this.ipc.on('flo:raster-result', this.onResult);
     this.surface.on('closed', this.onSurfaceClosed);
-    this.surface.webContents.on('did-fail-load', this.onLoadFailure);
-    this.surface.webContents.on('render-process-gone', this.onRenderProcessGone);
+    this.webContents?.on('did-fail-load', this.onLoadFailure);
+    this.webContents?.on('render-process-gone', this.onRenderProcessGone);
     this.readyTimer = setTimeout(() => this.settleReady('Raster surface readiness timed out'), this.timeoutMs);
-    void this.surface.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(rasterRendererHtml())}`);
+    void this.webContents?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(rasterRendererHtml())}`);
   }
 
   private isSurfaceSender(sender: Electron.WebContents): boolean {
-    return sender === this.surface.webContents;
+    try {
+      if (!sender) return false;
+      if (typeof sender.isDestroyed === 'function' && sender.isDestroyed()) return false;
+      if (sender === this.webContents) return true;
+      if (this.webContentsId && sender.id === this.webContentsId) return true;
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   private settleReady(error?: string): void {
@@ -582,13 +594,19 @@ export class ChromiumRasterRenderer {
       entry.resolve({ version: 1, requestId, ok: false, code: 'render-failed', detail });
     }
     this.pending.clear();
-    this.ipc.removeListener('flo:raster-ready', this.onReady);
-    this.ipc.removeListener('flo:raster-result', this.onResult);
     try {
-      if (!this.surface.isDestroyed()) {
+      this.ipc.removeListener('flo:raster-ready', this.onReady);
+      this.ipc.removeListener('flo:raster-result', this.onResult);
+    } catch {}
+    try {
+      if (this.webContents && typeof this.webContents.isDestroyed === 'function' && !this.webContents.isDestroyed()) {
+        this.webContents.removeListener('did-fail-load', this.onLoadFailure);
+        this.webContents.removeListener('render-process-gone', this.onRenderProcessGone);
+      }
+    } catch {}
+    try {
+      if (this.surface && typeof this.surface.isDestroyed === 'function' && !this.surface.isDestroyed()) {
         this.surface.removeListener('closed', this.onSurfaceClosed);
-        this.surface.webContents.removeListener('did-fail-load', this.onLoadFailure);
-        this.surface.webContents.removeListener('render-process-gone', this.onRenderProcessGone);
         this.surface.close();
       }
     } catch {}
@@ -610,7 +628,7 @@ export class ChromiumRasterRenderer {
     const req = request as { requestId: string; [key: string]: any };
     const reqId = req.requestId;
 
-    if (this.destroyed || this.surface.isDestroyed()) {
+    if (this.isDestroyed()) {
       return {
         version: 1,
         requestId: reqId,
@@ -621,7 +639,9 @@ export class ChromiumRasterRenderer {
     }
     this.onActivity?.();
     await this.ready;
-    if (this.readyError) return { version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: this.readyError };
+    if (this.isDestroyed() || this.readyError) {
+      return { version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: this.readyError ?? 'Raster surface is unavailable' };
+    }
     return await new Promise<RasterRenderResult>((resolve) => {
       if (this.pending.has(reqId)) {
         resolve({ version: 1, requestId: reqId, ok: false, code: 'render-failed', detail: 'Duplicate raster request ID' });
@@ -633,7 +653,10 @@ export class ChromiumRasterRenderer {
       }, this.timeoutMs);
       this.pending.set(reqId, { resolve, timer });
       try {
-        this.surface.webContents.send('flo:raster-request', { version: 1, request });
+        if (this.isDestroyed()) {
+          throw new Error('Raster surface is unavailable');
+        }
+        this.webContents.send('flo:raster-request', { version: 1, request });
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(reqId);
@@ -649,7 +672,14 @@ export class ChromiumRasterRenderer {
   }
 
   isDestroyed(): boolean {
-    return this.destroyed || this.surface.isDestroyed();
+    if (this.destroyed) return true;
+    try {
+      if (!this.surface || (typeof this.surface.isDestroyed === 'function' && this.surface.isDestroyed())) return true;
+      if (!this.webContents || (typeof this.webContents.isDestroyed === 'function' && this.webContents.isDestroyed())) return true;
+      return false;
+    } catch {
+      return true;
+    }
   }
 
   destroy(): void {
