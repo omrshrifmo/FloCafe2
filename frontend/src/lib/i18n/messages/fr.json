@@ -623,7 +623,14 @@
     "voidingItem": "Annulation...",
     "walkInCustomer": "Client de passage",
     "whatsappFailed": "Impossible d’ouvrir WhatsApp",
-    "deferred": "Différé"
+    "deferred": "Différé",
+    "billCreatedSuccess": "Facture créée avec succès. Vous pouvez procéder au paiement.",
+    "billMayAlreadyExist": "La facture existe peut-être déjà. Récupération sécurisée en cours.",
+    "databaseBusyRetrying": "La base de données est temporairement occupée. Nouvelle tentative sécurisée en cours.",
+    "billCreationFailedSafe": "Impossible de créer la facture en toute sécurité. Aucun paiement débité et la commande n'a pas été modifiée. ID d'assistance : {supportId}",
+    "retrySafely": "Réessayer en toute sécurité",
+    "refreshOrder": "Actualiser la commande",
+    "viewExistingBill": "Voir la facture existante"
   },
   "pos": {
     "addCustomer": "Ajouter un client",
@@ -925,7 +932,14 @@
     "saveLabel": "Enregistrer l'étiquette",
     "savingLabel": "Enregistrement...",
     "internalLabelUpdated": "Étiquette interne mise à jour",
-    "internalLabelUpdateFailed": "Échec de la mise à jour de l'étiquette interne"
+    "internalLabelUpdateFailed": "Échec de la mise à jour de l'étiquette interne",
+    "billCreatedSuccess": "Facture créée avec succès. Vous pouvez procéder au paiement.",
+    "billMayAlreadyExist": "La facture existe peut-être déjà. Récupération sécurisée en cours.",
+    "databaseBusyRetrying": "La base de données est temporairement occupée. Nouvelle tentative sécurisée en cours.",
+    "billCreationFailedSafe": "Impossible de créer la facture en toute sécurité. Aucun paiement débité et la commande n'a pas été modifiée. ID d'assistance : {supportId}",
+    "retrySafely": "Réessayer en toute sécurité",
+    "refreshOrder": "Actualiser la commande",
+    "viewExistingBill": "Voir la facture existante"
   },
   "printTest": {
     "amt": "Montant",

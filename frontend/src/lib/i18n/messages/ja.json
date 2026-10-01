@@ -623,7 +623,14 @@
     "voidingItem": "無効化中…",
     "walkInCustomer": "ウォークイン顧客",
     "whatsappFailed": "WhatsAppを開けませんでした",
-    "deferred": "後回し"
+    "deferred": "後回し",
+    "billCreatedSuccess": "請求書が正常に作成されました。お支払いを続けてください。",
+    "billMayAlreadyExist": "請求書が既に作成されている可能性があります。安全に取得しています。",
+    "databaseBusyRetrying": "データベースが一時的にビジー状態です。安全に再試行しています。",
+    "billCreationFailedSafe": "請求書を安全に作成できませんでした。支払いは引き落とされず、注文も変更されていません。サポートID: {supportId}",
+    "retrySafely": "安全に再試行",
+    "refreshOrder": "注文を更新",
+    "viewExistingBill": "既存の請求書を表示"
   },
   "pos": {
     "addCustomer": "顧客を追加",
@@ -925,7 +932,14 @@
     "saveLabel": "ラベル保存",
     "savingLabel": "保存中...",
     "internalLabelUpdated": "内部ラベルを更新しました",
-    "internalLabelUpdateFailed": "内部ラベルの更新に失敗しました"
+    "internalLabelUpdateFailed": "内部ラベルの更新に失敗しました",
+    "billCreatedSuccess": "請求書が正常に作成されました。お支払いを続けてください。",
+    "billMayAlreadyExist": "請求書が既に作成されている可能性があります。安全に取得しています。",
+    "databaseBusyRetrying": "データベースが一時的にビジー状態です。安全に再試行しています。",
+    "billCreationFailedSafe": "請求書を安全に作成できませんでした。支払いは引き落とされず、注文も変更されていません。サポートID: {supportId}",
+    "retrySafely": "安全に再試行",
+    "refreshOrder": "注文を更新",
+    "viewExistingBill": "既存の請求書を表示"
   },
   "printTest": {
     "amt": "金額",

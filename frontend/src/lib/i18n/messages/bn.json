@@ -623,7 +623,14 @@
     "voidingItem": "ভয়ডিং...",
     "walkInCustomer": "ওয়াক-ইন গ্রাহক",
     "whatsappFailed": "WhatsApp খুলতে ব্যর্থ হয়েছে।",
-    "deferred": "স্থগিত"
+    "deferred": "স্থগিত",
+    "billCreatedSuccess": "বিল সফলভাবে তৈরি হয়েছে। আপনি অর্থপ্রদান চালিয়ে যেতে পারেন।",
+    "billMayAlreadyExist": "বিলটি ইতিমধ্যে তৈরি হয়ে থাকতে পারে। নিরাপদে পুনরুদ্ধার করা হচ্ছে।",
+    "databaseBusyRetrying": "ডাটাবেস সাময়িকভাবে ব্যস্ত। নিরাপদে পুনরায় চেষ্টা করা হচ্ছে।",
+    "billCreationFailedSafe": "বিল নিরাপদে তৈরি করা যায়নি। কোনো অর্থ কাটা হয়নি এবং অর্ডার পরিবর্তিত হয়নি। সহায়তা আইডি: {supportId}",
+    "retrySafely": "নিরাপদে পুনরায় চেষ্টা করুন",
+    "refreshOrder": "অর্ডার রিফ্রেশ করুন",
+    "viewExistingBill": "বিদ্যমান বিল দেখুন"
   },
   "pos": {
     "addCustomer": "গ্রাহক যোগ করুন",
@@ -925,7 +932,14 @@
     "saveLabel": "লেবেল সংরক্ষণ করুন",
     "savingLabel": "সংরক্ষণ হচ্ছে...",
     "internalLabelUpdated": "অভ্যন্তরীণ লেবেল আপডেট হয়েছে",
-    "internalLabelUpdateFailed": "অভ্যন্তরীণ লেবেল আপডেট করতে ব্যর্থ"
+    "internalLabelUpdateFailed": "অভ্যন্তরীণ লেবেল আপডেট করতে ব্যর্থ",
+    "billCreatedSuccess": "বিল সফলভাবে তৈরি হয়েছে। আপনি অর্থপ্রদান চালিয়ে যেতে পারেন।",
+    "billMayAlreadyExist": "বিলটি ইতিমধ্যে তৈরি হয়ে থাকতে পারে। নিরাপদে পুনরুদ্ধার করা হচ্ছে।",
+    "databaseBusyRetrying": "ডাটাবেস সাময়িকভাবে ব্যস্ত। নিরাপদে পুনরায় চেষ্টা করা হচ্ছে।",
+    "billCreationFailedSafe": "বিল নিরাপদে তৈরি করা যায়নি। কোনো অর্থ কাটা হয়নি এবং অর্ডার পরিবর্তিত হয়নি। সহায়তা আইডি: {supportId}",
+    "retrySafely": "নিরাপদে পুনরায় চেষ্টা করুন",
+    "refreshOrder": "অর্ডার রিফ্রেশ করুন",
+    "viewExistingBill": "বিদ্যমান বিল দেখুন"
   },
   "printTest": {
     "amt": "এএমটি",

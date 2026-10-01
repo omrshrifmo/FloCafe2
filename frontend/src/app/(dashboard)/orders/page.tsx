@@ -168,6 +168,7 @@ export default function OrdersPage() {
   const [addonPickerProduct, setAddonPickerProduct] = useState<Product | null>(null);
   const addItemsAttemptRef = useRef<AppendAttempt | null>(null);
   const appendAttemptStorageRef = useRef<AppendAttemptStorage | null>(null);
+  const checkoutIdempotencyKeysRef = useRef<Map<number, string>>(new Map());
   const appendRecoveryStartedUsersRef = useRef<Set<string>>(new Set());
   const activeUserId = user?.id == null ? null : String(user.id);
 
@@ -485,11 +486,39 @@ export default function OrdersPage() {
 
   const handleCheckout = async (orderId: number) => {
     setGeneratingBill(orderId);
+    let key = checkoutIdempotencyKeysRef.current.get(orderId);
+    if (!key) {
+      key = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `chk-${orderId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      checkoutIdempotencyKeysRef.current.set(orderId, key);
+    }
+
     try {
-      const { data } = await api.post('/bills/generate', { order_id: orderId });
+      const { data } = await api.post(
+        '/bills/generate',
+        { order_id: orderId },
+        { headers: { 'Idempotency-Key': key } }
+      );
+      checkoutIdempotencyKeysRef.current.delete(orderId);
+      if (data.recovered) {
+        toast(tOrders('billMayAlreadyExist'), { icon: 'ℹ️' });
+      } else {
+        toast.success(tOrders('billCreatedSuccess'));
+      }
       setPaymentBill(data.bill);
-    } catch {
-      toast.error(tOrders('generateBillFailed'));
+    } catch (err: unknown) {
+      const resData = (err as { response?: { data?: { supportId?: string; transient?: boolean; existingBill?: Bill } } })?.response?.data;
+      const supportId = resData?.supportId || `SUP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const isTransient = Boolean(resData?.transient);
+      if (resData?.existingBill) {
+        toast(tOrders('billMayAlreadyExist'), { icon: 'ℹ️' });
+        setPaymentBill(resData.existingBill);
+      } else if (isTransient) {
+        toast(tOrders('databaseBusyRetrying'), { icon: '⏳' });
+      } else {
+        toast.error(tOrders('billCreationFailedSafe', { supportId }));
+      }
     } finally {
       setGeneratingBill(null);
     }

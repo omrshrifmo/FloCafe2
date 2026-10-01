@@ -623,7 +623,14 @@
     "voidingItem": "منسوخ کیا جا رہا ہے...",
     "walkInCustomer": "بغیر بکنگ گاہک",
     "whatsappFailed": "WhatsApp نہیں کھل سکا",
-    "deferred": "مؤخر"
+    "deferred": "مؤخر",
+    "billCreatedSuccess": "بل کامیابی سے بن گیا۔ آپ ادائیگی جاری رکھ سکتے ہیں۔",
+    "billMayAlreadyExist": "ہو سکتا ہے بل پہلے ہی بن چکا ہو۔ اسے محفوظ طریقے سے دوبارہ حاصل کیا جا رہا ہے۔",
+    "databaseBusyRetrying": "ڈیٹا بیس عارضی طور پر مصروف ہے۔ محفوظ طریقے سے دوبارہ کوشش کی جا رہی ہے۔",
+    "billCreationFailedSafe": "بل محفوظ طریقے سے نہیں بنایا جا سکا۔ کوئی ادائیگی نہیں لی گئی اور آرڈر میں کوئی تبدیلی نہیں ہوئی۔ سپورٹ شناختی کوڈ: {supportId}",
+    "retrySafely": "محفوظ طریقے سے دوبارہ کوشش کریں",
+    "refreshOrder": "آرڈر تازہ کریں",
+    "viewExistingBill": "موجودہ بل دیکھیں"
   },
   "pos": {
     "addCustomer": "گاہک شامل کریں",
@@ -925,7 +932,14 @@
     "saveLabel": "لیبل محفوظ کریں",
     "savingLabel": "محفوظ ہو رہا ہے...",
     "internalLabelUpdated": "اندرونی لیبل اپ ڈیٹ کر دیا گیا",
-    "internalLabelUpdateFailed": "اندرونی لیبل اپ ڈیٹ کرنے میں ناکامی"
+    "internalLabelUpdateFailed": "اندرونی لیبل اپ ڈیٹ کرنے میں ناکامی",
+    "billCreatedSuccess": "بل کامیابی سے بن گیا۔ آپ ادائیگی جاری رکھ سکتے ہیں۔",
+    "billMayAlreadyExist": "ہو سکتا ہے بل پہلے ہی بن چکا ہو۔ اسے محفوظ طریقے سے دوبارہ حاصل کیا جا رہا ہے۔",
+    "databaseBusyRetrying": "ڈیٹا بیس عارضی طور پر مصروف ہے۔ محفوظ طریقے سے دوبارہ کوشش کی جا رہی ہے۔",
+    "billCreationFailedSafe": "بل محفوظ طریقے سے نہیں بنایا جا سکا۔ کوئی ادائیگی نہیں لی گئی اور آرڈر میں کوئی تبدیلی نہیں ہوئی۔ سپورٹ شناختی کوڈ: {supportId}",
+    "retrySafely": "محفوظ طریقے سے دوبارہ کوشش کریں",
+    "refreshOrder": "آرڈر تازہ کریں",
+    "viewExistingBill": "موجودہ بل دیکھیں"
   },
   "printTest": {
     "amt": "رقم",

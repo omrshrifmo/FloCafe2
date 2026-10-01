@@ -623,7 +623,14 @@
     "voidingItem": "Vino-void...",
     "walkInCustomer": "Walk-in na Kustomer",
     "whatsappFailed": "Nabigong open WhatsApp",
-    "deferred": "Ipinagpaliban"
+    "deferred": "Ipinagpaliban",
+    "billCreatedSuccess": "Matagumpay na nagawa ang bill. Maaari ka nang magpatuloy sa pagbabayad.",
+    "billMayAlreadyExist": "Maaaring nagawa na ang bill. Ligtas itong kinukuha.",
+    "databaseBusyRetrying": "Pansamantalang abala ang database. Ligtas na sinusubukang muli.",
+    "billCreationFailedSafe": "Hindi ligtas na nagawa ang bill. Walang ibinawas na bayad at hindi binago ang order. ID ng Suporta: {supportId}",
+    "retrySafely": "Ligtas na Subukan Muli",
+    "refreshOrder": "I-refresh ang Order",
+    "viewExistingBill": "Tingnan ang Umiiral na Bill"
   },
   "pos": {
     "addCustomer": "Magdagdag ng Customer",
@@ -925,7 +932,14 @@
     "saveLabel": "I-save ang label",
     "savingLabel": "Sine-save...",
     "internalLabelUpdated": "Na-update ang internal na label",
-    "internalLabelUpdateFailed": "Bigo sa pag-update ng internal na label"
+    "internalLabelUpdateFailed": "Bigo sa pag-update ng internal na label",
+    "billCreatedSuccess": "Matagumpay na nagawa ang bill. Maaari ka nang magpatuloy sa pagbabayad.",
+    "billMayAlreadyExist": "Maaaring nagawa na ang bill. Ligtas itong kinukuha.",
+    "databaseBusyRetrying": "Pansamantalang abala ang database. Ligtas na sinusubukang muli.",
+    "billCreationFailedSafe": "Hindi ligtas na nagawa ang bill. Walang ibinawas na bayad at hindi binago ang order. ID ng Suporta: {supportId}",
+    "retrySafely": "Ligtas na Subukan Muli",
+    "refreshOrder": "I-refresh ang Order",
+    "viewExistingBill": "Tingnan ang Umiiral na Bill"
   },
   "printTest": {
     "amt": "Halaga",

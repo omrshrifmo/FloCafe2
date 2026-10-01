@@ -81,6 +81,7 @@ interface PrepaidAttempt {
   order?: Order;
   bill?: Bill;
   orderIdempotencyKey: string;
+  billIdempotencyKey?: string;
   paymentIdempotencyKey: string;
 }
 
@@ -792,6 +793,7 @@ export default function POSPage() {
         discount: retryDiscount,
         bill: discountChanged ? undefined : existingAttempt.bill,
         paymentFingerprint,
+        billIdempotencyKey: discountChanged ? newIdempotencyKey() : (existingAttempt.billIdempotencyKey || newIdempotencyKey()),
         paymentIdempotencyKey: existingAttempt.paymentFingerprint === paymentFingerprint && !discountChanged
           ? existingAttempt.paymentIdempotencyKey
           : newIdempotencyKey(),
@@ -802,6 +804,7 @@ export default function POSPage() {
         paymentFingerprint,
         discount: discount && discount.value > 0 ? discount : null,
         orderIdempotencyKey: newIdempotencyKey(),
+        billIdempotencyKey: newIdempotencyKey(),
         paymentIdempotencyKey: newIdempotencyKey(),
       };
     // A lost payment response wins over a later UI edit: an already-settled or
@@ -823,6 +826,7 @@ export default function POSPage() {
         discount: existingAttempt.discount,
         bill: existingAttempt.bill,
         paymentFingerprint: existingAttempt.paymentFingerprint,
+        billIdempotencyKey: existingAttempt.billIdempotencyKey,
         paymentIdempotencyKey: existingAttempt.paymentIdempotencyKey,
       };
     }
@@ -889,7 +893,12 @@ export default function POSPage() {
       if (attempt.bill) {
         billData = { bill: attempt.bill };
       } else {
-        const { data: generatedBill } = await api.post('/bills/generate', { order_id: orderId });
+        const billKey = attempt.billIdempotencyKey || attempt.orderIdempotencyKey;
+        const { data: generatedBill } = await api.post(
+          '/bills/generate',
+          { order_id: orderId },
+          { headers: { 'Idempotency-Key': billKey } }
+        );
         billData = generatedBill;
         requirePrepaidAttemptSaved({ ...attempt, order: orderData.order, bill: generatedBill.bill });
       }

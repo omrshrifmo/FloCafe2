@@ -623,7 +623,14 @@
     "voidingItem": "作废中…",
     "walkInCustomer": "散客",
     "whatsappFailed": "打开 WhatsApp 失败",
-    "deferred": "挂账"
+    "deferred": "挂账",
+    "billCreatedSuccess": "账单创建成功，您可以继续支付。",
+    "billMayAlreadyExist": "账单可能已存在，正在安全检索中。",
+    "databaseBusyRetrying": "数据库暂时繁忙，正在安全重试。",
+    "billCreationFailedSafe": "无法安全创建账单。未扣取任何款项，订单未发生变更。支持编号：{supportId}",
+    "retrySafely": "安全重试",
+    "refreshOrder": "刷新订单",
+    "viewExistingBill": "查看已有账单"
   },
   "pos": {
     "addCustomer": "添加顾客",
@@ -925,7 +932,14 @@
     "saveLabel": "保存备注",
     "savingLabel": "保存中...",
     "internalLabelUpdated": "内部备注已更新",
-    "internalLabelUpdateFailed": "内部备注更新失败"
+    "internalLabelUpdateFailed": "内部备注更新失败",
+    "billCreatedSuccess": "账单创建成功，您可以继续支付。",
+    "billMayAlreadyExist": "账单可能已存在，正在安全检索中。",
+    "databaseBusyRetrying": "数据库暂时繁忙，正在安全重试。",
+    "billCreationFailedSafe": "无法安全创建账单。未扣取任何款项，订单未发生变更。支持编号：{supportId}",
+    "retrySafely": "安全重试",
+    "refreshOrder": "刷新订单",
+    "viewExistingBill": "查看已有账单"
   },
   "printTest": {
     "amt": "金额",

@@ -623,7 +623,14 @@
     "voidingItem": "Отмена позиции…",
     "walkInCustomer": "Клиент без стола",
     "whatsappFailed": "Не удалось открыть WhatsApp.",
-    "deferred": "Отложено"
+    "deferred": "Отложено",
+    "billCreatedSuccess": "Счёт успешно создан. Вы можете перейти к оплате.",
+    "billMayAlreadyExist": "Возможно, счёт уже создан. Безопасное получение данных.",
+    "databaseBusyRetrying": "База данных временно занята. Безопасный повтор попытки.",
+    "billCreationFailedSafe": "Не удалось безопасно создать счёт. Оплата не списана, заказ не изменён. ID поддержки: {supportId}",
+    "retrySafely": "Повторить безопасно",
+    "refreshOrder": "Обновить заказ",
+    "viewExistingBill": "Просмотреть существующий счёт"
   },
   "pos": {
     "addCustomer": "Добавить клиента",
@@ -925,7 +932,14 @@
     "saveLabel": "Сохранить метку",
     "savingLabel": "Сохранение...",
     "internalLabelUpdated": "Метка обновлена",
-    "internalLabelUpdateFailed": "Не удалось обновить метку"
+    "internalLabelUpdateFailed": "Не удалось обновить метку",
+    "billCreatedSuccess": "Счёт успешно создан. Вы можете перейти к оплате.",
+    "billMayAlreadyExist": "Возможно, счёт уже создан. Безопасное получение данных.",
+    "databaseBusyRetrying": "База данных временно занята. Безопасный повтор попытки.",
+    "billCreationFailedSafe": "Не удалось безопасно создать счёт. Оплата не списана, заказ не изменён. ID поддержки: {supportId}",
+    "retrySafely": "Повторить безопасно",
+    "refreshOrder": "Обновить заказ",
+    "viewExistingBill": "Просмотреть существующий счёт"
   },
   "printTest": {
     "amt": "Сумма",

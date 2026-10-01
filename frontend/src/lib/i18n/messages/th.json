@@ -623,7 +623,14 @@
     "voidingItem": "กำลังยกเลิกสินค้า...",
     "walkInCustomer": "ลูกค้าไม่นัด",
     "whatsappFailed": "เปิด WhatsApp ไม่สำเร็จ",
-    "deferred": "เลื่อนชำระ"
+    "deferred": "เลื่อนชำระ",
+    "billCreatedSuccess": "สร้างบิลสำเร็จแล้ว คุณสามารถดำเนินการชำระเงินต่อได้",
+    "billMayAlreadyExist": "อาจมีการสร้างบิลไว้แล้ว กำลังกู้คืนอย่างปลอดภัย",
+    "databaseBusyRetrying": "ฐานข้อมูลไม่ว่างชั่วคราว กำลังลองใหม่อย่างปลอดภัย",
+    "billCreationFailedSafe": "ไม่สามารถสร้างบิลได้อย่างปลอดภัย ไม่มีการหักเงินและไม่มีการเปลี่ยนแปลงคำสั่งซื้อ รหัสสนับสนุน: {supportId}",
+    "retrySafely": "ลองใหม่ได้อย่างปลอดภัย",
+    "refreshOrder": "รีเฟรชคำสั่งซื้อ",
+    "viewExistingBill": "ดูบิลที่มีอยู่"
   },
   "pos": {
     "addCustomer": "เพิ่มลูกค้า",
@@ -925,7 +932,14 @@
     "saveLabel": "บันทึกป้ายกำกับ",
     "savingLabel": "กำลังบันทึก...",
     "internalLabelUpdated": "อัปเดตป้ายกำกับภายในแล้ว",
-    "internalLabelUpdateFailed": "อัปเดตป้ายกำกับภายในไม่สำเร็จ"
+    "internalLabelUpdateFailed": "อัปเดตป้ายกำกับภายในไม่สำเร็จ",
+    "billCreatedSuccess": "สร้างบิลสำเร็จแล้ว คุณสามารถดำเนินการชำระเงินต่อได้",
+    "billMayAlreadyExist": "อาจมีการสร้างบิลไว้แล้ว กำลังกู้คืนอย่างปลอดภัย",
+    "databaseBusyRetrying": "ฐานข้อมูลไม่ว่างชั่วคราว กำลังลองใหม่อย่างปลอดภัย",
+    "billCreationFailedSafe": "ไม่สามารถสร้างบิลได้อย่างปลอดภัย ไม่มีการหักเงินและไม่มีการเปลี่ยนแปลงคำสั่งซื้อ รหัสสนับสนุน: {supportId}",
+    "retrySafely": "ลองใหม่ได้อย่างปลอดภัย",
+    "refreshOrder": "รีเฟรชคำสั่งซื้อ",
+    "viewExistingBill": "ดูบิลที่มีอยู่"
   },
   "printTest": {
     "amt": "จำนวนเงิน",

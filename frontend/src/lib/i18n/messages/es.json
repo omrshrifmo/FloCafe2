@@ -623,7 +623,14 @@
     "voidingItem": "Anulando...",
     "walkInCustomer": "Cliente de paso",
     "whatsappFailed": "No se pudo abrir WhatsApp",
-    "deferred": "Diferido"
+    "deferred": "Diferido",
+    "billCreatedSuccess": "Factura creada con éxito. Puede continuar al pago.",
+    "billMayAlreadyExist": "La factura puede ya existir. Recuperándola de forma segura.",
+    "databaseBusyRetrying": "La base de datos está temporalmente ocupada. Reintentando de forma segura.",
+    "billCreationFailedSafe": "No se pudo crear la factura de forma segura. No se realizó ningún cobro y el pedido no fue modificado. ID de soporte: {supportId}",
+    "retrySafely": "Reintentar de forma segura",
+    "refreshOrder": "Actualizar pedido",
+    "viewExistingBill": "Ver factura existente"
   },
   "pos": {
     "addCustomer": "Agregar Cliente",
@@ -925,7 +932,14 @@
     "saveLabel": "Guardar etiqueta",
     "savingLabel": "Guardando...",
     "internalLabelUpdated": "Etiqueta interna actualizada",
-    "internalLabelUpdateFailed": "Error al actualizar la etiqueta interna"
+    "internalLabelUpdateFailed": "Error al actualizar la etiqueta interna",
+    "billCreatedSuccess": "Factura creada con éxito. Puede continuar al pago.",
+    "billMayAlreadyExist": "La factura puede ya existir. Recuperándola de forma segura.",
+    "databaseBusyRetrying": "La base de datos está temporalmente ocupada. Reintentando de forma segura.",
+    "billCreationFailedSafe": "No se pudo crear la factura de forma segura. No se realizó ningún cobro y el pedido no fue modificado. ID de soporte: {supportId}",
+    "retrySafely": "Reintentar de forma segura",
+    "refreshOrder": "Actualizar pedido",
+    "viewExistingBill": "Ver factura existente"
   },
   "printTest": {
     "amt": "Total",

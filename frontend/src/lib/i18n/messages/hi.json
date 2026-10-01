@@ -623,7 +623,14 @@
     "voidingItem": "रद्द किया जा रहा है...",
     "walkInCustomer": "वॉक-इन ग्राहक",
     "whatsappFailed": "WhatsApp खोलने में विफल",
-    "deferred": "स्थगित"
+    "deferred": "स्थगित",
+    "billCreatedSuccess": "बिल सफलतापूर्वक बन गया। आप भुगतान जारी रख सकते हैं।",
+    "billMayAlreadyExist": "बिल शायद पहले से मौजूद है। सुरक्षित रूप से पुनः प्राप्त किया जा रहा है।",
+    "databaseBusyRetrying": "डेटाबेस अस्थायी रूप से व्यस्त है। सुरक्षित रूप से पुनः प्रयास किया जा रहा है।",
+    "billCreationFailedSafe": "बिल सुरक्षित रूप से नहीं बनाया जा सका। कोई भुगतान नहीं लिया गया और ऑर्डर में कोई बदलाव नहीं हुआ। सहायता आईडी: {supportId}",
+    "retrySafely": "सुरक्षित रूप से पुनः प्रयास करें",
+    "refreshOrder": "ऑर्डर रीफ्रेश करें",
+    "viewExistingBill": "मौजूदा बिल देखें"
   },
   "pos": {
     "addCustomer": "ग्राहक जोड़ें",
@@ -925,7 +932,14 @@
     "saveLabel": "लेबल सहेजें",
     "savingLabel": "सहेजा जा रहा है...",
     "internalLabelUpdated": "आंतरिक लेबल अद्यतन किया गया",
-    "internalLabelUpdateFailed": "आंतरिक लेबल अद्यतन करने में विफल"
+    "internalLabelUpdateFailed": "आंतरिक लेबल अद्यतन करने में विफल",
+    "billCreatedSuccess": "बिल सफलतापूर्वक बन गया। आप भुगतान जारी रख सकते हैं।",
+    "billMayAlreadyExist": "बिल शायद पहले से मौजूद है। सुरक्षित रूप से पुनः प्राप्त किया जा रहा है।",
+    "databaseBusyRetrying": "डेटाबेस अस्थायी रूप से व्यस्त है। सुरक्षित रूप से पुनः प्रयास किया जा रहा है।",
+    "billCreationFailedSafe": "बिल सुरक्षित रूप से नहीं बनाया जा सका। कोई भुगतान नहीं लिया गया और ऑर्डर में कोई बदलाव नहीं हुआ। सहायता आईडी: {supportId}",
+    "retrySafely": "सुरक्षित रूप से पुनः प्रयास करें",
+    "refreshOrder": "ऑर्डर रीफ्रेश करें",
+    "viewExistingBill": "मौजूदा बिल देखें"
   },
   "printTest": {
     "amt": "राशि",

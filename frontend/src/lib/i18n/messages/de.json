@@ -623,7 +623,14 @@
     "voidingItem": "Wird storniert…",
     "walkInCustomer": "Laufkunde",
     "whatsappFailed": "WhatsApp konnte nicht geöffnet werden",
-    "deferred": "Zurückgestellt"
+    "deferred": "Zurückgestellt",
+    "billCreatedSuccess": "Rechnung erfolgreich erstellt. Sie können mit der Zahlung fortfahren.",
+    "billMayAlreadyExist": "Die Rechnung existiert möglicherweise bereits. Wird sicher wiederhergestellt.",
+    "databaseBusyRetrying": "Die Datenbank ist vorübergehend ausgelastet. Sicherer Wiederholungsversuch läuft.",
+    "billCreationFailedSafe": "Rechnung konnte nicht sicher erstellt werden. Es wurde keine Zahlung abgebucht und die Bestellung blieb unverändert. Support-ID: {supportId}",
+    "retrySafely": "Sicher wiederholen",
+    "refreshOrder": "Bestellung aktualisieren",
+    "viewExistingBill": "Bestehende Rechnung anzeigen"
   },
   "pos": {
     "addCustomer": "Kunde hinzufügen",
@@ -925,7 +932,14 @@
     "saveLabel": "Bezeichnung speichern",
     "savingLabel": "Speichern...",
     "internalLabelUpdated": "Interne Bezeichnung aktualisiert",
-    "internalLabelUpdateFailed": "Aktualisierung fehlgeschlagen"
+    "internalLabelUpdateFailed": "Aktualisierung fehlgeschlagen",
+    "billCreatedSuccess": "Rechnung erfolgreich erstellt. Sie können mit der Zahlung fortfahren.",
+    "billMayAlreadyExist": "Die Rechnung existiert möglicherweise bereits. Wird sicher wiederhergestellt.",
+    "databaseBusyRetrying": "Die Datenbank ist vorübergehend ausgelastet. Sicherer Wiederholungsversuch läuft.",
+    "billCreationFailedSafe": "Rechnung konnte nicht sicher erstellt werden. Es wurde keine Zahlung abgebucht und die Bestellung blieb unverändert. Support-ID: {supportId}",
+    "retrySafely": "Sicher wiederholen",
+    "refreshOrder": "Bestellung aktualisieren",
+    "viewExistingBill": "Bestehende Rechnung anzeigen"
   },
   "printTest": {
     "amt": "Betrag",

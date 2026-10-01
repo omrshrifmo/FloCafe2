@@ -5402,6 +5402,26 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 98,
+    name: 'bill_generation_idempotency_and_resilience',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS bill_idempotency (
+          user_id TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          order_id INTEGER NOT NULL,
+          bill_id INTEGER,
+          request_hash TEXT NOT NULL,
+          response_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, idempotency_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bill_idempotency_order_id ON bill_idempotency(order_id);
+        CREATE INDEX IF NOT EXISTS idx_bills_order_id ON bills(order_id);
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6268,7 +6288,7 @@ export function dateStampInTimezone(timezone: string): string {
   }
 }
 
-type InvoiceResetPeriod = 'never' | 'daily' | 'monthly' | 'financial_year';
+export type InvoiceResetPeriod = 'never' | 'daily' | 'monthly' | 'financial_year';
 
 function datePartsInTimezone(timezone: string): { year: number; month: number; day: number } {
   try {
@@ -6291,7 +6311,7 @@ function datePartsInTimezone(timezone: string): { year: number; month: number; d
   return { year, month, day };
 }
 
-function clampFinancialYearStart(monthValue: string | null | undefined, dayValue: string | null | undefined) {
+export function clampFinancialYearStart(monthValue: string | null | undefined, dayValue: string | null | undefined) {
   const month = Number.parseInt(monthValue || '4', 10);
   const day = Number.parseInt(dayValue || '1', 10);
   return {
@@ -6307,7 +6327,7 @@ function financialYearSegment(timezone: string, startMonth: number, startDay: nu
   return `FY${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
 
-function invoicePeriodSegment(period: InvoiceResetPeriod, timezone: string, startMonth: number, startDay: number): string {
+export function invoicePeriodSegment(period: InvoiceResetPeriod, timezone: string, startMonth: number, startDay: number): string {
   const date = dateStampInTimezone(timezone);
   if (period === 'monthly') return date.slice(0, 6);
   if (period === 'financial_year') return financialYearSegment(timezone, startMonth, startDay);
@@ -6315,7 +6335,7 @@ function invoicePeriodSegment(period: InvoiceResetPeriod, timezone: string, star
 }
 
 // Strip non-alphanumeric characters to prevent collision with hyphen separators.
-function sanitizedNumberPrefix(value: string | null | undefined, fallback: string): string {
+export function sanitizedNumberPrefix(value: string | null | undefined, fallback: string): string {
   return (value ?? fallback).replace(/[^A-Za-z0-9]/g, '');
 }
 
@@ -6326,7 +6346,7 @@ function sanitizedNumberPrefix(value: string | null | undefined, fallback: strin
 // Resolves through the country profile when the stored timezone is missing
 // or invalid, matching resolveRegionalSnapshot's own contract — only throws
 // RegionalNotConfiguredError when the country itself is unresolvable.
-function requireTenantTimezone(): string {
+export function requireTenantTimezone(): string {
   return resolveRegionalSnapshot({
     country: getSettingValue('country') ?? undefined,
     currency: getSettingValue('currency') ?? undefined,

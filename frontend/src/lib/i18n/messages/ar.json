@@ -623,7 +623,14 @@
     "voidingItem": "إلغاء...",
     "walkInCustomer": "العميل العابر",
     "whatsappFailed": "فشل فتح تطبيق WhatsApp",
-    "deferred": "مؤجل"
+    "deferred": "مؤجل",
+    "billCreatedSuccess": "تم إنشاء الفاتورة بنجاح. يمكنك متابعة الدفع.",
+    "billMayAlreadyExist": "قد تكون الفاتورة قد أُنشئت بالفعل. يتم الآن استرجاعها بأمان.",
+    "databaseBusyRetrying": "قاعدة البيانات مشغولة مؤقتاً. جارٍ إعادة المحاولة بأمان.",
+    "billCreationFailedSafe": "تعذر إنشاء الفاتورة بأمان. لم يتم خصم أي دفعة ولم يتم تعديل الطلب. استخدم رمز الدعم التالي: {supportId}",
+    "retrySafely": "إعادة المحاولة بأمان",
+    "refreshOrder": "تحديث الطلب",
+    "viewExistingBill": "عرض الفاتورة الحالية"
   },
   "pos": {
     "addCustomer": "إضافة عميل",
@@ -925,7 +932,14 @@
     "saveLabel": "حفظ التسمية",
     "savingLabel": "جاري الحفظ...",
     "internalLabelUpdated": "تم تحديث التسمية الداخلية",
-    "internalLabelUpdateFailed": "فشل تحديث التسمية الداخلية"
+    "internalLabelUpdateFailed": "فشل تحديث التسمية الداخلية",
+    "billCreatedSuccess": "تم إنشاء الفاتورة بنجاح. يمكنك متابعة الدفع.",
+    "billMayAlreadyExist": "قد تكون الفاتورة قد أُنشئت بالفعل. يتم الآن استرجاعها بأمان.",
+    "databaseBusyRetrying": "قاعدة البيانات مشغولة مؤقتاً. جارٍ إعادة المحاولة بأمان.",
+    "billCreationFailedSafe": "تعذر إنشاء الفاتورة بأمان. لم يتم خصم أي دفعة ولم يتم تعديل الطلب. استخدم رمز الدعم التالي: {supportId}",
+    "retrySafely": "إعادة المحاولة بأمان",
+    "refreshOrder": "تحديث الطلب",
+    "viewExistingBill": "عرض الفاتورة الحالية"
   },
   "printTest": {
     "amt": "المبلغ",

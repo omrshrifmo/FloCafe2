@@ -623,7 +623,14 @@
     "voidingItem": "作廢中…",
     "walkInCustomer": "散客",
     "whatsappFailed": "開啟 WhatsApp 失敗",
-    "deferred": "掛帳"
+    "deferred": "掛帳",
+    "billCreatedSuccess": "帳單建立成功，您可以繼續付款。",
+    "billMayAlreadyExist": "帳單可能已存在，正在安全檢索中。",
+    "databaseBusyRetrying": "資料庫暫時繁忙，正在安全重試。",
+    "billCreationFailedSafe": "無法安全建立帳單。未扣取任何款項，訂單未發生變更。支援編號：{supportId}",
+    "retrySafely": "安全重試",
+    "refreshOrder": "重新整理訂單",
+    "viewExistingBill": "查看既有帳單"
   },
   "pos": {
     "addCustomer": "新增顧客",
@@ -925,7 +932,14 @@
     "saveLabel": "儲存備註",
     "savingLabel": "儲存中...",
     "internalLabelUpdated": "內部備註已更新",
-    "internalLabelUpdateFailed": "內部備註更新失敗"
+    "internalLabelUpdateFailed": "內部備註更新失敗",
+    "billCreatedSuccess": "帳單建立成功，您可以繼續付款。",
+    "billMayAlreadyExist": "帳單可能已存在，正在安全檢索中。",
+    "databaseBusyRetrying": "資料庫暫時繁忙，正在安全重試。",
+    "billCreationFailedSafe": "無法安全建立帳單。未扣取任何款項，訂單未發生變更。支援編號：{supportId}",
+    "retrySafely": "安全重試",
+    "refreshOrder": "重新整理訂單",
+    "viewExistingBill": "查看既有帳單"
   },
   "printTest": {
     "amt": "金額",

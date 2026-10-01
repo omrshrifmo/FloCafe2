@@ -623,7 +623,14 @@
     "voidingItem": "Anulando...",
     "walkInCustomer": "Cliente sem reserva",
     "whatsappFailed": "Falha ao abrir o WhatsApp",
-    "deferred": "Diferido"
+    "deferred": "Diferido",
+    "billCreatedSuccess": "Conta criada com sucesso. Você pode prosseguir para o pagamento.",
+    "billMayAlreadyExist": "A conta pode já existir. Recuperando com segurança.",
+    "databaseBusyRetrying": "O banco de dados está temporariamente ocupado. Tentando novamente com segurança.",
+    "billCreationFailedSafe": "Não foi possível criar a conta com segurança. Nenhum pagamento foi cobrado e o pedido não foi alterado. ID de suporte: {supportId}",
+    "retrySafely": "Tentar novamente com segurança",
+    "refreshOrder": "Atualizar pedido",
+    "viewExistingBill": "Ver conta existente"
   },
   "pos": {
     "addCustomer": "Adicionar Cliente",
@@ -925,7 +932,14 @@
     "saveLabel": "Salvar etiqueta",
     "savingLabel": "Salvando...",
     "internalLabelUpdated": "Etiqueta interna atualizada",
-    "internalLabelUpdateFailed": "Falha ao atualizar etiqueta interna"
+    "internalLabelUpdateFailed": "Falha ao atualizar etiqueta interna",
+    "billCreatedSuccess": "Conta criada com sucesso. Você pode prosseguir para o pagamento.",
+    "billMayAlreadyExist": "A conta pode já existir. Recuperando com segurança.",
+    "databaseBusyRetrying": "O banco de dados está temporariamente ocupado. Tentando novamente com segurança.",
+    "billCreationFailedSafe": "Não foi possível criar a conta com segurança. Nenhum pagamento foi cobrado e o pedido não foi alterado. ID de suporte: {supportId}",
+    "retrySafely": "Tentar novamente com segurança",
+    "refreshOrder": "Atualizar pedido",
+    "viewExistingBill": "Ver conta existente"
   },
   "printTest": {
     "amt": "Total",

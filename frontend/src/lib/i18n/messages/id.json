@@ -623,7 +623,14 @@
     "voidingItem": "Membatalkan...",
     "walkInCustomer": "Pelanggan Datang Langsung",
     "whatsappFailed": "Gagal membuka WhatsApp",
-    "deferred": "Ditunda"
+    "deferred": "Ditunda",
+    "billCreatedSuccess": "Tagihan berhasil dibuat. Anda dapat melanjutkan ke pembayaran.",
+    "billMayAlreadyExist": "Tagihan mungkin sudah ada. Memulihkan dengan aman.",
+    "databaseBusyRetrying": "Basis data sedang sibuk sementara. Mencoba kembali dengan aman.",
+    "billCreationFailedSafe": "Tagihan tidak dapat dibuat dengan aman. Tidak ada pembayaran yang dipotong dan pesanan tidak diubah. ID Dukungan: {supportId}",
+    "retrySafely": "Coba Lagi dengan Aman",
+    "refreshOrder": "Segarkan Pesanan",
+    "viewExistingBill": "Lihat Tagihan yang Ada"
   },
   "pos": {
     "addCustomer": "Tambah Pelanggan",
@@ -925,7 +932,14 @@
     "saveLabel": "Simpan label",
     "savingLabel": "Menyimpan...",
     "internalLabelUpdated": "Label internal diperbarui",
-    "internalLabelUpdateFailed": "Gagal memperbarui label internal"
+    "internalLabelUpdateFailed": "Gagal memperbarui label internal",
+    "billCreatedSuccess": "Tagihan berhasil dibuat. Anda dapat melanjutkan ke pembayaran.",
+    "billMayAlreadyExist": "Tagihan mungkin sudah ada. Memulihkan dengan aman.",
+    "databaseBusyRetrying": "Basis data sedang sibuk sementara. Mencoba kembali dengan aman.",
+    "billCreationFailedSafe": "Tagihan tidak dapat dibuat dengan aman. Tidak ada pembayaran yang dipotong dan pesanan tidak diubah. ID Dukungan: {supportId}",
+    "retrySafely": "Coba Lagi dengan Aman",
+    "refreshOrder": "Segarkan Pesanan",
+    "viewExistingBill": "Lihat Tagihan yang Ada"
   },
   "printTest": {
     "amt": "Jml",

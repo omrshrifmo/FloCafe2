@@ -623,7 +623,14 @@
     "voidingItem": "در حال باطل کردن",
     "walkInCustomer": "مشتری حضوری",
     "whatsappFailed": "باز کردن واتساپ انجام نشد",
-    "deferred": "معوق"
+    "deferred": "معوق",
+    "billCreatedSuccess": "صورتحساب با موفقیت ایجاد شد. می‌توانید پرداخت را ادامه دهید.",
+    "billMayAlreadyExist": "ممکن است صورتحساب از قبل ایجاد شده باشد. بازیابی ایمن در حال انجام است.",
+    "databaseBusyRetrying": "پایگاه داده موقتاً مشغول است. تلاش مجدد ایمن.",
+    "billCreationFailedSafe": "صورتحساب با امنیت ایجاد نشد. هیچ پرداختی کسر نشد و سفارش تغییر نکرد. شناسه پشتیبانی: {supportId}",
+    "retrySafely": "تلاش مجدد ایمن",
+    "refreshOrder": "به‌روزرسانی سفارش",
+    "viewExistingBill": "مشاهده صورتحساب موجود"
   },
   "pos": {
     "addCustomer": "افزودن مشتری",
@@ -925,7 +932,14 @@
     "saveLabel": "ذخیره برچسب",
     "savingLabel": "در حال ذخیره...",
     "internalLabelUpdated": "برچسب داخلی به‌روزرسانی شد",
-    "internalLabelUpdateFailed": "به‌روزرسانی برچسب داخلی ناموفق بود"
+    "internalLabelUpdateFailed": "به‌روزرسانی برچسب داخلی ناموفق بود",
+    "billCreatedSuccess": "صورتحساب با موفقیت ایجاد شد. می‌توانید پرداخت را ادامه دهید.",
+    "billMayAlreadyExist": "ممکن است صورتحساب از قبل ایجاد شده باشد. بازیابی ایمن در حال انجام است.",
+    "databaseBusyRetrying": "پایگاه داده موقتاً مشغول است. تلاش مجدد ایمن.",
+    "billCreationFailedSafe": "صورتحساب با امنیت ایجاد نشد. هیچ پرداختی کسر نشد و سفارش تغییر نکرد. شناسه پشتیبانی: {supportId}",
+    "retrySafely": "تلاش مجدد ایمن",
+    "refreshOrder": "به‌روزرسانی سفارش",
+    "viewExistingBill": "مشاهده صورتحساب موجود"
   },
   "printTest": {
     "amt": "مبلغ",

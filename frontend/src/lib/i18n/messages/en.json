@@ -623,7 +623,14 @@
     "voidingItem": "Voiding...",
     "walkInCustomer": "Walk-in Customer",
     "whatsappFailed": "Failed to open WhatsApp",
-    "deferred": "Deferred"
+    "deferred": "Deferred",
+    "billCreatedSuccess": "Bill created successfully. You can continue to payment.",
+    "billMayAlreadyExist": "The bill may already exist. Retrieving it safely.",
+    "databaseBusyRetrying": "The database is temporarily busy. Retrying safely.",
+    "billCreationFailedSafe": "Bill could not be created safely. No payment was taken and the order was not changed. Support ID: {supportId}",
+    "retrySafely": "Retry Safely",
+    "refreshOrder": "Refresh Order",
+    "viewExistingBill": "View Existing Bill"
   },
   "pos": {
     "addCustomer": "Add Customer",
@@ -925,7 +932,14 @@
     "saveLabel": "Save Label",
     "savingLabel": "Saving...",
     "internalLabelUpdated": "Internal label updated",
-    "internalLabelUpdateFailed": "Failed to update internal label"
+    "internalLabelUpdateFailed": "Failed to update internal label",
+    "billCreatedSuccess": "Bill created successfully. You can continue to payment.",
+    "billMayAlreadyExist": "The bill may already exist. Retrieving it safely.",
+    "databaseBusyRetrying": "The database is temporarily busy. Retrying safely.",
+    "billCreationFailedSafe": "Bill could not be created safely. No payment was taken and the order was not changed. Support ID: {supportId}",
+    "retrySafely": "Retry Safely",
+    "refreshOrder": "Refresh Order",
+    "viewExistingBill": "View Existing Bill"
   },
   "printTest": {
     "amt": "Amt",

@@ -495,7 +495,7 @@ export function getCanvasDocumentRenderFunction(): string {
           y += 18;
           drawText('WIDTH: ' + width + ' dots (' + Math.round(width / 8) + ' bytes/row)', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 18;
-          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.11', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
+          drawText('RENDERER: FloCafe-Chromium-Canvas-v3.11.12', contentLeft + contentWidth / 2, y, { align: 'center', size: 13 });
           y += 22;
           drawLine(y, 1);
           y += 12;

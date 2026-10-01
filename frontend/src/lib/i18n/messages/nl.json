@@ -623,7 +623,14 @@
     "voidingItem": "Annuleren...",
     "walkInCustomer": "Passerende klant",
     "whatsappFailed": "Kan WhatsApp niet openen",
-    "deferred": "Uitgesteld"
+    "deferred": "Uitgesteld",
+    "billCreatedSuccess": "Rekening succesvol aangemaakt. U kunt doorgaan naar betaling.",
+    "billMayAlreadyExist": "De rekening bestaat mogelijk al. Veilig ophalen...",
+    "databaseBusyRetrying": "De database is tijdelijk bezet. Veilig opnieuw proberen...",
+    "billCreationFailedSafe": "Rekening kon niet veilig worden aangemaakt. Er is geen betaling afgeschreven en de bestelling is niet gewijzigd. Ondersteunings-ID: {supportId}",
+    "retrySafely": "Veilig opnieuw proberen",
+    "refreshOrder": "Bestelling vernieuwen",
+    "viewExistingBill": "Bestaande rekening bekijken"
   },
   "pos": {
     "addCustomer": "Klant toevoegen",
@@ -925,7 +932,14 @@
     "saveLabel": "Label opslaan",
     "savingLabel": "Opslaan...",
     "internalLabelUpdated": "Intern label bijgewerkt",
-    "internalLabelUpdateFailed": "Bijwerken van intern label mislukt"
+    "internalLabelUpdateFailed": "Bijwerken van intern label mislukt",
+    "billCreatedSuccess": "Rekening succesvol aangemaakt. U kunt doorgaan naar betaling.",
+    "billMayAlreadyExist": "De rekening bestaat mogelijk al. Veilig ophalen...",
+    "databaseBusyRetrying": "De database is tijdelijk bezet. Veilig opnieuw proberen...",
+    "billCreationFailedSafe": "Rekening kon niet veilig worden aangemaakt. Er is geen betaling afgeschreven en de bestelling is niet gewijzigd. Ondersteunings-ID: {supportId}",
+    "retrySafely": "Veilig opnieuw proberen",
+    "refreshOrder": "Bestelling vernieuwen",
+    "viewExistingBill": "Bestaande rekening bekijken"
   },
   "printTest": {
     "amt": "Bedrag",

@@ -623,7 +623,14 @@
     "voidingItem": "İptal ediliyor...",
     "walkInCustomer": "Giriş Müşterisi",
     "whatsappFailed": "WhatsApp gönderimi başarısız",
-    "deferred": "Ertelenmiş"
+    "deferred": "Ertelenmiş",
+    "billCreatedSuccess": "Hesap başarıyla oluşturuldu. Ödemeye devam edebilirsiniz.",
+    "billMayAlreadyExist": "Hesap zaten mevcut olabilir. Güvenli şekilde alınıyor.",
+    "databaseBusyRetrying": "Veritabanı geçici olarak meşgul. Güvenli şekilde yeniden deneniyor.",
+    "billCreationFailedSafe": "Hesap güvenli bir şekilde oluşturulamadı. Hiçbir ödeme alınmadı ve sipariş değiştirilmedi. Destek Kimliği: {supportId}",
+    "retrySafely": "Güvenle Yeniden Dene",
+    "refreshOrder": "Siparişi Yenile",
+    "viewExistingBill": "Mevcut Hesabı Görüntüle"
   },
   "pos": {
     "addCustomer": "Müşteri Ekle",
@@ -925,7 +932,14 @@
     "saveLabel": "Etiketi kaydet",
     "savingLabel": "Kaydediliyor...",
     "internalLabelUpdated": "Dahili etiket güncellendi",
-    "internalLabelUpdateFailed": "Dahili etiket güncellenemedi"
+    "internalLabelUpdateFailed": "Dahili etiket güncellenemedi",
+    "billCreatedSuccess": "Hesap başarıyla oluşturuldu. Ödemeye devam edebilirsiniz.",
+    "billMayAlreadyExist": "Hesap zaten mevcut olabilir. Güvenli şekilde alınıyor.",
+    "databaseBusyRetrying": "Veritabanı geçici olarak meşgul. Güvenli şekilde yeniden deneniyor.",
+    "billCreationFailedSafe": "Hesap güvenli bir şekilde oluşturulamadı. Hiçbir ödeme alınmadı ve sipariş değiştirilmedi. Destek Kimliği: {supportId}",
+    "retrySafely": "Güvenle Yeniden Dene",
+    "refreshOrder": "Siparişi Yenile",
+    "viewExistingBill": "Mevcut Hesabı Görüntüle"
   },
   "printTest": {
     "amt": "Tutar",

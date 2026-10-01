@@ -623,7 +623,14 @@
     "voidingItem": "Annullamento...",
     "walkInCustomer": "Cliente senza prenotazione",
     "whatsappFailed": "Impossibile aprire WhatsApp",
-    "deferred": "Differito"
+    "deferred": "Differito",
+    "billCreatedSuccess": "Conto creato con successo. Puoi procedere al pagamento.",
+    "billMayAlreadyExist": "Il conto potrebbe già esistere. Recupero sicuro in corso.",
+    "databaseBusyRetrying": "Il database è temporaneamente occupato. Nuovo tentativo sicuro in corso.",
+    "billCreationFailedSafe": "Impossibile creare il conto in sicurezza. Nessun pagamento addebitato e l'ordine non è stato modificato. ID supporto: {supportId}",
+    "retrySafely": "Riprova in sicurezza",
+    "refreshOrder": "Aggiorna ordine",
+    "viewExistingBill": "Visualizza conto esistente"
   },
   "pos": {
     "addCustomer": "Aggiungi cliente",
@@ -925,7 +932,14 @@
     "saveLabel": "Salva etichetta",
     "savingLabel": "Salvataggio...",
     "internalLabelUpdated": "Etichetta interna aggiornata",
-    "internalLabelUpdateFailed": "Aggiornamento etichetta interna fallito"
+    "internalLabelUpdateFailed": "Aggiornamento etichetta interna fallito",
+    "billCreatedSuccess": "Conto creato con successo. Puoi procedere al pagamento.",
+    "billMayAlreadyExist": "Il conto potrebbe già esistere. Recupero sicuro in corso.",
+    "databaseBusyRetrying": "Il database è temporaneamente occupato. Nuovo tentativo sicuro in corso.",
+    "billCreationFailedSafe": "Impossibile creare il conto in sicurezza. Nessun pagamento addebitato e l'ordine non è stato modificato. ID supporto: {supportId}",
+    "retrySafely": "Riprova in sicurezza",
+    "refreshOrder": "Aggiorna ordine",
+    "viewExistingBill": "Visualizza conto esistente"
   },
   "printTest": {
     "amt": "Importo",

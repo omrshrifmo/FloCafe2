@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, ShoppingCart, Users, Printer, ArrowRightLeft, Split, Clock, Tag } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, ShoppingCart, Users, Printer, ArrowRightLeft, Split, Clock, Tag, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePrinterStore } from '@/hooks/usePrinter';
 import TaxBreakdown from '@/components/pos/TaxBreakdown';
@@ -24,6 +24,13 @@ interface Props {
   onAddItems: (table: Table, order: Order) => void;
   onPayment: (bill: Bill) => void;
   onAddCartToOrder?: (table: Table, order: Order) => void;
+}
+
+interface CheckoutRecoveryState {
+  supportId: string;
+  transient: boolean;
+  existingBill: Bill | null;
+  errorMessage?: string;
 }
 
 export default function TableCheckoutModal({
@@ -54,6 +61,8 @@ export default function TableCheckoutModal({
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showDeferredModal, setShowDeferredModal] = useState(false);
   const [showLabelModal, setShowLabelModal] = useState(false);
+  const [recoveryState, setRecoveryState] = useState<CheckoutRecoveryState | null>(null);
+  const checkoutIdempotencyKeyRef = useRef<string | null>(null);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
   const tOrders = useTranslations('orders');
   const tPrint = useTranslations('print');
@@ -123,15 +132,51 @@ export default function TableCheckoutModal({
   const handleCheckout = async () => {
     if (!order) return;
     setGenerating(true);
+    setRecoveryState(null);
+
+    if (order.bill) {
+      setGenerating(false);
+      onPayment({ ...order.bill, order });
+      return;
+    }
+
+    if (!checkoutIdempotencyKeyRef.current) {
+      checkoutIdempotencyKeyRef.current = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `chk-${order.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
     try {
-      if (order.bill) {
-        onPayment({ ...order.bill, order });
-        return;
+      const { data } = await api.post(
+        '/bills/generate',
+        { order_id: order.id },
+        { headers: { 'Idempotency-Key': checkoutIdempotencyKeyRef.current } }
+      );
+      checkoutIdempotencyKeyRef.current = null;
+      setRecoveryState(null);
+
+      if (data.recovered) {
+        toast(t('billMayAlreadyExist'), { icon: 'ℹ️' });
+      } else {
+        toast.success(t('billCreatedSuccess'));
       }
-      const { data } = await api.post('/bills/generate', { order_id: order.id });
       onPayment(data.bill);
-    } catch {
-      toast.error(t('generateBillFailed'));
+    } catch (err: unknown) {
+      const resData = (err as { response?: { data?: { supportId?: string; transient?: boolean; existingBill?: Bill; error?: string } } })?.response?.data;
+      const supportId = resData?.supportId || `SUP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const isTransient = Boolean(resData?.transient);
+      const existingBill = resData?.existingBill || null;
+
+      if (isTransient) {
+        toast(t('databaseBusyRetrying'), { icon: '⏳' });
+      }
+
+      setRecoveryState({
+        supportId,
+        transient: isTransient,
+        existingBill,
+        errorMessage: resData?.error,
+      });
     } finally {
       setGenerating(false);
     }
@@ -140,13 +185,45 @@ export default function TableCheckoutModal({
   const handleSplitCheck = async () => {
     if (!order) return;
     setGenerating(true);
-    try {
-      const bill = order.bill ? { ...order.bill, order } : (await api.post('/bills/generate', { order_id: order.id })).data.bill;
-      setSplitBill(bill);
-    } catch {
-      toast.error(t('generateBillFailed'));
+    setRecoveryState(null);
+
+    if (!checkoutIdempotencyKeyRef.current) {
+      checkoutIdempotencyKeyRef.current = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `split-${order.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
-    finally { setGenerating(false); }
+
+    try {
+      const bill = order.bill
+        ? { ...order.bill, order }
+        : (
+            await api.post(
+              '/bills/generate',
+              { order_id: order.id },
+              { headers: { 'Idempotency-Key': checkoutIdempotencyKeyRef.current } }
+            )
+          ).data.bill;
+      checkoutIdempotencyKeyRef.current = null;
+      setSplitBill(bill);
+    } catch (err: unknown) {
+      const resData = (err as { response?: { data?: { supportId?: string; transient?: boolean; existingBill?: Bill; error?: string } } })?.response?.data;
+      const supportId = resData?.supportId || `SUP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const isTransient = Boolean(resData?.transient);
+      const existingBill = resData?.existingBill || null;
+
+      if (isTransient) {
+        toast(t('databaseBusyRetrying'), { icon: '⏳' });
+      }
+
+      setRecoveryState({
+        supportId,
+        transient: isTransient,
+        existingBill,
+        errorMessage: resData?.error,
+      });
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleAddCartToOrder = async () => {
@@ -308,35 +385,99 @@ export default function TableCheckoutModal({
             </div>
           )}
 
-          {/* Show different buttons based on cart state */}
-          {splitBills.length === 0 && splitChecksEnabled && order.type === 'dine_in' && order.bill?.payment_status !== 'paid' && <Button variant="outline" onClick={handleSplitCheck} disabled={generating} className="w-full"><Users size={15} className="me-2" />{t('splitCheck')}</Button>}
-          {cartItemCount > 0 ? (
-            // Cart has items - show "Add items to order" option
-            <div className="space-y-2">
-              <Button 
-                onClick={handleAddCartToOrder} 
-                disabled={addingItems}
-                className="w-full"
-                size="lg"
-              >
-                <ShoppingCart size={16} className="me-2" />
-                {addingItems ? t('adding') : t('addToOrder', { count: cartItemCount })}
-              </Button>
-              <Button onClick={handleCheckout} variant="outline" className="w-full" disabled={generating}>
-                {generating ? t('generating') : t('checkoutInstead')}
-              </Button>
+          {recoveryState ? (
+            <div className="p-4 rounded-xl border border-destructive/40 bg-destructive/10 text-foreground space-y-3 my-2" role="alert">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
+                <div className="text-sm space-y-1">
+                  <p className="font-semibold text-destructive">
+                    {t('billCreationFailedSafe', { supportId: recoveryState.supportId })}
+                  </p>
+                  {recoveryState.transient && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('databaseBusyRetrying')}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => handleCheckout()}
+                  disabled={generating}
+                >
+                  {generating ? t('generating') : t('retrySafely')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    await reloadOrder();
+                    setRecoveryState(null);
+                  }}
+                  disabled={generating}
+                >
+                  {t('refreshOrder')}
+                </Button>
+                {recoveryState.existingBill && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      const bill = recoveryState.existingBill!;
+                      setRecoveryState(null);
+                      onPayment(bill);
+                    }}
+                  >
+                    {t('viewExistingBill')}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setRecoveryState(null);
+                    checkoutIdempotencyKeyRef.current = null;
+                  }}
+                >
+                  {t('close')}
+                </Button>
+              </div>
             </div>
-          ) : splitBills.length === 0 ? (
-            // Cart empty - show both options
-            <div className="grid grid-cols-2 gap-3">
-              <Button variant="outline" onClick={() => onAddItems(table, order)}>
-                {t('addItems')}
-              </Button>
-              <Button onClick={handleCheckout} disabled={generating}>
-                {generating ? t('generating') : t('checkout')}
-              </Button>
-            </div>
-          ) : null}
+          ) : (
+            <>
+              {/* Show different buttons based on cart state */}
+              {splitBills.length === 0 && splitChecksEnabled && order.type === 'dine_in' && order.bill?.payment_status !== 'paid' && <Button variant="outline" onClick={handleSplitCheck} disabled={generating} className="w-full"><Users size={15} className="me-2" />{t('splitCheck')}</Button>}
+              {cartItemCount > 0 ? (
+                // Cart has items - show "Add items to order" option
+                <div className="space-y-2">
+                  <Button
+                    onClick={handleAddCartToOrder}
+                    disabled={addingItems}
+                    className="w-full"
+                    size="lg"
+                  >
+                    <ShoppingCart size={16} className="me-2" />
+                    {addingItems ? t('adding') : t('addToOrder', { count: cartItemCount })}
+                  </Button>
+                  <Button onClick={handleCheckout} variant="outline" className="w-full" disabled={generating}>
+                    {generating ? t('generating') : t('checkoutInstead')}
+                  </Button>
+                </div>
+              ) : splitBills.length === 0 ? (
+                // Cart empty - show both options
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="outline" onClick={() => onAddItems(table, order)}>
+                    {t('addItems')}
+                  </Button>
+                  <Button onClick={handleCheckout} disabled={generating}>
+                    {generating ? t('generating') : t('checkout')}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

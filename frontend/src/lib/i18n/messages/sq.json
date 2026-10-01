@@ -623,7 +623,14 @@
     "voidingItem": "Duke anuluar artikullin...",
     "walkInCustomer": "Klient pa rezervim",
     "whatsappFailed": "Hapja e WhatsApp dështoi",
-    "deferred": "E shtyrë"
+    "deferred": "E shtyrë",
+    "billCreatedSuccess": "Fatura u krijua me sukses. Mund të vazhdoni me pagesën.",
+    "billMayAlreadyExist": "Fatura mund të jetë krijuar tashmë. Po merret në mënyrë të sigurt.",
+    "databaseBusyRetrying": "Baza e të dhënave është përkohësisht e zënë. Po riprovohet në mënyrë të sigurt.",
+    "billCreationFailedSafe": "Fatura nuk mund të krijohej në mënyrë të sigurt. Nuk u mor asnjë pagesë dhe porosia nuk u ndryshua. ID e mbështetjes: {supportId}",
+    "retrySafely": "Riprovo me siguri",
+    "refreshOrder": "Rifresko porosinë",
+    "viewExistingBill": "Shiko faturën ekzistuese"
   },
   "pos": {
     "addCustomer": "Shto klient",
@@ -925,7 +932,14 @@
     "saveLabel": "Ruaj etiketën",
     "savingLabel": "Po ruhet...",
     "internalLabelUpdated": "Etiketa e brendshme u përditësua",
-    "internalLabelUpdateFailed": "Dështoi përditësimi i etiketës së brendshme"
+    "internalLabelUpdateFailed": "Dështoi përditësimi i etiketës së brendshme",
+    "billCreatedSuccess": "Fatura u krijua me sukses. Mund të vazhdoni me pagesën.",
+    "billMayAlreadyExist": "Fatura mund të jetë krijuar tashmë. Po merret në mënyrë të sigurt.",
+    "databaseBusyRetrying": "Baza e të dhënave është përkohësisht e zënë. Po riprovohet në mënyrë të sigurt.",
+    "billCreationFailedSafe": "Fatura nuk mund të krijohej në mënyrë të sigurt. Nuk u mor asnjë pagesë dhe porosia nuk u ndryshua. ID e mbështetjes: {supportId}",
+    "retrySafely": "Riprovo me siguri",
+    "refreshOrder": "Rifresko porosinë",
+    "viewExistingBill": "Shiko faturën ekzistuese"
   },
   "printTest": {
     "amt": "Shuma",

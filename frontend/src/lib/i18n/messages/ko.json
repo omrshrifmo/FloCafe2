@@ -623,7 +623,14 @@
     "voidingItem": "취소 중...",
     "walkInCustomer": "방문 고객",
     "whatsappFailed": "WhatsApp을 열지 못했습니다",
-    "deferred": "지연됨"
+    "deferred": "지연됨",
+    "billCreatedSuccess": "청구서가 성공적으로 생성되었습니다. 결제를 진행할 수 있습니다.",
+    "billMayAlreadyExist": "청구서가 이미 생성되었을 수 있습니다. 안전하게 불러오는 중입니다.",
+    "databaseBusyRetrying": "데이터베이스가 일시적으로 사용 중입니다. 안전하게 재시도하고 있습니다.",
+    "billCreationFailedSafe": "청구서를 안전하게 생성할 수 없습니다. 결제는 진행되지 않았으며 주문도 변경되지 않았습니다. 지원 ID: {supportId}",
+    "retrySafely": "안전하게 재시도",
+    "refreshOrder": "주문 새로고침",
+    "viewExistingBill": "기존 청구서 보기"
   },
   "pos": {
     "addCustomer": "고객 추가",
@@ -925,7 +932,14 @@
     "saveLabel": "라벨 저장",
     "savingLabel": "저장 중...",
     "internalLabelUpdated": "내부 라벨이 업데이트되었습니다",
-    "internalLabelUpdateFailed": "내부 라벨 업데이트 실패"
+    "internalLabelUpdateFailed": "내부 라벨 업데이트 실패",
+    "billCreatedSuccess": "청구서가 성공적으로 생성되었습니다. 결제를 진행할 수 있습니다.",
+    "billMayAlreadyExist": "청구서가 이미 생성되었을 수 있습니다. 안전하게 불러오는 중입니다.",
+    "databaseBusyRetrying": "데이터베이스가 일시적으로 사용 중입니다. 안전하게 재시도하고 있습니다.",
+    "billCreationFailedSafe": "청구서를 안전하게 생성할 수 없습니다. 결제는 진행되지 않았으며 주문도 변경되지 않았습니다. 지원 ID: {supportId}",
+    "retrySafely": "안전하게 재시도",
+    "refreshOrder": "주문 새로고침",
+    "viewExistingBill": "기존 청구서 보기"
   },
   "printTest": {
     "amt": "금액",

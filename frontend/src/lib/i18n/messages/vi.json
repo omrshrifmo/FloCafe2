@@ -623,7 +623,14 @@
     "voidingItem": "Đang hủy món...",
     "walkInCustomer": "Khách vãng lai",
     "whatsappFailed": "Không thể mở WhatsApp",
-    "deferred": "Hoãn lại"
+    "deferred": "Hoãn lại",
+    "billCreatedSuccess": "Hóa đơn đã được tạo thành công. Bạn có thể tiếp tục thanh toán.",
+    "billMayAlreadyExist": "Hóa đơn có thể đã tồn tại. Đang truy xuất an toàn.",
+    "databaseBusyRetrying": "Cơ sở dữ liệu tạm thời bận. Đang thử lại an toàn.",
+    "billCreationFailedSafe": "Không thể tạo hóa đơn một cách an toàn. Không có khoản thanh toán nào bị trừ và đơn hàng không bị thay đổi. ID hỗ trợ: {supportId}",
+    "retrySafely": "Thử lại an toàn",
+    "refreshOrder": "Làm mới đơn hàng",
+    "viewExistingBill": "Xem hóa đơn hiện tại"
   },
   "pos": {
     "addCustomer": "Thêm khách hàng",
@@ -925,7 +932,14 @@
     "saveLabel": "Lưu nhãn",
     "savingLabel": "Đang lưu...",
     "internalLabelUpdated": "Đã cập nhật nhãn nội bộ",
-    "internalLabelUpdateFailed": "Cập nhật nhãn nội bộ thất bại"
+    "internalLabelUpdateFailed": "Cập nhật nhãn nội bộ thất bại",
+    "billCreatedSuccess": "Hóa đơn đã được tạo thành công. Bạn có thể tiếp tục thanh toán.",
+    "billMayAlreadyExist": "Hóa đơn có thể đã tồn tại. Đang truy xuất an toàn.",
+    "databaseBusyRetrying": "Cơ sở dữ liệu tạm thời bận. Đang thử lại an toàn.",
+    "billCreationFailedSafe": "Không thể tạo hóa đơn một cách an toàn. Không có khoản thanh toán nào bị trừ và đơn hàng không bị thay đổi. ID hỗ trợ: {supportId}",
+    "retrySafely": "Thử lại an toàn",
+    "refreshOrder": "Làm mới đơn hàng",
+    "viewExistingBill": "Xem hóa đơn hiện tại"
   },
   "printTest": {
     "amt": "Số tiền",

@@ -28,6 +28,12 @@ import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals, recomputeOrderTotals } from '../services/orders';
 import { sendEvent } from '../services/telemetry';
 import {
+  generateOrRecoverBillForOrder,
+  allocateBillNumberWithRecovery,
+  generateSupportId,
+  isSqliteBusyError,
+} from '../services/bill-generator';
+import {
   getCurrencyFractionDigits,
   getCurrencyMinorUnitFactor,
   resolveTenantCurrency,
@@ -498,13 +504,12 @@ router.get('/order/:orderId', requirePermission('bills.read'), (req: Request, re
 });
 
 export function getOrCreateBillForOrder(db: ReturnType<typeof getDatabase>, orderId: number | string): any {
-  const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id LIMIT 1').get(orderId) as any;
+  const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId) as any;
   if (existingBill) {
     return parseRowJson(existingBill);
   }
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
   if (!order) return null;
-  const billNumber = generateBillNumber();
   const subtotal = order.subtotal || 0;
   const taxAmount = order.tax_amount || 0;
   const discountAmount = order.discount_amount || 0;
@@ -515,126 +520,73 @@ export function getOrCreateBillForOrder(db: ReturnType<typeof getDatabase>, orde
   const pack = getActiveCountryPack(getSettingValue('country') || '');
   const { total, adjustment: roundOff } = applyPayableRounding(order.total || 0, pack, currency);
 
-  const runResult = db.prepare(`
-    INSERT INTO bills (bill_number, order_id, customer_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
-      discount_amount, discount_type, discount_value, discount_reason,
-      delivery_charge, packaging_charge, service_charge, round_off, total, paid_amount, balance, payment_status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)
-  `).run(
-    billNumber, orderId, order.customer_id, subtotal, taxAmount, order.tax_breakdown, order.tax_snapshot,
-    discountAmount, order.discount_type, order.discount_value, order.discount_reason,
-    deliveryCharge, packagingCharge, serviceCharge, roundOff, total, 0, total, now(), now()
-  );
-  return parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(runResult.lastInsertRowid));
-}
-
-router.post('/generate', requirePermission('bills.generate'), (req: Request, res: Response) => {
-  try {
-    const { order_id } = req.body;
-
-    if (!order_id) {
-      return res.status(400).json({ error: 'Order ID is required' });
-    }
-
-    const db = getDatabase();
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id) as any;
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    const result = withTxn(() => {
-      const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ?').get(order_id) as any;
-      if (existingBill) {
-        if (existingBill.split_group_id) return { bill: parseRowJson(existingBill), isNew: false };
-        // Re-sync unpaid bill totals from order in case discount/adjustments changed.
-        const orderSubtotal      = order.subtotal        || 0;
-        const orderTaxAmount     = order.tax_amount      || 0;
-        const orderDiscountAmt   = order.discount_amount || 0;
-        const orderDelivery      = order.delivery_charge || 0;
-        const orderPackaging     = order.packaging_charge|| 0;
-        const orderService       = order.service_charge  || 0;
-        const orderTotal         = order.total           || 0;
-
-        const currency = getTenantCurrency();
-        const pack = getActiveCountryPack(getSettingValue('country') || '');
-        const { total: roundedOrderTotal, adjustment: orderRoundOff } = applyPayableRounding(orderTotal, pack, currency);
-
-        const totalsChanged =
-          existingBill.payment_status !== 'paid' && (
-            existingBill.discount_amount !== orderDiscountAmt ||
-            existingBill.subtotal        !== orderSubtotal    ||
-            existingBill.service_charge  !== orderService     ||
-            existingBill.total           !== roundedOrderTotal
-          );
-
-        if (totalsChanged) {
-          const newBalance = Math.max(0, roundedOrderTotal - (existingBill.paid_amount || 0));
-          db.prepare(`
-            UPDATE bills
-            SET subtotal       = ?,
-                tax_amount     = ?,
-                tax_breakdown  = ?,
-                tax_snapshot   = ?,
-                discount_amount= ?,
-                discount_type  = ?,
-                discount_value = ?,
-                discount_reason= ?,
-                delivery_charge= ?,
-                packaging_charge= ?,
-                service_charge = ?,
-                round_off      = ?,
-                total          = ?,
-                balance        = ?,
-                updated_at     = ?
-            WHERE id = ?
-          `).run(
-            orderSubtotal, orderTaxAmount, order.tax_breakdown, order.tax_snapshot,
-            orderDiscountAmt, order.discount_type, order.discount_value, order.discount_reason,
-            orderDelivery, orderPackaging, orderService, orderRoundOff,
-            roundedOrderTotal, newBalance, now(),
-            existingBill.id
-          );
-
-          const updated = parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(existingBill.id));
-          return { bill: updated, isNew: false };
-        }
-
-        return { bill: parseRowJson(existingBill), isNew: false };
-      }
-
-      // Generate bill number inside transaction to prevent race conditions
-      const billNumber = generateBillNumber();
-      const subtotal = order.subtotal || 0;
-      const taxAmount = order.tax_amount || 0;
-      const discountAmount = order.discount_amount || 0;
-      const deliveryCharge = order.delivery_charge || 0;
-      const packagingCharge = order.packaging_charge || 0;
-      const serviceCharge = order.service_charge || 0;
-      const currency = getTenantCurrency();
-      const pack = getActiveCountryPack(getSettingValue('country') || '');
-      const { total, adjustment: roundOff } = applyPayableRounding(order.total || 0, pack, currency);
-
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const billNumber = allocateBillNumberWithRecovery(db, { orderId: Number(orderId) });
+    try {
       const runResult = db.prepare(`
         INSERT INTO bills (bill_number, order_id, customer_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
           discount_amount, discount_type, discount_value, discount_reason,
           delivery_charge, packaging_charge, service_charge, round_off, total, paid_amount, balance, payment_status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)
       `).run(
-        billNumber, order_id, order.customer_id, subtotal, taxAmount, order.tax_breakdown, order.tax_snapshot,
+        billNumber, orderId, order.customer_id, subtotal, taxAmount, order.tax_breakdown, order.tax_snapshot,
         discountAmount, order.discount_type, order.discount_value, order.discount_reason,
         deliveryCharge, packagingCharge, serviceCharge, roundOff, total, 0, total, now(), now()
       );
+      return parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(runResult.lastInsertRowid));
+    } catch (err: any) {
+      if (attempt < 3 && String(err?.message || '').includes('UNIQUE constraint failed: bills.bill_number')) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
-      const newBill = parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(runResult.lastInsertRowid));
-      return { bill: newBill, isNew: true };
+router.post('/generate', requirePermission('bills.generate'), async (req: Request, res: Response) => {
+  const orderId = req.body?.order_id;
+  const db = getDatabase();
+
+  if (!orderId) {
+    return res.status(400).json({ error: 'Order ID is required' });
+  }
+
+  try {
+    const result = await generateOrRecoverBillForOrder({
+      orderId,
+      userId: (req as any).user?.userId || 'system',
+      idempotencyKey: req.get('Idempotency-Key') || null,
+      db,
     });
 
     notifyOrderUpdated();
-    const orderWithItems = getOrderWithItems(db, order_id, Number(result.bill.id));
-    res.status(result.isNew ? 201 : 200).json({ bill: { ...result.bill, order: orderWithItems } });
+    const orderWithItems = getOrderWithItems(db, Number(orderId), Number(result.bill.id));
+    res.status(result.isNew ? 201 : 200).json({
+      bill: { ...result.bill, order: orderWithItems },
+      isNew: result.isNew,
+      recovered: result.recovered,
+      supportId: result.supportId,
+      correlationId: result.correlationId,
+    });
   } catch (error: any) {
-    console.error("[API] Internal error:", error);
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
+    console.error('[API] /bills/generate error:', error);
+    const isBusy = isSqliteBusyError(error);
+    const statusCode = error.statusCode || (isBusy ? 503 : 500);
+    const supportId = error.supportId || generateSupportId();
+
+    let existingBill: any = null;
+    try {
+      const row = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId);
+      if (row) existingBill = parseRowJson(row);
+    } catch {}
+
+    res.status(statusCode).json({
+      error: error.message || (isBusy ? 'Database temporarily busy' : 'Internal server error'),
+      code: error.code || (isBusy ? 'DATABASE_BUSY' : 'BILL_GENERATION_FAILED'),
+      supportId,
+      transient: isBusy,
+      existingBill,
+    });
   }
 });
 
