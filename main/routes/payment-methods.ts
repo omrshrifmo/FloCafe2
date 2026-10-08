@@ -32,6 +32,8 @@ function list(includeInactive = false) {
     ...row,
     is_active: Boolean(row.is_active),
     counts_as_cash_drawer_tender: Boolean(row.counts_as_cash_drawer_tender),
+    is_free_method: Boolean(row.is_free_method),
+    free_accounting_mode: row.free_accounting_mode || 'promotional',
     ...(includeInactive ? { usage_count: countUsage(row.id) } : {}),
   }));
 }
@@ -49,10 +51,12 @@ router.post('/', requirePermission('payment-methods.manage'), (req: Request, res
   try {
     const name = normalizeName(req.body?.name);
     const countsAsCash = req.body?.counts_as_cash_drawer_tender ? 1 : 0;
+    const isFree = req.body?.is_free_method ? 1 : 0;
+    const freeMode = req.body?.free_accounting_mode ? String(req.body.free_accounting_mode) : 'promotional';
     const db = getDatabase();
     const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM payment_methods').get() as { n: number };
-    const result = db.prepare('INSERT INTO payment_methods (name, is_active, sort_order, counts_as_cash_drawer_tender, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?)')
-      .run(name, Number(max.n) + 10, countsAsCash, now(), now());
+    const result = db.prepare('INSERT INTO payment_methods (name, is_active, sort_order, counts_as_cash_drawer_tender, is_free_method, free_accounting_mode, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)')
+      .run(name, Number(max.n) + 10, countsAsCash, isFree, freeMode, now(), now());
     void sendEvent('feature_used', { feature: 'custom_payment_methods', action: 'added' });
     res.status(201).json({ payment_method: list(true).find((row) => row.id === Number(result.lastInsertRowid)) });
   } catch (error: any) {
@@ -73,9 +77,16 @@ router.put('/:id', requirePermission('payment-methods.manage'), (req: Request, r
     const countsAsCash = req.body?.counts_as_cash_drawer_tender === undefined
       ? (current.counts_as_cash_drawer_tender ? 1 : 0)
       : (req.body.counts_as_cash_drawer_tender ? 1 : 0);
+    const isFree = req.body?.is_free_method === undefined
+      ? (current.is_free_method ? 1 : 0)
+      : (req.body.is_free_method ? 1 : 0);
+    const freeMode = req.body?.free_accounting_mode === undefined
+      ? (current.free_accounting_mode || 'promotional')
+      : String(req.body.free_accounting_mode);
+
     if (!Number.isSafeInteger(order) || order < 0) return res.status(400).json({ error: 'Invalid sort order' });
-    db.prepare('UPDATE payment_methods SET name = ?, is_active = ?, sort_order = ?, counts_as_cash_drawer_tender = ?, updated_at = ? WHERE id = ?')
-      .run(name, active, order, countsAsCash, now(), id);
+    db.prepare('UPDATE payment_methods SET name = ?, is_active = ?, sort_order = ?, counts_as_cash_drawer_tender = ?, is_free_method = ?, free_accounting_mode = ?, updated_at = ? WHERE id = ?')
+      .run(name, active, order, countsAsCash, isFree, freeMode, now(), id);
     if (active !== current.is_active) void sendEvent('feature_used', { feature: 'custom_payment_methods', action: active ? 'enabled' : 'disabled' });
     res.json({ payment_method: list(true).find((row) => row.id === id) });
   } catch (error: any) {
@@ -83,6 +94,7 @@ router.put('/:id', requirePermission('payment-methods.manage'), (req: Request, r
     res.status(duplicate ? 409 : error.statusCode || 500).json({ error: duplicate ? 'A payment method with this name already exists' : error.message || 'Unable to update payment method' });
   }
 });
+
 
 router.delete('/:id', requirePermission('payment-methods.manage'), (req: Request, res: Response) => {
   const id = Number(req.params.id);

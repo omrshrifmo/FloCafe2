@@ -375,6 +375,34 @@ export default function DashboardPage() {
     }
   };
 
+  const exportItemizedReport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const start = periodMode === 'day' ? selectedDate : range.startDate;
+      const end = periodMode === 'day' ? selectedDate : range.endDate;
+      const res = await api.get('/reports/sales-itemized', {
+        params: { start_date: start, end_date: end },
+      });
+      const items = res.data?.items || [];
+      if (items.length === 0) {
+        toast.error('No sales items in selected range');
+        return;
+      }
+      const header = 'Order Number,Date,Product,Quantity,Gross Price,Discount,Net Price,Ingredient Cost,Packaging Cost,Total Cost,Gross Margin,Margin %\\n';
+      const rows = items.map((it: { order_number: string; created_at: string; product_name: string; quantity: number; gross_item_price: number; item_discount: number; net_item_price: number; ingredient_cost: number; packaging_cost: number; total_cost: number; gross_margin: number; margin_percent: number }) =>
+        `"${it.order_number}","${it.created_at}","${it.product_name}",${it.quantity},${it.gross_item_price},${it.item_discount},${it.net_item_price},${it.ingredient_cost},${it.packaging_cost},${it.total_cost},${it.gross_margin},${it.margin_percent}`
+      ).join('\\n');
+      const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+      downloadBlob(blob, `itemized-sales-${start}-to-${end}.csv`);
+      toast.success('Itemized sales report downloaded');
+    } catch {
+      toast.error(tCommon('downloadFailed'));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!isOwner) return null;
 
   const paymentMethods = financialSummary?.paymentMethods ?? [];
@@ -620,6 +648,17 @@ export default function DashboardPage() {
           <span className="mx-1 hidden h-7 w-px bg-border xl:block" aria-hidden="true" />
 
           <Button
+            asChild
+            variant="outline"
+            className="h-10 rounded-xl bg-card px-4 shadow-sm"
+          >
+            <Link href="/finance">
+              <Wallet size={14} />
+              Finance
+            </Link>
+          </Button>
+
+          <Button
             type="button"
             onClick={cashClose.openCloseModal}
             className="h-10 rounded-xl bg-brand px-4 text-white shadow-sm hover:bg-brand-hover"
@@ -650,6 +689,10 @@ export default function DashboardPage() {
                 <DropdownMenuItem onSelect={() => exportDailySales('csv')}>
                   <FileText size={14} />
                   {t('exportCsv')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => exportItemizedReport()}>
+                  <ReceiptText size={14} />
+                  Itemized Margins (CSV)
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -811,4 +811,177 @@ router.get('/daily-sales/export', requirePermission('reports.daily-sales.export'
   }
 });
 
+// Detailed itemized sales report with deterministic discount allocation and cost/margin calculation
+router.get('/sales-itemized', requirePermission('reports.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const date = reportDate(req.query.date, reportToday());
+    const [dayStart, dayEnd] = reportDayBounds(date);
+    const shiftId = req.query.shift_id ? Number(req.query.shift_id) : undefined;
+
+    // Fetch paid bills and orders within day bounds (or shift)
+    let shiftClause = '';
+    const queryParams: any[] = [dayStart, dayEnd];
+    if (shiftId) {
+      shiftClause = 'AND b.cash_shift_id = ?';
+      queryParams.push(shiftId);
+    }
+
+    const bills = db.prepare(`
+      SELECT b.id, b.order_id, b.subtotal, b.discount_amount, b.total, b.paid_at,
+        b.payment_method, b.cash_shift_id
+      FROM bills b
+      WHERE b.paid_at >= ? AND b.paid_at <= ? AND b.status = 'paid' ${shiftClause}
+    `).all(...queryParams) as any[];
+
+    // Map of items aggregated by product
+    const itemMap = new Map<string, {
+      productId: string;
+      itemName: string;
+      categoryName: string;
+      soldQuantity: number;
+      standardUnitPrice: number;
+      grossSales: number;
+      allocatedDiscounts: number;
+      netSales: number;
+      ingredientCostCents: number;
+      packagingCostCents: number;
+      refundedQuantity: number;
+      voidedQuantity: number;
+      freePaymentValue: number;
+    }>();
+
+    let grandTotalNet = 0;
+
+    for (const bill of bills) {
+      const orderItems = db.prepare(`
+        SELECT oi.*, p.name as product_name, c.name as category_name
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        WHERE oi.order_id = ? AND oi.status != 'cancelled'
+      `).all(bill.order_id) as any[];
+
+      const orderGross = orderItems.reduce((acc, it) => acc + (it.quantity * it.unit_price), 0);
+      const orderDiscount = Number(bill.discount_amount || 0);
+
+      // Check if bill used a free payment method
+      const isFreePayment = db.prepare(`
+        SELECT is_free_method FROM payment_methods WHERE code = ?
+      `).get(bill.payment_method) as any;
+      const isFree = isFreePayment?.is_free_method === 1;
+
+      for (const it of orderItems) {
+        const itemGross = it.quantity * it.unit_price;
+        // Deterministic proportional discount allocation
+        const itemDiscount = orderGross > 0 ? (itemGross / orderGross) * orderDiscount : 0;
+        const itemNet = Math.max(0, itemGross - itemDiscount);
+
+        // Parse recipe snapshot for ingredient & packaging costs
+        let ingredientCost = 0;
+        let packagingCost = 0;
+        if (it.recipe_snapshot) {
+          try {
+            const snap = JSON.parse(it.recipe_snapshot);
+            if (Array.isArray(snap.components)) {
+              for (const comp of snap.components) {
+                const supply = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.supply_id) as any;
+                if (supply?.cost_cents) {
+                  ingredientCost += (comp.quantity || 0) * (supply.cost_cents / 100);
+                }
+              }
+            }
+          } catch {
+            // Ignore snapshot parse error
+          }
+        }
+
+        const existing = itemMap.get(it.product_id) || {
+          productId: it.product_id,
+          itemName: it.product_name,
+          categoryName: it.category_name || 'Uncategorized',
+          soldQuantity: 0,
+          standardUnitPrice: it.unit_price,
+          grossSales: 0,
+          allocatedDiscounts: 0,
+          netSales: 0,
+          ingredientCostCents: 0,
+          packagingCostCents: 0,
+          refundedQuantity: 0,
+          voidedQuantity: 0,
+          freePaymentValue: 0,
+        };
+
+        existing.soldQuantity += it.quantity;
+        existing.grossSales += itemGross;
+        existing.allocatedDiscounts += itemDiscount;
+        existing.netSales += itemNet;
+        existing.ingredientCostCents += Math.round(ingredientCost * 100);
+        existing.packagingCostCents += Math.round(packagingCost * 100);
+        if (isFree) {
+          existing.freePaymentValue += itemGross;
+        }
+
+        grandTotalNet += itemNet;
+        itemMap.set(it.product_id, existing);
+      }
+    }
+
+    // Include refunded and voided items counts in period
+    const refunds = db.prepare(`
+      SELECT ri.product_id, SUM(ri.quantity) as ref_qty
+      FROM refund_items ri
+      JOIN refunds r ON r.id = ri.refund_id
+      WHERE r.created_at >= ? AND r.created_at <= ?
+      GROUP BY ri.product_id
+    `).all(dayStart, dayEnd) as any[];
+
+    for (const r of refunds) {
+      const it = itemMap.get(r.product_id);
+      if (it) it.refundedQuantity = Number(r.ref_qty || 0);
+    }
+
+    const items = Array.from(itemMap.values()).map((item) => {
+      const avgSoldPrice = item.soldQuantity > 0 ? (item.netSales / item.soldQuantity) : item.standardUnitPrice;
+      const totalCostCents = item.ingredientCostCents + item.packagingCostCents;
+      const totalCost = totalCostCents / 100;
+      const grossMargin = item.netSales - totalCost;
+      const marginPercent = item.netSales > 0 ? Math.round((grossMargin / item.netSales) * 1000) / 10 : 0;
+      const salesPercent = grandTotalNet > 0 ? Math.round((item.netSales / grandTotalNet) * 1000) / 10 : 0;
+
+      return {
+        product_id: item.productId,
+        item_name: item.itemName,
+        category: item.categoryName,
+        sold_quantity: item.soldQuantity,
+        standard_unit_price: item.standardUnitPrice,
+        gross_sales: Math.round(item.grossSales * 100) / 100,
+        discounts: Math.round(item.allocatedDiscounts * 100) / 100,
+        net_sales: Math.round(item.netSales * 100) / 100,
+        actual_average_sold_price: Math.round(avgSoldPrice * 100) / 100,
+        total_expected_ingredient_cost: Math.round(item.ingredientCostCents) / 100,
+        total_expected_packaging_cost: Math.round(item.packagingCostCents) / 100,
+        total_expected_cost: Math.round(totalCost * 100) / 100,
+        gross_margin: Math.round(grossMargin * 100) / 100,
+        margin_percent: marginPercent,
+        refunded_quantity: item.refundedQuantity,
+        voided_quantity: item.voidedQuantity,
+        free_payment_value: Math.round(item.freePaymentValue * 100) / 100,
+        percentage_of_total_sales: salesPercent,
+      };
+    });
+
+    res.json({
+      date,
+      timeframe: { start: dayStart, end: dayEnd },
+      grand_total_net: Math.round(grandTotalNet * 100) / 100,
+      item_count: items.length,
+      items,
+    });
+  } catch (error: any) {
+    console.error('[API] Error generating itemized sales report:', error);
+    res.status(500).json({ error: 'Failed to generate sales report' });
+  }
+});
+
 export const reportRoutes = router;

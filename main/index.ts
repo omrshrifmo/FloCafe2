@@ -163,9 +163,10 @@ function setUpdateStatus(next: StoredUpdateStatus): void {
 function setupAutoUpdater(): void {
   autoUpdater.logger = log;
   configureAutoUpdaterChannel();
-  // Auto-download update packages silently, but require explicit user confirmation to install.
-  autoUpdater.autoDownload = true;
+  // Manual-only updates in 4.0.0: autoDownload is disabled; only explicit user trigger checks or downloads.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
+
 
   autoUpdater.on('checking-for-update', () => {
     console.log('[Update] Checking for updates...');
@@ -1333,8 +1334,9 @@ async function initialize(): Promise<void> {
     if (!isStoreBuild) {
       if (process.env.FLO_E2E_SKIP_OPTIONAL_NETWORK !== '1') {
         setupAutoUpdater();
-        setTimeout(() => checkForUpdates(), 5000);
+        // Startup background update check disabled: FloCafe 4.0.0 uses manual update checks only.
       }
+
     } else {
       // Store builds skip auto-updater and report store-managed status.
       setUpdateStatus(oneShotUpdateState('store-managed'));

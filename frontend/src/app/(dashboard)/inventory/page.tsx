@@ -12,6 +12,7 @@ import { useTranslations } from 'use-intl';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useFormatNumber } from '@/hooks/useFormatNumber';
 import { tenantCan } from '@/lib/permissions';
+import { StocktakeManager } from '@/components/inventory/StocktakeManager';
 
 const SUPPLY_UNITS = ['each', 'g', 'kg', 'ml', 'l'] as const;
 type SupplyUnit = (typeof SUPPLY_UNITS)[number];
@@ -329,6 +330,7 @@ export default function InventoryPage() {
           <TabsTrigger value="supplies">{t('tabSupplies')}</TabsTrigger>
           <TabsTrigger value="recipes">{t('tabRecipes')}</TabsTrigger>
           <TabsTrigger value="movements">{t('tabMovements')}</TabsTrigger>
+          <TabsTrigger value="stocktakes">{t('count')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="supplies">
@@ -495,6 +497,10 @@ export default function InventoryPage() {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="stocktakes">
+          <StocktakeManager />
         </TabsContent>
       </Tabs>
 

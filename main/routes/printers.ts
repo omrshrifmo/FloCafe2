@@ -839,17 +839,21 @@ router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(a
         warnings: result.warnings || [],
       });
     } else {
+      const isArLang = req.headers['accept-language']?.includes('ar');
+      const defaultUserMessageAr = isPreliminary
+        ? 'تعذر طباعة الفاتورة المبدئية. لم يتم تحصيل أي دفعة.'
+        : 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.';
+      const defaultUserMessageEn = isPreliminary
+        ? 'The preliminary receipt could not be printed. No payment was collected.'
+        : 'Receipt may be incomplete. Check the printer before reprinting.';
+
       res.status(502).json({
         error: result.detail || 'Print failed. Check printer connection and settings.',
         status: result.status || 'failed',
-        canRetryManually: result.canRetryManually || false,
-        userMessage: result.status === 'print_may_be_incomplete'
-          ? (req.headers['accept-language']?.includes('ar')
-              ? 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.'
-              : 'Receipt may be incomplete. Check the printer before reprinting.')
-          : undefined,
-        userMessageEn: result.userMessageEn || 'Receipt may be incomplete. Check the printer before reprinting.',
-        userMessageAr: result.userMessageAr || 'قد تكون الطباعة غير مكتملة. تحقق من الطابعة قبل إعادة الطباعة.',
+        canRetryManually: result.canRetryManually || true,
+        userMessage: isArLang ? defaultUserMessageAr : defaultUserMessageEn,
+        userMessageEn: isPreliminary ? defaultUserMessageEn : (result.userMessageEn || defaultUserMessageEn),
+        userMessageAr: isPreliminary ? defaultUserMessageAr : (result.userMessageAr || defaultUserMessageAr),
         detail: result.detail,
         failure_class: result.failureClass,
         code: result.code,

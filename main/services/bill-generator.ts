@@ -57,7 +57,7 @@ export interface BillGenerationDiagnosticEvent {
   timestamp: string;
 }
 
-const APP_VERSION = '3.11.12';
+const APP_VERSION = '4.0.0';
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 const MAX_SEQUENCE_ALLOCATION_ATTEMPTS = 10;
 const MAX_BUSY_RETRIES = 5;

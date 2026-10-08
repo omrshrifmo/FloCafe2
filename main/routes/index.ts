@@ -37,7 +37,15 @@ import { whatsappRoutes } from './whatsapp';
 import { supportTicketRoutes } from './support-ticket';
 import { diagnosticsRoutes } from './diagnostics';
 import { authorizationRoutes } from './authorization';
+import { financeRoutes } from './finance';
+import { stocktakeRoutes } from './stocktakes';
+import { hrRoutes } from './hr';
+import { haccpRoutes } from './haccp';
+import { customerQrRoutes } from './customer-qr';
+import { deliveryRoutes } from './delivery';
+import { tunnelRoutes } from './tunnel';
 import { getDatabase, getSettingValue, getCachedPairingCode, setCachedPairingCode } from '../db';
+
 
 import { getActiveCountryPack } from '../services/tax';
 import { cloudSync } from '../services/cloud-sync';
@@ -106,6 +114,14 @@ export function registerRoutes(app: Express): void {
   app.use('/api/support-ticket', supportTicketRoutes);
   app.use('/api/diagnostics', diagnosticsRoutes);
   app.use('/api/authorization', authorizationRoutes);
+  app.use('/api/finance', financeRoutes);
+  app.use('/api/stocktakes', stocktakeRoutes);
+  app.use('/api/hr', hrRoutes);
+  app.use('/api/haccp', haccpRoutes);
+  app.use('/api/customer-qr', customerQrRoutes);
+  app.use('/api/delivery', deliveryRoutes);
+  app.use('/api/tunnel', tunnelRoutes);
+
 
   // Tax preview. Priced on every cart change in the prepaid checkout modal, so it
   // has to admit every role that can run a sale; `tax-packs.view-test` (owner and

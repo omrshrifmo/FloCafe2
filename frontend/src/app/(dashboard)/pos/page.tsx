@@ -24,6 +24,7 @@ import TableCheckoutModal from '@/components/pos/TableCheckoutModal';
 import PaymentModal from '@/components/pos/PaymentModal';
 import PrepaidCheckoutModal, { type PrepaidPayment, type PrepaidDiscount } from '@/components/pos/PrepaidCheckoutModal';
 import PosTopbar from '@/components/pos/PosTopbar';
+import { FastTouchMode } from '@/components/pos/FastTouchMode';
 import { ShiftOpenModal } from '@/components/dashboard/ShiftOpenModal';
 import { ShiftCloseModal } from '@/components/dashboard/ShiftCloseModal';
 import { useCashSession } from '@/hooks/useCashSession';
@@ -106,7 +107,6 @@ export default function POSPage() {
   const t = useTranslations('pos');
   const tOrders = useTranslations('orders');
   const tSupport = useTranslations('support');
-  const tCommon = useTranslations('common');
   const currencyFmt = useFormatCurrency();
   const { confirm, ConfirmDialog } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
@@ -123,6 +123,7 @@ export default function POSPage() {
   const [submitting, setSubmitting] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [fastTouchMode, setFastTouchMode] = useState(false);
 
   // Modal state
   const [showTablePicker, setShowTablePicker] = useState(false);
@@ -1213,7 +1214,20 @@ export default function POSPage() {
         canUseShift={canUseShift}
         fullscreen={fullscreen}
         onToggleFullscreen={toggleFullscreen}
+        onToggleFastTouch={() => setFastTouchMode(true)}
       />
+
+      {fastTouchMode && (
+        <FastTouchMode
+          categories={categories}
+          products={products}
+          onExit={() => setFastTouchMode(false)}
+          onQuickCheckout={() => {
+            setFastTouchMode(false);
+            setShowPrepaidCheckout(true);
+          }}
+        />
+      )}
 
       {/* Main content area */}
       <div className="flex flex-1 min-h-0 overflow-hidden p-4 gap-4">

@@ -14,7 +14,8 @@ import {
 import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals, recomputeOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
-import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot } from '../services/recipes';
+import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot, roundQuantity } from '../services/recipes';
+import { requireConfirmedIdentity, requireOpenSessionForOrder } from '../services/shift-session-gate';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
@@ -468,6 +469,8 @@ router.get('/:id', orderReadRateLimit, requirePermission('orders.read'), (req: R
 
 router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: Request, res: Response) => {
   try {
+    requireConfirmedIdentity(req);
+    requireOpenSessionForOrder(getDatabase(), req);
     const body = req.body || {};
     const { table_id, customer_id, type, guest_count, special_instructions, packaging_charge, delivery_charge, service_charge, items, online_platform, external_order_id, internal_label } = body;
     // Carries optional service charge without automatic calculation policy.
@@ -660,7 +663,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         subtotal += itemSubtotal;
 
         const itemCreatedAt = now();
-        const recipeSnapshot = buildRecipeSnapshot(db, product.id, quantity);
+        const recipeSnapshot = buildRecipeSnapshot(db, product.id, quantity, { addons: item.addons, orderType: type });
         const insertItemResult = insertItem.run(
           orderId, product.id, product.name, product.sku, unitPrice, quantity,
           deduction ? deduction.deductedQuantity : 0, deduction ? deduction.productId : null,
@@ -767,6 +770,8 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
 router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
+    requireConfirmedIdentity(req);
+    requireOpenSessionForOrder(db, req);
     const body = req.body || {};
     const { items, special_instructions } = body;
     const idempotencyKey = orderIdempotencyKey(req);
@@ -892,7 +897,7 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
         const itemTaxSnapshotJson = taxResult.tax_snapshot ? JSON.stringify(taxResult.tax_snapshot) : null;
 
         const itemCreatedAt = now();
-        const recipeSnapshot = buildRecipeSnapshot(db, product.id, quantity);
+        const recipeSnapshot = buildRecipeSnapshot(db, product.id, quantity, { addons: item.addons, orderType: order.type });
         const insertItemResult = insertItem.run(
           req.params.id, product.id, product.name, product.sku, unitPrice, quantity,
           deduction ? deduction.deductedQuantity : 0, deduction ? deduction.productId : null,
@@ -2422,11 +2427,32 @@ router.post('/:id/transfer-items', orderWriteRateLimit, requirePermission('table
           const sourceInvQty = Number((curInvQty - targetInvQty).toFixed(4));
           const remQty = itemRow.quantity - qty;
 
+          let sourceRecipeSnapshotStr = itemRow.recipe_snapshot;
+          let targetRecipeSnapshotStr = itemRow.recipe_snapshot;
+
+          if (itemRow.recipe_snapshot) {
+            try {
+              const snap = JSON.parse(itemRow.recipe_snapshot);
+              if (snap && Array.isArray(snap.components)) {
+                const targetComponents = snap.components.map((c: any) => ({
+                  ...c,
+                  quantity: roundQuantity(c.quantity * r),
+                }));
+                const sourceComponents = snap.components.map((c: any) => ({
+                  ...c,
+                  quantity: roundQuantity(c.quantity * (1 - r)),
+                }));
+                targetRecipeSnapshotStr = JSON.stringify({ ...snap, components: targetComponents });
+                sourceRecipeSnapshotStr = JSON.stringify({ ...snap, components: sourceComponents });
+              }
+            } catch {}
+          }
+
           db.prepare(`
             UPDATE order_items
-            SET quantity = ?, inventory_deducted_quantity = ?, subtotal = ?, updated_at = ?
+            SET quantity = ?, inventory_deducted_quantity = ?, subtotal = ?, recipe_snapshot = ?, updated_at = ?
             WHERE id = ?
-          `).run(remQty, sourceInvQty, remQty * itemRow.unit_price, nowStr, itemRow.id);
+          `).run(remQty, sourceInvQty, remQty * itemRow.unit_price, sourceRecipeSnapshotStr, nowStr, itemRow.id);
 
           const insNewItem = db.prepare(`
             INSERT INTO order_items (
@@ -2447,7 +2473,7 @@ router.post('/:id/transfer-items', orderWriteRateLimit, requirePermission('table
             targetInvQty, itemRow.inventory_product_id, qty * itemRow.unit_price, (itemRow.tax_amount ? itemRow.tax_amount * r : 0),
             itemRow.tax_breakdown, itemRow.tax_snapshot, itemRow.tax_type, (itemRow.discount_amount ? itemRow.discount_amount * r : 0), (itemRow.total ? itemRow.total * r : 0),
             itemRow.variant_selection, itemRow.modifier_selection, itemRow.special_instructions,
-            itemRow.recipe_snapshot, itemRow.status, nowStr, nowStr
+            targetRecipeSnapshotStr, itemRow.status, nowStr, nowStr
           );
           const newOrderItemId = insNewItem.lastInsertRowid;
 

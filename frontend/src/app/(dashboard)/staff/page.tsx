@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import toast from 'react-hot-toast';
-import { Plus, X, Edit, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { Plus, X, Edit, RotateCcw, Eye, EyeOff, Clock } from 'lucide-react';
 import type { Staff } from '@/lib/types';
 import { useTranslations, type AppConfig } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
@@ -198,7 +199,14 @@ export default function StaffPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        {canManageStaff && <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>}
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/hr">
+              <Clock size={16} className="me-1.5" /> HR & Payroll
+            </Link>
+          </Button>
+          {canManageStaff && <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

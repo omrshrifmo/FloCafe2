@@ -5,7 +5,7 @@ import CustomerSearch from './CustomerSearch';
 import { useCartStore } from '@/store/cart';
 import { useAuthStore } from '@/store/auth';
 import { usePosSettingsStore } from '@/store/pos-settings';
-import { Banknote, LayoutGrid, Maximize2, Minimize2, LockOpen, Lock } from 'lucide-react';
+import { Banknote, LayoutGrid, Maximize2, Minimize2, LockOpen, Lock, Zap } from 'lucide-react';
 import type { Table } from '@/lib/types';
 import { useTranslations } from 'use-intl';
 
@@ -20,9 +20,10 @@ interface Props {
   canUseShift: boolean;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
+  onToggleFastTouch?: () => void;
 }
 
-export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovement, onShowShift, shiftHasOpenSession, shiftLoading, shiftError, canUseShift, fullscreen, onToggleFullscreen }: Props) {
+export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovement, onShowShift, shiftHasOpenSession, shiftLoading, shiftError, canUseShift, fullscreen, onToggleFullscreen, onToggleFastTouch }: Props) {
   const cart = useCartStore();
   const { currentTenant } = useAuthStore();
   const tablesRequired = usePosSettingsStore((s) => s.tablesRequired);
@@ -82,6 +83,19 @@ export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovemen
       <div className="shrink-0">
         <PrinterStatus />
       </div>
+      {onToggleFastTouch && (
+        <button
+          type="button"
+          onClick={onToggleFastTouch}
+          className="touch-target shrink-0 gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 active:bg-amber-500/25 whitespace-nowrap"
+          title="Fast-Touch Express Mode"
+          aria-label="Fast-Touch Express Mode"
+        >
+          <Zap size={16} />
+          <span className="hidden sm:inline">Fast-Touch</span>
+        </button>
+      )}
+
       <button
         type="button"
         onClick={onToggleFullscreen}

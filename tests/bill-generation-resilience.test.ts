@@ -19,7 +19,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
       app: {
         isPackaged: true,
         getPath: () => testDir,
-        getVersion: () => '3.11.12',
+        getVersion: () => '4.0.0',
       },
     };
   }
@@ -55,7 +55,7 @@ const billsRouter = billRoutes;
 const ordersRouter = orderRoutes;
 
 async function runTests() {
-  console.log('Test: Bill Generation & Checkout Resilience (3.11.12)');
+  console.log('Test: Bill Generation & Checkout Resilience (4.0.0)');
   console.log('='.repeat(60));
 
   const db = initTestDb();

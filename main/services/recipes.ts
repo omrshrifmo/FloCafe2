@@ -6,7 +6,9 @@ import {
   convertQuantity,
   roundQuantity,
 } from './units';
+export { roundQuantity };
 import { applySupplyStockChange } from './supplies';
+
 
 export class RecipeServiceError extends Error {
   readonly statusCode: number;
@@ -212,23 +214,114 @@ export function buildRecipeSnapshot(
   db: ReturnType<typeof getDatabase>,
   productId: string,
   orderQuantity: number,
+  options?: {
+    addons?: Array<{ addon_id: string; quantity?: number }>;
+    orderType?: string;
+  },
 ): RecipeSnapshot | null {
   const recipe = getRecipeByProduct(db, productId);
-  if (!recipe || recipe.is_active !== 1 || recipe.items.length === 0) return null;
+  if ((!recipe || recipe.is_active !== 1 || recipe.items.length === 0) && (!options?.addons || options.addons.length === 0)) {
+    return null;
+  }
   if (!Number.isFinite(orderQuantity) || orderQuantity <= 0) return null;
 
-  const scale = orderQuantity / recipe.yield_quantity;
-  const components = recipe.items.map((item) => ({
-    supply_id: item.supply_id,
-    supply_name: item.supply_name,
-    base_unit: item.base_unit,
-    quantity: roundQuantity(item.quantity_in_base * scale),
-  }));
+  const componentMap = new Map<string, { supply_id: string; supply_name: string; base_unit: SupplyUnit; quantity: number }>();
+
+  // 1. Base recipe items
+  if (recipe && recipe.is_active === 1 && recipe.items.length > 0) {
+    const prepLossFactor = 1 + (Number((recipe as any).prep_loss_percent) || 0) / 100;
+    const scale = (orderQuantity / recipe.yield_quantity) * prepLossFactor;
+
+    for (const item of recipe.items) {
+      const wasteFactor = 1 + (Number((item as any).waste_allowance_percent) || 0) / 100;
+      const effectiveQty = roundQuantity(item.quantity_in_base * scale * wasteFactor);
+      if (effectiveQty <= 0) continue;
+
+      const existing = componentMap.get(item.supply_id);
+      if (existing) {
+        existing.quantity = roundQuantity(existing.quantity + effectiveQty);
+      } else {
+        componentMap.set(item.supply_id, {
+          supply_id: item.supply_id,
+          supply_name: item.supply_name,
+          base_unit: item.base_unit,
+          quantity: effectiveQty,
+        });
+      }
+    }
+  }
+
+  // 2. Modifier / addon ingredient usage
+  if (options?.addons && options.addons.length > 0) {
+    for (const add of options.addons) {
+      try {
+        const addonRows = db.prepare(`
+          SELECT ar.supply_id, s.name as supply_name, s.base_unit, ar.quantity, ar.unit
+          FROM addon_recipes ar
+          JOIN supplies s ON s.id = ar.supply_id
+          WHERE ar.addon_id = ?
+        `).all(add.addon_id) as any[];
+
+        const addScale = (Number(add.quantity) || 1) * orderQuantity;
+        for (const ar of addonRows) {
+          const qtyInBase = convertQuantity(ar.quantity, ar.unit, ar.base_unit) * addScale;
+          const effectiveQty = roundQuantity(qtyInBase);
+          if (effectiveQty <= 0) continue;
+
+          const existing = componentMap.get(ar.supply_id);
+          if (existing) {
+            existing.quantity = roundQuantity(existing.quantity + effectiveQty);
+          } else {
+            componentMap.set(ar.supply_id, {
+              supply_id: ar.supply_id,
+              supply_name: ar.supply_name,
+              base_unit: ar.base_unit,
+              quantity: effectiveQty,
+            });
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 3. Packaging material BOM
+  if (options?.orderType) {
+    try {
+      const pkgRows = db.prepare(`
+        SELECT pr.supply_id, s.name as supply_name, s.base_unit, pr.quantity, pr.unit
+        FROM packaging_recipes pr
+        JOIN supplies s ON s.id = pr.supply_id
+        WHERE (pr.product_id = ? OR pr.product_id IS NULL)
+          AND (pr.order_type = ? OR pr.order_type IS NULL)
+      `).all(productId, options.orderType) as any[];
+
+      for (const pr of pkgRows) {
+        const qtyInBase = convertQuantity(pr.quantity, pr.unit, pr.base_unit) * orderQuantity;
+        const effectiveQty = roundQuantity(qtyInBase);
+        if (effectiveQty <= 0) continue;
+
+        const existing = componentMap.get(pr.supply_id);
+        if (existing) {
+          existing.quantity = roundQuantity(existing.quantity + effectiveQty);
+        } else {
+          componentMap.set(pr.supply_id, {
+            supply_id: pr.supply_id,
+            supply_name: pr.supply_name,
+            base_unit: pr.base_unit,
+            quantity: effectiveQty,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  const components = Array.from(componentMap.values());
+  if (components.length === 0) return null;
 
   return {
-    recipe_id: recipe.id,
-    product_id: recipe.product_id,
-    yield_quantity: recipe.yield_quantity,
+    recipe_id: recipe?.id || 'dynamic-addon-pkg',
+    product_id: productId,
+    yield_quantity: recipe?.yield_quantity || 1,
     components,
   };
 }

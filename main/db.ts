@@ -357,7 +357,18 @@ export function upsertSettings(entries: Record<string, string | undefined | null
   }
 }
 
+export function setSettingValue(key: string, value: string): void {
+  upsertSettings({ [key]: value });
+}
+
+export function newId(prefix?: string): string {
+  const uuid = crypto.randomUUID();
+  return prefix ? `${prefix}_${uuid.replace(/-/g, '').slice(0, 16)}` : uuid;
+}
+
 export const GOOGLE_DRIVE_PRIVATE_SETTING_KEYS = [
+
+
   'google_drive_account_subject',
   'google_drive_account_email',
   'google_drive_destination_folder_id',
@@ -5420,6 +5431,325 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE INDEX IF NOT EXISTS idx_bill_idempotency_order_id ON bill_idempotency(order_id);
         CREATE INDEX IF NOT EXISTS idx_bills_order_id ON bills(order_id);
       `);
+    },
+  },
+  {
+    version: 99,
+    name: 'flocafe_4_0_foundation_and_finance',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS finance_movements (
+          id TEXT PRIMARY KEY,
+          business_date TEXT NOT NULL,
+          movement_type TEXT NOT NULL,
+          amount_cents INTEGER NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'EGP',
+          direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+          category TEXT NOT NULL,
+          payment_method TEXT NOT NULL DEFAULT 'cash',
+          description TEXT,
+          created_by TEXT NOT NULL,
+          shift_id INTEGER,
+          branch_id TEXT,
+          source_transaction_type TEXT,
+          source_transaction_id TEXT,
+          related_employee_id TEXT,
+          related_supplier_id TEXT,
+          approval_status TEXT NOT NULL DEFAULT 'approved',
+          approved_by TEXT,
+          attachment_ref TEXT,
+          is_reversal INTEGER NOT NULL DEFAULT 0,
+          reversal_of_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_finance_movements_date ON finance_movements(business_date);
+        CREATE INDEX IF NOT EXISTS idx_finance_movements_shift ON finance_movements(shift_id);
+        CREATE INDEX IF NOT EXISTS idx_finance_movements_type ON finance_movements(movement_type);
+      `);
+    },
+  },
+  {
+    version: 100,
+    name: 'flocafe_4_0_extended_bom_and_inventory',
+    up: () => {
+      if (!getColumns(db, 'supplies').includes('cost_cents')) {
+        db.exec(`ALTER TABLE supplies ADD COLUMN cost_cents REAL DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'supplies').includes('density')) {
+        db.exec(`ALTER TABLE supplies ADD COLUMN density REAL DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'recipes').includes('prep_loss_percent')) {
+        db.exec(`ALTER TABLE recipes ADD COLUMN prep_loss_percent REAL DEFAULT 0`);
+      }
+      if (!getColumns(db, 'recipes').includes('version')) {
+        db.exec(`ALTER TABLE recipes ADD COLUMN version INTEGER DEFAULT 1`);
+      }
+      if (!getColumns(db, 'recipes').includes('notes')) {
+        db.exec(`ALTER TABLE recipes ADD COLUMN notes TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'recipe_items').includes('item_type')) {
+        db.exec(`ALTER TABLE recipe_items ADD COLUMN item_type TEXT DEFAULT 'ingredient'`);
+      }
+      if (!getColumns(db, 'recipe_items').includes('prep_recipe_id')) {
+        db.exec(`ALTER TABLE recipe_items ADD COLUMN prep_recipe_id TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'recipe_items').includes('waste_allowance_percent')) {
+        db.exec(`ALTER TABLE recipe_items ADD COLUMN waste_allowance_percent REAL DEFAULT 0`);
+      }
+      if (!getColumns(db, 'supply_movements').includes('extended_type')) {
+        db.exec(`ALTER TABLE supply_movements ADD COLUMN extended_type TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'supply_movements').includes('waste_category')) {
+        db.exec(`ALTER TABLE supply_movements ADD COLUMN waste_category TEXT DEFAULT NULL`);
+      }
+      if (!getColumns(db, 'supply_movements').includes('cost_cents')) {
+        db.exec(`ALTER TABLE supply_movements ADD COLUMN cost_cents REAL DEFAULT NULL`);
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS addon_recipes (
+          id TEXT PRIMARY KEY,
+          addon_id TEXT NOT NULL,
+          supply_id TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          unit TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_addon_recipes_addon_id ON addon_recipes(addon_id);
+
+        CREATE TABLE IF NOT EXISTS packaging_recipes (
+          id TEXT PRIMARY KEY,
+          product_id TEXT,
+          category_id TEXT,
+          order_type TEXT,
+          supply_id TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          unit TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_packaging_recipes_product_id ON packaging_recipes(product_id);
+
+        CREATE TABLE IF NOT EXISTS stocktake_sessions (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL CHECK (status IN ('draft', 'in_progress', 'completed', 'cancelled')),
+          is_blind INTEGER NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by TEXT NOT NULL,
+          approved_by TEXT,
+          created_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS stocktake_items (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          supply_id TEXT NOT NULL,
+          expected_quantity REAL NOT NULL,
+          counted_quantity REAL,
+          variance_quantity REAL,
+          unit TEXT NOT NULL,
+          cost_cents REAL,
+          notes TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_stocktake_items_session ON stocktake_items(session_id);
+      `);
+    },
+  },
+  {
+    version: 101,
+    name: 'flocafe_4_0_hr_and_payroll',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS employees (
+          id TEXT PRIMARY KEY,
+          user_id TEXT,
+          name TEXT NOT NULL,
+          phone TEXT,
+          national_id TEXT,
+          role TEXT NOT NULL DEFAULT 'staff',
+          employment_status TEXT NOT NULL DEFAULT 'active',
+          pay_schedule TEXT NOT NULL DEFAULT 'monthly',
+          base_salary_cents INTEGER NOT NULL DEFAULT 0,
+          hourly_rate_cents INTEGER NOT NULL DEFAULT 0,
+          joined_at TEXT NOT NULL,
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS employee_advances_loans (
+          id TEXT PRIMARY KEY,
+          employee_id TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('advance', 'loan')),
+          amount_cents INTEGER NOT NULL,
+          remaining_cents INTEGER NOT NULL,
+          installment_cents INTEGER DEFAULT 0,
+          approved_by TEXT NOT NULL,
+          finance_movement_id TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_advances_employee_id ON employee_advances_loans(employee_id);
+
+        CREATE TABLE IF NOT EXISTS employee_attendance (
+          id TEXT PRIMARY KEY,
+          employee_id TEXT NOT NULL,
+          shift_id INTEGER,
+          clock_in TEXT NOT NULL,
+          clock_out TEXT,
+          hours_worked REAL,
+          status TEXT NOT NULL DEFAULT 'present',
+          notes TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_attendance_employee_id ON employee_attendance(employee_id);
+
+        CREATE TABLE IF NOT EXISTS payroll_runs (
+          id TEXT PRIMARY KEY,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          total_net_cents INTEGER NOT NULL DEFAULT 0,
+          total_gross_cents INTEGER NOT NULL DEFAULT 0,
+          approved_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS payslips (
+          id TEXT PRIMARY KEY,
+          payroll_run_id TEXT NOT NULL,
+          employee_id TEXT NOT NULL,
+          base_amount_cents INTEGER NOT NULL,
+          allowances_cents INTEGER NOT NULL DEFAULT 0,
+          bonuses_cents INTEGER NOT NULL DEFAULT 0,
+          deductions_cents INTEGER NOT NULL DEFAULT 0,
+          advance_deduction_cents INTEGER NOT NULL DEFAULT 0,
+          net_amount_cents INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'unpaid',
+          finance_movement_id TEXT,
+          snapshot_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_payslips_payroll_run_id ON payslips(payroll_run_id);
+      `);
+    },
+  },
+  {
+    version: 102,
+    name: 'flocafe_4_0_cleaning_haccp_operations',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS haccp_tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          category TEXT NOT NULL,
+          station_id TEXT,
+          frequency TEXT NOT NULL,
+          target_value TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS haccp_logs (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL,
+          business_date TEXT NOT NULL,
+          shift_id INTEGER,
+          status TEXT NOT NULL,
+          measured_value TEXT,
+          completed_by TEXT NOT NULL,
+          verified_by TEXT,
+          corrective_action TEXT,
+          notes TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_haccp_logs_date ON haccp_logs(business_date);
+        CREATE INDEX IF NOT EXISTS idx_haccp_logs_task ON haccp_logs(task_id);
+      `);
+    },
+  },
+  {
+    version: 103,
+    name: 'flocafe_4_0_online_customer_qr_delivery',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS customer_qr_orders (
+          id TEXT PRIMARY KEY,
+          table_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'submitted_by_customer',
+          customer_name TEXT,
+          customer_phone TEXT,
+          items_json TEXT NOT NULL,
+          total_amount REAL NOT NULL,
+          session_token TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          reviewed_by TEXT,
+          order_id TEXT,
+          expires_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_customer_qr_orders_table ON customer_qr_orders(table_id);
+        CREATE INDEX IF NOT EXISTS idx_customer_qr_orders_status ON customer_qr_orders(status);
+
+        CREATE TABLE IF NOT EXISTS delivery_orders (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          provider_order_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'received',
+          customer_info_json TEXT NOT NULL,
+          delivery_address_json TEXT,
+          raw_payload_json TEXT NOT NULL,
+          internal_order_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_provider_order ON delivery_orders(provider, provider_order_id);
+
+        CREATE TABLE IF NOT EXISTS customer_waiter_requests (
+          id TEXT PRIMARY KEY,
+          table_id TEXT NOT NULL,
+          request_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          acknowledged_by TEXT,
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_customer_waiter_requests_table ON customer_waiter_requests(table_id);
+      `);
+    },
+  },
+  {
+    version: 104,
+    name: 'flocafe_4_0_free_payment_and_tunnel_settings',
+    up: () => {
+      if (!getColumns(db, 'payment_methods').includes('is_free_method')) {
+        db.exec(`ALTER TABLE payment_methods ADD COLUMN is_free_method INTEGER NOT NULL DEFAULT 0 CHECK (is_free_method IN (0, 1))`);
+      }
+      if (!getColumns(db, 'payment_methods').includes('free_accounting_mode')) {
+        db.exec(`ALTER TABLE payment_methods ADD COLUMN free_accounting_mode TEXT DEFAULT 'promotional_comp'`);
+      }
+      if (!getColumns(db, 'payment_methods').includes('requires_manager_approval')) {
+        db.exec(`ALTER TABLE payment_methods ADD COLUMN requires_manager_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_manager_approval IN (0, 1))`);
+      }
+      if (!getColumns(db, 'payment_methods').includes('depletes_inventory')) {
+        db.exec(`ALTER TABLE payment_methods ADD COLUMN depletes_inventory INTEGER NOT NULL DEFAULT 1 CHECK (depletes_inventory IN (0, 1))`);
+      }
+      const initialSettings: Record<string, string> = {
+        require_open_shift_for_orders: 'true',
+        allow_negative_stock: 'true',
+        tunnel_enabled: 'false',
+        tunnel_hostname: '',
+        tunnel_subdomain: '',
+        auto_update_enabled: 'false',
+        pos_touch_mode: 'classic',
+      };
+      const stmt = db.prepare(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`);
+      for (const [k, v] of Object.entries(initialSettings)) {
+        stmt.run(k, v);
+      }
     },
   },
 ];
