@@ -1,6 +1,6 @@
 {
   "name": "flo-desktop",
-  "version": "4.0.0",
+  "version": "4.0.2",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
@@ -8,6 +8,8 @@
   "main": "dist/main/index.js",
   "scripts": {
     "clean": "node kill-ports.js 3001 3002 3003",
+    "checkpoint:backup": "bash scripts/backup-checkpoint.sh",
+    "checkpoint:restore": "bash scripts/restore-checkpoint.sh",
     "predev": "",
     "dev": "npm run clean && npm run build:frontend && npm run build && electron .",
     "dev:restart": "bash scripts/dev/restart.sh",

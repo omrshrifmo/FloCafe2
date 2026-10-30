@@ -43,7 +43,7 @@ async function runTests() {
 
   // 1. Store a test logo
   const pngData = createMinimalPng(24, 24);
-  const stored = await storeReceiptLogo(pngData, 'test-brand.png', 'image/png');
+  const stored = await storeReceiptLogo(pngData, 'test-brand.png');
   assert.ok(stored.id, 'Asset ID should be generated');
 
   const activeBefore = getActiveReceiptLogo();

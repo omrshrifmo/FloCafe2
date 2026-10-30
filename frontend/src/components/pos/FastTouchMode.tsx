@@ -2,9 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import { useCartStore, buildActiveCartPayload } from '@/store/cart';
-import { useHeldOrdersStore } from '@/store/held-orders';
+import { useHeldOrdersStore, type HeldOrder } from '@/store/held-orders';
 import { usePrinterStore } from '@/hooks/usePrinter';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
+import { nameToColor } from '@/lib/image-utils';
 import { Button } from '@/components/ui/button';
 import { useTranslations, useLocale } from 'use-intl';
 import api from '@/lib/api';
@@ -29,6 +30,9 @@ import {
   Users,
   Check,
   X,
+  Search,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
 
 interface FastTouchModeProps {
@@ -81,7 +85,9 @@ export function FastTouchMode({
   const tPrint = useTranslations('print');
 
   const [selectedCatId, setSelectedCatId] = useState<string | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const [showHeldModal, setShowHeldModal] = useState(false);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
 
   // Quick item note inline editing state
@@ -90,10 +96,24 @@ export function FastTouchMode({
 
   const total = cart.subtotal();
 
+  const allHeldOrdersList = useMemo(() => {
+    return Object.values(heldOrders.orders || {});
+  }, [heldOrders.orders]);
+
   const filteredProducts = useMemo(() => {
-    if (selectedCatId === 'all') return products.filter((p) => p.is_active);
-    return products.filter((p) => p.is_active && String(p.category_id) === String(selectedCatId));
-  }, [products, selectedCatId]);
+    const q = searchQuery.trim().toLowerCase();
+    return products.filter((p) => {
+      if (!p.is_active) return false;
+      if (selectedCatId !== 'all' && String(p.category_id) !== String(selectedCatId)) return false;
+      if (q) {
+        const matchesName = p.name.toLowerCase().includes(q);
+        const matchesBarcode = p.barcode ? p.barcode.toLowerCase().includes(q) : false;
+        const matchesSku = p.sku ? p.sku.toLowerCase().includes(q) : false;
+        if (!matchesName && !matchesBarcode && !matchesSku) return false;
+      }
+      return true;
+    });
+  }, [products, selectedCatId, searchQuery]);
 
   // Selected table name
   const currentTable = useMemo(() => {
@@ -152,13 +172,52 @@ export function FastTouchMode({
     }
   };
 
+  // Restore held order
+  const handleRestoreHeldOrder = async (held: HeldOrder) => {
+    try {
+      const restored = await heldOrders.restoreOrder(held.tableId);
+      if (restored) {
+        cart.loadItems(restored.items, restored.tableId, restored.customerId, restored.guestCount, restored.orderNotes, restored.id);
+        cart.setOrderType(restored.tableId === 'takeaway' ? 'takeaway' : 'dine_in');
+        setShowHeldModal(false);
+        toast.success(isArabic ? 'تم استرجاع الطلب المعلق بنجاح' : 'Held order restored');
+      } else {
+        await heldOrders.fetchHeldOrders();
+        toast.error(t('loadOrderFailed'));
+      }
+    } catch {
+      toast.error(t('loadOrderFailed'));
+    }
+  };
+
   // Split / Move
   const handleSplitMove = () => {
     if (currentTable) {
-      onShowSplitMove?.(currentTable);
+      // Check if table has an active order
+      const hasOrder = currentTable.status === 'occupied' || Boolean(currentTable.current_order) || Boolean(currentTable.activeOrder);
+      if (hasOrder) {
+        onShowSplitMove?.(currentTable);
+        return;
+      }
+      toast(isArabic ? 'اختر طاولة مشغولة تحتوي على طلب فعال للنقل أو التقسيم' : 'Select an occupied table with an active order to split or move', { icon: 'ℹ️' });
+      onShowTablePicker?.();
     } else if (onShowTablePicker) {
       onShowTablePicker();
     }
+  };
+
+  // Serve Order
+  const handleServeOrder = () => {
+    if (cart.items.length === 0) {
+      toast.error(t('cartEmpty'));
+      return;
+    }
+    if (cart.orderType === 'dine_in' && !cart.tableId) {
+      toast.error(t('selectTableFirst'));
+      onShowTablePicker?.();
+      return;
+    }
+    onPlaceOrder?.();
   };
 
   // Handle direct checkout
@@ -174,9 +233,10 @@ export function FastTouchMode({
     }
   };
 
-  // Tap product
+  // Tap product: if item has options/addons, open modal; otherwise fast 1-tap add
   const handleTileClick = (prod: Product) => {
-    if (onProductClick) {
+    const hasAddons = prod.addon_groups && prod.addon_groups.length > 0;
+    if (hasAddons && onProductClick) {
       onProductClick(prod);
     } else {
       cart.addItem(prod);
@@ -202,7 +262,7 @@ export function FastTouchMode({
             variant="outline"
             size="sm"
             onClick={onExit}
-            className="gap-1.5 text-xs font-semibold bg-background border-border hover:bg-muted shadow-2xs"
+            className="gap-1.5 text-xs font-bold bg-background border-border hover:bg-muted shadow-2xs"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>{isArabic ? 'خروج من اللمس السريع' : 'Exit Fast-Touch'}</span>
@@ -212,20 +272,33 @@ export function FastTouchMode({
             <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg">
               <Zap className="h-4 w-4" />
             </div>
-            <span className="font-bold text-sm text-foreground">
+            <span className="font-extrabold text-sm text-foreground">
               {isArabic ? 'نقاط البيع السريع' : 'Fast-Touch Express POS'}
             </span>
           </div>
         </div>
 
-        {/* PHYSICAL RIGHT: Repeat Last Item & Clear Cart */}
+        {/* PHYSICAL RIGHT: Held orders, Repeat Last Item & Clear Cart */}
         <div className="flex items-center gap-2">
+          {/* Held Orders quick badge button */}
+          {allHeldOrdersList.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowHeldModal(true)}
+              className="gap-1.5 text-xs bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20 font-bold"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              <span>{isArabic ? `الطلبات المعلقة (${allHeldOrdersList.length})` : `Held Orders (${allHeldOrdersList.length})`}</span>
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
             onClick={handleRepeatLast}
             disabled={cart.items.length === 0}
-            className="gap-1.5 text-xs text-brand border-brand/30 hover:bg-brand/10 font-medium"
+            className="gap-1.5 text-xs text-brand border-brand/30 hover:bg-brand/10 font-bold"
           >
             <Repeat className="h-3.5 w-3.5" />
             <span>{isArabic ? 'تكرار آخر صنف' : 'Repeat Last Item'}</span>
@@ -236,7 +309,7 @@ export function FastTouchMode({
               variant="ghost"
               size="sm"
               onClick={cart.clearCart}
-              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-semibold"
             >
               <Trash2 className="h-3.5 w-3.5 me-1" />
               <span>{isArabic ? 'إفراغ السلة' : 'Clear'}</span>
@@ -249,7 +322,7 @@ export function FastTouchMode({
       <div className="flex-1 flex overflow-hidden" dir="ltr">
         {/* 1. LEFT COLUMN: Cart Panel with Order Type, Table, Items, Notes, & 5 Bottom Actions */}
         <div className="w-[380px] lg:w-[420px] bg-card border-r border-border shrink-0 flex flex-col overflow-hidden">
-          <div className="flex-1 flex flex-col p-3 gap-3 overflow-hidden" dir={isArabic ? 'rtl' : 'ltr'}>
+          <div className="flex-1 flex flex-col p-3 gap-2.5 overflow-hidden" dir={isArabic ? 'rtl' : 'ltr'}>
             {/* Order Type & Table Selection */}
             <div className="space-y-2 shrink-0 bg-muted/40 p-2.5 rounded-xl border border-border">
               {/* Takeaway / Dine In Selector */}
@@ -297,7 +370,7 @@ export function FastTouchMode({
                           : (isArabic ? 'اختر طاولة' : t('selectTable'))}
                       </span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground underline">
+                    <span className="text-[11px] text-brand underline font-semibold">
                       {isArabic ? 'تغيير' : 'Change'}
                     </span>
                   </button>
@@ -398,7 +471,7 @@ export function FastTouchMode({
                             setEditingNoteItemId(line.id);
                             setItemNoteDraft(line.special_instructions || '');
                           }}
-                          className="text-[10px] text-brand underline ms-2"
+                          className="text-[10px] text-brand underline ms-2 font-medium"
                         >
                           {tCommon('edit')}
                         </button>
@@ -412,7 +485,7 @@ export function FastTouchMode({
                           type="text"
                           value={itemNoteDraft}
                           onChange={(e) => setItemNoteDraft(e.target.value)}
-                          placeholder={isArabic ? 'ملاحظة الصنف (مثل: بدون بصل)...' : 'Item note (e.g., extra ice)...'}
+                          placeholder={isArabic ? 'ملاحظة الصنف (مثل: بدون سكر)...' : 'Item note (e.g., extra ice)...'}
                           className="flex-1 text-xs px-2 py-1 rounded-md bg-muted/60 border border-border focus:outline-none focus:ring-1 focus:ring-brand"
                           autoFocus
                           onKeyDown={(e) => {
@@ -488,9 +561,9 @@ export function FastTouchMode({
             </div>
 
             {/* Subtotal Display */}
-            <div className="p-3 bg-muted/40 rounded-xl border border-border flex items-center justify-between shrink-0">
+            <div className="p-2.5 bg-muted/40 rounded-xl border border-border flex items-center justify-between shrink-0">
               <div>
-                <span className="text-xs text-muted-foreground">{t('subtotal')}</span>
+                <span className="text-xs text-muted-foreground font-semibold">{t('subtotal')}</span>
                 <div className="text-[11px] text-muted-foreground">
                   {cart.itemCount()} {t('items')}
                 </div>
@@ -499,17 +572,17 @@ export function FastTouchMode({
             </div>
 
             {/* The 5 Bottom Action Buttons */}
-            <div className="space-y-2 shrink-0 pt-1">
+            <div className="space-y-2 shrink-0 pt-0.5">
               <div className="grid grid-cols-2 gap-2">
                 {/* 1. Serve Order Button */}
                 <Button
                   size="default"
                   disabled={cart.items.length === 0 || submitting}
-                  onClick={onPlaceOrder}
+                  onClick={handleServeOrder}
                   className="h-11 bg-brand hover:bg-brand/90 text-white font-bold text-xs gap-1.5 rounded-xl shadow-2xs"
                 >
                   <UtensilsCrossed className="h-4 w-4" />
-                  <span>{t('placeOrderButton')}</span>
+                  <span>{isArabic ? 'تقديم الطلب (للمطبخ)' : t('placeOrderButton')}</span>
                 </Button>
 
                 {/* 2. Hold Order Button */}
@@ -521,7 +594,7 @@ export function FastTouchMode({
                   className="h-11 text-xs font-bold gap-1.5 rounded-xl border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10"
                 >
                   <Pause className="h-4 w-4" />
-                  <span>{t('holdButton')}</span>
+                  <span>{isArabic ? 'تعليق الطلب' : t('holdButton')}</span>
                 </Button>
               </div>
 
@@ -546,7 +619,7 @@ export function FastTouchMode({
                   className="h-11 text-xs font-bold gap-1.5 rounded-xl border-border text-foreground hover:bg-muted"
                 >
                   <Printer className="h-4 w-4 text-muted-foreground" />
-                  <span>{printingPreliminary ? (isArabic ? 'جاري الطباعة...' : 'Printing...') : t('printBill')}</span>
+                  <span>{printingPreliminary ? (isArabic ? 'جاري الطباعة...' : 'Printing...') : (isArabic ? 'طباعة أولية' : t('printBill'))}</span>
                 </Button>
               </div>
 
@@ -558,14 +631,36 @@ export function FastTouchMode({
                 className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm gap-2 rounded-xl shadow-md transition-all active:scale-[0.99]"
               >
                 <CreditCard className="h-5 w-5" />
-                <span>{t('checkout')} · {fmtCurrency(total)}</span>
+                <span>{isArabic ? 'الدفع وإنهاء الطلب' : t('checkout')} · {fmtCurrency(total)}</span>
               </Button>
             </div>
           </div>
         </div>
 
-        {/* 2. CENTER COLUMN: Products Big Touch Tiles Grid with Images & Addons */}
+        {/* 2. CENTER COLUMN: Search bar & Products Big Touch Tiles Grid */}
         <div className="flex-1 flex flex-col p-3 overflow-hidden gap-2">
+          {/* Quick search input */}
+          <div className="flex items-center gap-2 bg-card px-3 py-2 rounded-xl border border-border shadow-2xs shrink-0" dir={isArabic ? 'rtl' : 'ltr'}>
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isArabic ? `بحث في الأصناف والباركود (${filteredProducts.length} صنف)...` : `Search items & barcodes (${filteredProducts.length} products)...`}
+              className="flex-1 bg-transparent text-xs focus:outline-none text-foreground placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 rounded-full text-muted-foreground hover:bg-muted"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Product grid */}
           <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-1 content-start" dir={isArabic ? 'rtl' : 'ltr'}>
             {filteredProducts.map((prod, i) => {
               const colorClass = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
@@ -576,28 +671,46 @@ export function FastTouchMode({
                 ? (prodWithImg.image_url || prodWithImg.image || `${api.defaults.baseURL}/products/${prod.id}/image?t=${prod.updated_at ? parseDbTimestamp(prod.updated_at).getTime() : 0}`)
                 : null;
 
+              // Check quantity in active cart
+              const inCartQty = cart.items
+                .filter((line) => line.product.id === prod.id)
+                .reduce((sum, line) => sum + line.quantity, 0);
+
               return (
                 <button
                   key={prod.id}
                   type="button"
                   onClick={() => handleTileClick(prod)}
-                  className={`min-h-32 p-3 rounded-2xl border flex flex-col justify-between text-start transition-all active:scale-[0.97] shadow-2xs hover:shadow-sm ${colorClass}`}
+                  className={`min-h-36 p-3 rounded-2xl border flex flex-col justify-between text-start transition-all active:scale-[0.97] shadow-2xs hover:shadow-sm relative ${colorClass}`}
                 >
-                  {/* Product Image if available */}
-                  {imgUrl ? (
-                    <div className="relative w-full h-18 rounded-xl overflow-hidden mb-2 bg-black/5 dark:bg-white/5 shrink-0">
+                  {/* In-cart count badge */}
+                  {inCartQty > 0 && (
+                    <div className="absolute top-2 end-2 z-10 bg-brand text-white text-[11px] font-black h-5 min-w-5 px-1.5 rounded-full flex items-center justify-center shadow-sm">
+                      {inCartQty}×
+                    </div>
+                  )}
+
+                  {/* Product Image / Monogram Tile */}
+                  <div className="relative w-full h-20 rounded-xl overflow-hidden mb-2 bg-black/5 dark:bg-white/5 shrink-0">
+                    <div
+                      className="absolute inset-0 flex items-center justify-center font-extrabold text-lg text-white/90"
+                      style={{ backgroundColor: nameToColor(prod.name) }}
+                    >
+                      {prod.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    {imgUrl ? (
                       <img
                         src={imgUrl}
                         alt={prod.name}
                         loading="lazy"
                         decoding="async"
-                        className="w-full h-full object-cover"
+                        className="absolute inset-0 w-full h-full object-cover"
                         onError={(e) => {
                           (e.target as HTMLElement).style.display = 'none';
                         }}
                       />
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
 
                   {/* Product Name */}
                   <span className="font-bold text-xs sm:text-sm line-clamp-2 leading-tight text-foreground">
@@ -611,9 +724,16 @@ export function FastTouchMode({
                     </span>
 
                     {hasAddons ? (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onProductClick?.(prod);
+                        }}
+                        className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 hover:bg-amber-500/30"
+                      >
                         + {isArabic ? 'خيارات' : 'Options'}
-                      </span>
+                      </button>
                     ) : (
                       <div className="p-1 rounded-lg bg-black/5 dark:bg-white/10 text-muted-foreground">
                         <Plus className="h-3.5 w-3.5" />
@@ -674,6 +794,76 @@ export function FastTouchMode({
           </div>
         </div>
       </div>
+
+      {/* Held Orders List Modal Overlay */}
+      {showHeldModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" dir={isArabic ? 'rtl' : 'ltr'}>
+          <div className="bg-card w-full max-w-lg rounded-2xl border border-border shadow-2xl p-5 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-amber-500" />
+                <h3 className="font-bold text-base text-foreground">
+                  {isArabic ? 'الطلبات المعلقة' : 'Held Orders'} ({allHeldOrdersList.length})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHeldModal(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-3 space-y-2.5">
+              {allHeldOrdersList.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-xs">
+                  {isArabic ? 'لا توجد طلبات معلقة حالياً' : 'No held orders at the moment'}
+                </div>
+              ) : (
+                allHeldOrdersList.map((held) => {
+                  const heldTable = tables.find((t) => String(t.id) === String(held.tableId));
+                  const heldTitle = heldTable?.name || (held.tableId === 'takeaway' ? (isArabic ? 'سفري' : 'Takeaway') : held.tableId);
+                  const heldTotal = held.items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+
+                  return (
+                    <div
+                      key={held.tableId}
+                      className="p-3 rounded-xl border border-border bg-muted/30 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <div className="font-bold text-sm text-foreground flex items-center gap-2">
+                          <span>{heldTitle}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground font-mono">
+                            ({held.items.length} {t('items')})
+                          </span>
+                        </div>
+                        <div className="text-xs font-bold text-brand font-mono mt-0.5">
+                          {fmtCurrency(heldTotal)}
+                        </div>
+                        {held.orderNotes && (
+                          <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-xs">
+                            💬 {held.orderNotes}
+                          </div>
+                        )}
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={() => handleRestoreHeldOrder(held)}
+                        className="bg-brand hover:bg-brand/90 text-white font-bold text-xs gap-1.5 rounded-lg shrink-0"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>{isArabic ? 'استرجاع الطلب' : 'Restore'}</span>
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
