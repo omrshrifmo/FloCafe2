@@ -145,7 +145,21 @@ export function buildBillPrintData(
       deliveryCharge: Number(bill?.delivery_charge) || 0,
       packagingCharge: Number(bill?.packaging_charge) || 0,
       taxComponents: resolveTaxComponents({ ...bill, items }),
-      payments: parsePaymentDetails(bill?.payment_details),
+      payments: (() => {
+        const parsed = parsePaymentDetails(bill?.payment_details);
+        if (parsed.length > 0) return parsed;
+        if (bill?.payment_method) {
+          const tendered = optionalPaymentAmount(bill?.tendered_amount);
+          const change = optionalPaymentAmount(bill?.change_amount);
+          return [{
+            method: String(bill.payment_method),
+            amount: Number(bill.paid_amount ?? bill.total) || 0,
+            ...(tendered !== undefined ? { tendered } : {}),
+            ...(change !== undefined ? { change } : {}),
+          }];
+        }
+        return [];
+      })(),
       pointsEarned: Number(business?.points_earned) || 0,
       pointsRedeemed: Number(business?.points_redeemed) || 0,
       pointsBalance: business?.points_balance === null || business?.points_balance === undefined

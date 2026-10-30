@@ -1927,7 +1927,20 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
       pushFinancialLines([pluginSummaryRow(rawLabel, formatCurrency(tax.amount, prefix, locale, trimDecimals, fractionDigits), layout, cols, lang, capabilities)]);
     }
   } else if (Number(bill.tax_amount) !== 0) {
-    const label = fitTemplateLabel(normalize(resolveTemplateLabel(payload?.labels, 'tax', lang)), rowLabelWidth);
+    let taxName = '';
+    if (taxComponents.length === 1) {
+      const tc = taxComponents[0];
+      const title = (tc.title || '').trim();
+      const hasRate = tc.rate !== null && tc.rate !== undefined && tc.rate !== 0;
+      taxName = hasRate && !title.includes(`${tc.rate}%`) && !title.includes(`${tc.rate}`) ? `${title} ${tc.rate}%` : title;
+    } else if (taxComponents.length > 1) {
+      taxName = taxComponents.map((tc) => {
+        const title = (tc.title || '').trim();
+        const hasRate = tc.rate !== null && tc.rate !== undefined && tc.rate !== 0;
+        return hasRate && !title.includes(`${tc.rate}%`) && !title.includes(`${tc.rate}`) ? `${title} ${tc.rate}%` : title;
+      }).join(' + ');
+    }
+    const label = fitTemplateLabel(normalize(taxName || resolveTemplateLabel(payload?.labels, 'tax', lang)), rowLabelWidth);
     pushFinancialLines(financialRows(label, formatCurrency(bill.tax_amount, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
   }
   // chargeRows capability declaration preserves stable country/legal row order.
@@ -1947,10 +1960,13 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   const totalLabel = fitTemplateLabel(normalize(String(payload?.totals?.grandTotalLabel || '')), rowLabelWidth) || fitTemplateLabel(normalize(resolveTemplateLabel(payload?.labels, 'total', lang)), rowLabelWidth);
   pushFinancialLines(financialRows(totalLabel, formatCurrency(bill.total, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities).map((line) => `{BOLD}${line}{/BOLD}`));
 
-  if (bill.payment_details) {
+  const resolvedRawPayments = bill.payment_details
+    ? (typeof bill.payment_details === 'string' ? JSON.parse(bill.payment_details) : bill.payment_details)
+    : (bill.payment_method ? [{ method: bill.payment_method, amount: bill.paid_amount || bill.total, tendered_amount: bill.tendered_amount, change_amount: bill.change_amount }] : null);
+  if (resolvedRawPayments) {
     lines.push(dash);
     try {
-      const payments = typeof bill.payment_details === 'string' ? JSON.parse(bill.payment_details) : bill.payment_details;
+      const payments = resolvedRawPayments;
       if (payments && Array.isArray(payments)) {
         for (const payment of payments) {
           if (payment && payment.method) {

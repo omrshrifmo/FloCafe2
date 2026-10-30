@@ -1221,11 +1221,22 @@ export default function POSPage() {
         <FastTouchMode
           categories={categories}
           products={products}
+          tables={tables}
+          currency={currency}
+          submitting={submitting}
           onExit={() => setFastTouchMode(false)}
-          onQuickCheckout={() => {
-            setFastTouchMode(false);
-            setShowPrepaidCheckout(true);
+          onProductClick={handleProductClick}
+          onPlaceOrder={handlePlaceOrder}
+          onShowTablePicker={() => setShowTablePicker(true)}
+          onShowSplitMove={(table) => {
+            if (table) {
+              setCheckoutTable(table);
+            } else {
+              setShowTablePicker(true);
+            }
           }}
+          onEditItem={setEditingCartItem}
+          onCheckout={() => setShowPrepaidCheckout(true)}
         />
       )}
 

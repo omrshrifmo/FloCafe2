@@ -538,6 +538,46 @@ function paymentLabel(labels: LabelContext, method: string): SemanticLabel {
   return conceptId !== undefined ? resolveSemanticLabel(labels, conceptId) : literalLabel(method);
 }
 
+function isGenericTaxTitle(title: string): boolean {
+  const normalized = (title || '').trim().toLowerCase();
+  return normalized === '' || normalized === 'tax' || normalized === 'ضريبة' || normalized === 'ضرائب';
+}
+
+function formatTaxComponentLabel(component: TaxComponentSnapshot, labels: LabelContext): SemanticLabel {
+  const rawTitle = (component.title || '').trim();
+  const isGeneric = isGenericTaxTitle(rawTitle);
+  const baseLabel = isGeneric ? labels.ctx.resolveLabel('pos.tax', labels.primary) : rawTitle;
+
+  if (component.rate !== null && component.rate !== undefined && component.rate !== 0) {
+    const rateStr = `${component.rate}%`;
+    if (!rawTitle.includes(rateStr) && !rawTitle.includes(`${component.rate}`)) {
+      return literalLabel(`${baseLabel} ${rateStr}`);
+    }
+  }
+  return isGeneric ? resolveSemanticLabel(labels, 'pos.tax') : literalLabel(baseLabel);
+}
+
+function resolveTaxLabel(taxComponents: readonly TaxComponentSnapshot[], labels: LabelContext): SemanticLabel {
+  const active = taxComponents.filter((c) => toFiniteNumber(c.amount) !== 0 || (c.rate !== null && c.rate !== 0));
+  if (active.length === 1) {
+    return formatTaxComponentLabel(active[0], labels);
+  }
+  if (active.length > 1) {
+    const anySpecific = active.some((c) => !isGenericTaxTitle(c.title));
+    if (anySpecific) {
+      return literalLabel(active.map((c) => {
+        const title = (c.title || '').trim();
+        const base = isGenericTaxTitle(title) ? labels.ctx.resolveLabel('pos.tax', labels.primary) : title;
+        if (c.rate !== null && c.rate !== undefined && c.rate !== 0 && !title.includes(`${c.rate}`)) {
+          return `${base} ${c.rate}%`;
+        }
+        return base;
+      }).join(' + '));
+    }
+  }
+  return resolveSemanticLabel(labels, 'pos.tax');
+}
+
 function kotOrderTypeValue(labels: LabelContext, value: string): string {
   const conceptId = KOT_ORDER_TYPE_CONCEPTS[value];
   if (conceptId === undefined) return value.replace(/_/g, ' ').trim().toUpperCase();
@@ -748,7 +788,7 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       : null,
     tax: !showBreakdown && toFiniteNumber(bill.taxAmount) !== 0
       ? Object.freeze({
-        label: resolveSemanticLabel(labels, 'pos.tax'),
+        label: resolveTaxLabel(taxComponents, labels),
         amount: bill.taxAmount,
       })
       : null,

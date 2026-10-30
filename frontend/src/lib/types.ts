@@ -242,6 +242,9 @@ export interface Bill {
   deferred_reason?: string | null;
   deferred_authorized_by?: string | null;
   payment_details: { method: string; payment_method_id?: number; amount: number; timestamp: string; tendered_amount?: number; change_amount?: number; counts_as_cash_drawer_tender?: boolean }[] | null;
+  payment_method?: string | null;
+  tendered_amount?: number | null;
+  change_amount?: number | null;
   split_group_id?: string | null;
   split_label?: string | null;
   tax_breakdown?: { title: string; rate: number; amount: number }[] | null;

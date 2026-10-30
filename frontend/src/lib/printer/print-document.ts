@@ -118,9 +118,17 @@ function baseDirectionFor(languages: ResolvedPrintLanguages): ReturnType<typeof 
   }
 }
 
-function parsePaymentDetails(raw: Bill['payment_details']): PaymentSnapshot[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
+function parsePaymentDetails(raw: Bill['payment_details'] | string): PaymentSnapshot[] {
+  let value: unknown = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
     const tendered = optionalPaymentAmount(entry?.tendered_amount);
     const change = optionalPaymentAmount(entry?.change_amount);
     return {
@@ -183,7 +191,21 @@ export function buildBillPrintData(bill: Bill, opts: BillBusinessOptions = {}): 
       deliveryCharge: Number(bill?.delivery_charge) || 0,
       packagingCharge: Number(bill?.packaging_charge) || 0,
       taxComponents: resolveTaxComponents(bill),
-      payments: parsePaymentDetails(bill?.payment_details),
+      payments: (() => {
+        const parsed = parsePaymentDetails(bill?.payment_details);
+        if (parsed.length > 0) return parsed;
+        if (bill?.payment_method) {
+          const tendered = optionalPaymentAmount(bill?.tendered_amount);
+          const change = optionalPaymentAmount(bill?.change_amount);
+          return [{
+            method: String(bill.payment_method),
+            amount: Number(bill.paid_amount ?? bill.total) || 0,
+            ...(tendered !== undefined ? { tendered } : {}),
+            ...(change !== undefined ? { change } : {}),
+          }];
+        }
+        return [];
+      })(),
       pointsEarned: Number(bill?.points_earned) || 0,
       pointsRedeemed: Number(bill?.points_redeemed) || 0,
       pointsBalance: Object.prototype.hasOwnProperty.call(bill || {}, 'points_balance')

@@ -73,6 +73,17 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-gpu-sandbox');
 }
 
+// On Linux, Chromium's auto-detection of Secret Service keyrings (gnome-keyring / kwallet)
+// only triggers for GNOME or KDE sessions. On Wayland compositors (Hyprland, Sway, etc.)
+// and window managers (i3, bspwm, etc.), Chromium defaults to unencrypted basic_text storage,
+// disabling safeStorage and Master PIN. Default to gnome-libsecret if not explicitly set.
+if (process.platform === 'linux' && !app.commandLine.hasSwitch('password-store')) {
+  const currentDesktop = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase();
+  if (!currentDesktop.includes('kde')) {
+    app.commandLine.appendSwitch('password-store', 'gnome-libsecret');
+  }
+}
+
 // Mac App Store builds: Electron sets process.mas = true inside the MAS sandbox.
 // MAS_BUILD=1 is the build-time fallback (dev/CI).
 const isMasBuild =
