@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-28T14:33:34.955Z",
+  "generatedAt": "2026-10-29T19:02:58.969Z",
   "taskSummary": "Workspace-detected skills",
   "proposals": [
     {
       "name": "cursor-kiro-extension-publishing",
       "reason": "Workspace files match **/.github/workflows/publish*.yml; repo stack match (+15)",
-      "confidence": 80,
+      "confidence": 76,
       "installed": true,
       "matchedGlobs": [
         "**/.github/workflows/publish*.yml"
@@ -15,7 +15,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 15,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },
@@ -29,7 +29,7 @@
     {
       "name": "github-actions-ci",
       "reason": "Workspace files match **/.github/workflows/*.yml, **/.github/**/*.md; repo stack match (+15)",
-      "confidence": 80,
+      "confidence": 76,
       "installed": true,
       "matchedGlobs": [
         "**/.github/workflows/*.yml",
@@ -41,7 +41,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 15,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },
@@ -55,7 +55,7 @@
     {
       "name": "deployment-practical",
       "reason": "Workspace files match **/.env*",
-      "confidence": 65,
+      "confidence": 61,
       "installed": true,
       "matchedGlobs": [
         "**/.env*"
@@ -64,7 +64,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 0,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },
@@ -78,7 +78,7 @@
     {
       "name": "doc-coauthoring",
       "reason": "Workspace files match **/docs/**",
-      "confidence": 65,
+      "confidence": 61,
       "installed": true,
       "matchedGlobs": [
         "**/*.md",
@@ -88,7 +88,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 0,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },
@@ -102,7 +102,7 @@
     {
       "name": "drawio-diagrams",
       "reason": "Workspace files match **/docs/architecture/**",
-      "confidence": 65,
+      "confidence": 61,
       "installed": true,
       "matchedGlobs": [
         "**/docs/architecture/**"
@@ -111,7 +111,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 0,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },
@@ -125,7 +125,7 @@
     {
       "name": "skill-feedback-adaptation",
       "reason": "Workspace files match **/.claude/learning/task-skill-proposals.json, **/.claude/learning/**",
-      "confidence": 65,
+      "confidence": 61,
       "installed": true,
       "matchedGlobs": [
         "**/.claude/learning/task-skill-proposals.json",
@@ -135,7 +135,7 @@
         "semanticMatch": 60,
         "workspaceAffinity": 0,
         "repositoryAffinity": 0,
-        "adoptionSuccess": 5,
+        "adoptionSuccess": 1,
         "enrichment": 0,
         "penalty": 0
       },

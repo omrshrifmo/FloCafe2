@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-28T14:39:56.988Z",
+  "generatedAt": "2026-10-30T15:30:49.072Z",
   "workspacePath": "/home/omrshrifmo/FloCafe2",
   "branch": "origin",
   "skills": [
@@ -595,7 +595,7 @@
       "matchedGlobs": [
         "**/*.csv"
       ],
-      "installedInWorkspace": false,
+      "installedInWorkspace": true,
       "availableInGlobal": false,
       "inLibrary": true,
       "requiredForProfileInit": false
