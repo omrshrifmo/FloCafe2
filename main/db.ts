@@ -6080,6 +6080,40 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 106,
+    name: 'flocafe_4_0_6_unified_cash_and_pos_movements',
+    up: () => {
+      const cmCols = getColumns(db, 'cash_movements');
+      if (!cmCols.includes('cash_drawer_movement_id')) {
+        db.exec(`ALTER TABLE cash_movements ADD COLUMN cash_drawer_movement_id INTEGER`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_movements_drawer_id ON cash_movements(cash_drawer_movement_id)`);
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS haccp_templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          category TEXT NOT NULL,
+          frequency TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          items_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS haccp_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL REFERENCES haccp_templates(id),
+          status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('draft', 'submitted', 'approved', 'rejected')),
+          score_percent REAL NOT NULL DEFAULT 100,
+          has_critical_failure INTEGER NOT NULL DEFAULT 0,
+          answers_json TEXT NOT NULL DEFAULT '{}',
+          submitted_by TEXT,
+          reviewed_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_haccp_runs_template ON haccp_runs(template_id);
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {

@@ -23,7 +23,7 @@ import {
 } from '../services/shift-session-gate';
 import {
   computePeriodAggregates, sessionExpectedCash, sessionFinancialTotals,
-  listCashDrawerMovementsForSession, tenantTimezone,
+  listCashDrawerMovementsForSession, tenantTimezone, handleCreateCashMovement,
 } from './cash-closures';
 
 const router = Router();
@@ -240,6 +240,20 @@ router.get('/current', requirePermission('cash.shifts.view'), (req: Request, res
   }
 });
 
+router.get('/active', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const session = getOpenSession(db);
+    if (!session) return res.status(404).json({ error: 'No open shift' });
+    const asOf = now();
+    const expectedCashCents = sessionExpectedCash(db, session, asOf);
+    res.json({ ...session, expected_cash_cents: expectedCashCents });
+  } catch (error: unknown) {
+    const status = errorStatus(error);
+    res.status(status).json({ error: status >= 500 ? 'Failed to read active shift' : errorMessage(error, 'Failed to read active shift') });
+  }
+});
+
 router.post('/:id/close', requirePermission('cash.shifts.close'), (req: Request, res: Response) => {
   try {
     const sessionId = Number(req.params.id);
@@ -266,5 +280,21 @@ router.post('/:id/close', requirePermission('cash.shifts.close'), (req: Request,
     res.status(status).json({ error: status >= 500 ? 'Failed to close shift' : errorMessage(error, 'Failed to close shift') });
   }
 });
+
+router.get('/movements', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const session = getOpenSession(db);
+    const movements = session
+      ? listCashDrawerMovementsForSession(db, session.id, session.opened_at, now(), true)
+      : [];
+    res.json({ movements });
+  } catch (error: unknown) {
+    const status = errorStatus(error);
+    res.status(status).json({ error: errorMessage(error, 'Failed to fetch movements') });
+  }
+});
+
+router.post('/movements', requirePermission('cash.movements.manage'), handleCreateCashMovement);
 
 export const cashSessionRoutes = router;

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase, now, withTxn } from '../db';
 import { requirePermission } from '../services/authorization';
+import { getOpenSession } from '../services/shift-session-gate';
 
 export const hrmPayrollRoutes = Router();
 
@@ -214,34 +215,40 @@ hrmPayrollRoutes.post('/loans', requirePermission('hrm.payroll.manage'), (req: R
       `).run(loanId, staff_id, loan_type, principal, installment, principal, reason || null, timestamp, actorId);
 
       if (disburse_from_drawer) {
-        const movementId = randomUUID();
-        db.prepare(`
-          INSERT INTO cash_movements (
-            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at
-          ) VALUES (?, ?, 'loan_disbursement', 'Payroll & Loans', ?, 'cash', 'employee_loan', ?, ?, ?, ?)
-        `).run(
-          movementId,
-          session_id ? String(session_id) : null,
-          principal,
-          loanId,
-          `Loan disbursement to staff: ${reason || ''}`,
-          actorId,
-          timestamp,
-        );
-
+        const effectiveSessionId = session_id ? Number(session_id) : (getOpenSession(db)?.id ?? null);
+        let drawerMovementId: number | null = null;
         try {
-          db.prepare(`
+          const dRes = db.prepare(`
             INSERT INTO cash_drawer_movements (
               business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
             ) VALUES (date('now'), 'pay_out', ?, ?, ?, ?, ?)
           `).run(
             Math.round(principal * 100),
-            `Employee loan payout`,
+            `Employee loan payout: ${reason || ''}`.trim(),
             actorId,
             timestamp,
-            session_id ? Number(session_id) : null,
+            effectiveSessionId,
           );
-        } catch {}
+          drawerMovementId = Number(dRes.lastInsertRowid);
+        } catch (err) {
+          console.error('[HRM] Error inserting cash_drawer_movements:', err);
+        }
+
+        const movementId = randomUUID();
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'loan_disbursement', 'Payroll & Loans', ?, 'cash', 'employee_loan', ?, ?, ?, ?, ?)
+        `).run(
+          movementId,
+          effectiveSessionId ? String(effectiveSessionId) : null,
+          principal,
+          loanId,
+          `Loan disbursement to staff: ${reason || ''}`,
+          actorId,
+          timestamp,
+          drawerMovementId,
+        );
       }
     });
 

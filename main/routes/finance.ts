@@ -112,11 +112,133 @@ financeRoutes.get('/summary', requirePermission('reports.view'), (req: Request, 
       endDate: end_date ? String(end_date) : undefined,
     });
 
-    res.json(summary);
+    const totalIn = (summary.total_in_cents || 0) / 100;
+    const totalOut = (summary.total_out_cents || 0) / 100;
+    const expenses = (summary.expense_cents || 0) / 100;
+    const purchases = (summary.purchase_cents || 0) / 100;
+    const salaries = (summary.salary_cents || 0) / 100;
+    const ownerDraw = (summary.withdrawal_cents || 0) / 100;
+    const netProfit = totalIn - totalOut;
+
+    res.json({
+      ...summary,
+      income: totalIn,
+      expenses,
+      purchases,
+      salaries,
+      owner_draw: ownerDraw,
+      net_profit: netProfit,
+    });
   } catch (error: any) {
     console.error('[Finance] Error getting summary:', error);
     res.status(error.statusCode || 500).json({ error: error.message || 'Internal server error' });
   }
+});
+
+financeRoutes.get('/transactions', requirePermission('reports.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { start_date, end_date, type, limit = 100 } = req.query;
+    let query = `
+      SELECT fm.*, u.name as actor_name
+      FROM finance_movements fm
+      LEFT JOIN users u ON u.id = fm.created_by
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (start_date) {
+      query += ' AND fm.business_date >= ?';
+      params.push(String(start_date));
+    }
+    if (end_date) {
+      query += ' AND fm.business_date <= ?';
+      params.push(String(end_date));
+    }
+    if (type && type !== 'all') {
+      query += ' AND fm.movement_type = ?';
+      params.push(String(type));
+    }
+    query += ' ORDER BY fm.created_at DESC, fm.id DESC LIMIT ?';
+    params.push(Number(limit) || 100);
+
+    const rows = db.prepare(query).all(...params) as any[];
+    const transactions = rows.map((r) => ({
+      id: r.id,
+      type: r.movement_type,
+      category: r.category,
+      amount: (Number(r.amount_cents) || 0) / 100,
+      tax_amount: 0,
+      payment_method: r.payment_method,
+      reference_no: r.source_transaction_id || null,
+      description: r.description || null,
+      actor_name: r.actor_name || r.created_by || null,
+      created_at: r.created_at,
+    }));
+    res.json({ transactions });
+  } catch (error: any) {
+    console.error('[Finance] Error listing transactions:', error);
+    res.status(500).json({ error: error.message || 'Failed to list transactions' });
+  }
+});
+
+financeRoutes.post('/transactions', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const body = req.body || {};
+    const actorUserId = (req as any).user?.userId || 'system';
+    const tz = getSettingValue('store_timezone') || 'UTC';
+    const defaultDate = localDateInTimezone(new Date(), tz);
+    const amountNum = Number(body.amount);
+    if (!amountNum || amountNum <= 0) return res.status(400).json({ error: 'Positive amount is required' });
+
+    const activeSession = getOpenSession(db);
+    const direction = body.direction || (body.type === 'income' || body.type === 'cash_in' ? 'in' : 'out');
+
+    const movement = recordFinanceMovement(db, {
+      businessDate: body.business_date || defaultDate,
+      movementType: (body.type || 'expense') as FinanceMovementType,
+      amountCents: Math.round(amountNum * 100),
+      currency: body.currency || getSettingValue('currency') || 'EGP',
+      direction,
+      category: body.category || 'General',
+      paymentMethod: body.payment_method || 'cash',
+      description: body.description || null,
+      createdBy: actorUserId,
+      shiftId: activeSession ? activeSession.id : null,
+      sourceTransactionId: body.reference_no || null,
+    });
+
+    res.status(201).json({ success: true, transaction: movement });
+  } catch (error: any) {
+    console.error('[Finance] Error creating transaction:', error);
+    res.status(error.statusCode || 400).json({ error: error.message || 'Invalid transaction request' });
+  }
+});
+
+financeRoutes.get('/categories', requirePermission('reports.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT category, COUNT(*) as count, COALESCE(SUM(amount_cents), 0) as total_cents
+      FROM finance_movements
+      GROUP BY category
+      ORDER BY total_cents DESC
+    `).all() as any[];
+
+    const categories = rows.map((r) => ({
+      category: r.category,
+      count: Number(r.count),
+      total: Number(r.total_cents) / 100,
+    }));
+    res.json({ categories });
+  } catch (error: any) {
+    console.error('[Finance] Error listing categories:', error);
+    res.status(500).json({ error: error.message || 'Failed to list categories' });
+  }
+});
+
+financeRoutes.get('/reports/pnl', requirePermission('finance.expenses.view'), (req: Request, res: Response) => {
+  return handleGetPnl(req, res);
 });
 
 // ==========================================
@@ -166,17 +288,38 @@ financeRoutes.post('/cash-movements', requirePermission('finance.expenses.manage
     }
 
     const { randomUUID } = require('crypto');
-    const { now } = require('../db');
+    const { now, localDateInTimezone, getSettingValue } = require('../db');
     const id = randomUUID();
     const timestamp = now();
+    const effectiveSessionId = session_id ? Number(session_id) : (getOpenSession(db)?.id ?? null);
+    let drawerMovementId: number | null = null;
+
+    if (payment_method === 'cash' && effectiveSessionId) {
+      try {
+        const isDrawerIn = movement_type === 'cash_in';
+        const drawerType = isDrawerIn ? 'pay_in' : 'pay_out';
+        const cents = Math.round(Number(amount) * 100);
+        const reasonStr = `${category}: ${notes || movement_type}`;
+        const bDate = localDateInTimezone(new Date(), getSettingValue('store_timezone') || 'UTC');
+
+        const dRes = db.prepare(`
+          INSERT INTO cash_drawer_movements (
+            business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(bDate, drawerType, cents, reasonStr, actorId, timestamp, effectiveSessionId);
+        drawerMovementId = Number(dRes.lastInsertRowid);
+      } catch (dErr) {
+        console.error('[Finance] Error mirroring to cash_drawer_movements:', dErr);
+      }
+    }
 
     db.prepare(`
       INSERT INTO cash_movements (
-        id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      session_id ? String(session_id) : null,
+      effectiveSessionId ? String(effectiveSessionId) : null,
       movement_type,
       category,
       Number(amount),
@@ -186,6 +329,7 @@ financeRoutes.post('/cash-movements', requirePermission('finance.expenses.manage
       notes || null,
       actorId,
       timestamp,
+      drawerMovementId,
     );
 
     const movement = db.prepare('SELECT * FROM cash_movements WHERE id = ?').get(id);
@@ -302,13 +446,26 @@ financeRoutes.post('/expenses', requirePermission('finance.expenses.manage'), (r
       timestamp,
     );
 
-    // If paid from shift session drawer, record a petty_expense cash movement
+    // If paid from shift session drawer, record a petty_expense cash movement and cash_drawer_movements
     if (paid_from_session_id) {
+      let drawerMovementId: number | null = null;
+      try {
+        const cents = Math.round(Number(amount) * 100);
+        const dRes = db.prepare(`
+          INSERT INTO cash_drawer_movements (
+            business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+          ) VALUES (?, 'pay_out', ?, ?, ?, ?, ?)
+        `).run(bDate, cents, `Drawer expense: ${title}`, actorId, timestamp, Number(paid_from_session_id));
+        drawerMovementId = Number(dRes.lastInsertRowid);
+      } catch (dErr) {
+        console.error('[Finance] Error inserting cash_drawer_movements from expense:', dErr);
+      }
+
       const movementId = randomUUID();
       db.prepare(`
         INSERT INTO cash_movements (
-          id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at
-        ) VALUES (?, ?, 'petty_expense', ?, ?, 'cash', 'operating_expense', ?, ?, ?, ?)
+          id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+        ) VALUES (?, ?, 'petty_expense', ?, ?, 'cash', 'operating_expense', ?, ?, ?, ?, ?)
       `).run(
         movementId,
         String(paid_from_session_id),
@@ -318,6 +475,7 @@ financeRoutes.post('/expenses', requirePermission('finance.expenses.manage'), (r
         `Drawer expense: ${title}`,
         actorId,
         timestamp,
+        drawerMovementId,
       );
     }
 
@@ -344,7 +502,7 @@ financeRoutes.delete('/expenses/:id', requirePermission('finance.expenses.manage
 // Phase 3 — Financial Income Statement (P&L)
 // Gross Sales -> Discounts/Refunds -> Net Revenue -> Direct BOM COGS -> Gross Profit -> Expenses -> Payroll -> EBITDA
 // ==========================================
-financeRoutes.get('/pnl', requirePermission('finance.expenses.view'), (req: Request, res: Response) => {
+export function handleGetPnl(req: Request, res: Response): void {
   try {
     const db = getDatabase();
     const { start_date, end_date } = req.query;
@@ -356,7 +514,7 @@ financeRoutes.get('/pnl', requirePermission('finance.expenses.view'), (req: Requ
     const salesRow = db.prepare(`
       SELECT
         COALESCE(SUM(b.subtotal), 0) as gross_sales,
-        COALESCE(SUM(b.discount_total), 0) as total_discounts,
+        COALESCE(SUM(b.discount_amount), 0) as total_discounts,
         COALESCE(SUM(b.total), 0) as net_collected,
         COUNT(b.id) as total_bills
       FROM bills b
@@ -482,5 +640,7 @@ financeRoutes.get('/pnl', requirePermission('finance.expenses.view'), (req: Requ
     console.error('[Finance] Error computing P&L:', error);
     res.status(500).json({ error: error.message || 'Failed to compute financial P&L' });
   }
-});
+}
+
+financeRoutes.get('/pnl', requirePermission('finance.expenses.view'), handleGetPnl);
 

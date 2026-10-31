@@ -4,6 +4,7 @@ import { getDatabase, now, withTxn } from '../db';
 import { requirePermission } from '../services/authorization';
 import { getTenantCurrency } from '../services/refund';
 import { getCurrencyMinorUnitFactor } from '../countries';
+import { getOpenSession } from '../services/shift-session-gate';
 
 export const purchasingRoutes = Router();
 
@@ -320,27 +321,14 @@ purchasingRoutes.post('/purchase-orders/:id/receive', requirePermission('purchas
 
       // If paid from drawer, record in cash_movements & cash_drawer_movements
       if (pay_from_drawer) {
-        const movementId = randomUUID();
         const drawerAmount = Number(po.total_amount);
         const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
         const amountCents = Math.round(drawerAmount * minorFactor);
-
-        db.prepare(`
-          INSERT INTO cash_movements (
-            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at
-          ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?)
-        `).run(
-          movementId,
-          shift_id ? String(shift_id) : null,
-          drawerAmount,
-          po.id,
-          `Supplier payment for PO ${po.po_number}`,
-          actorId,
-          timestamp,
-        );
+        const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
+        let drawerMovementId: number | null = null;
 
         try {
-          db.prepare(`
+          const dRes = db.prepare(`
             INSERT INTO cash_drawer_movements (
               business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
             ) VALUES (date('now'), 'pay_out', ?, ?, ?, ?, ?)
@@ -349,9 +337,28 @@ purchasingRoutes.post('/purchase-orders/:id/receive', requirePermission('purchas
             `Supplier payment for PO ${po.po_number}`,
             actorId,
             timestamp,
-            shift_id ? Number(shift_id) : null,
+            effectiveShiftId,
           );
-        } catch {}
+          drawerMovementId = Number(dRes.lastInsertRowid);
+        } catch (err) {
+          console.error('[Purchasing] Error inserting cash_drawer_movements:', err);
+        }
+
+        const movementId = randomUUID();
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?, ?)
+        `).run(
+          movementId,
+          effectiveShiftId ? String(effectiveShiftId) : null,
+          drawerAmount,
+          po.id,
+          `Supplier payment for PO ${po.po_number}`,
+          actorId,
+          timestamp,
+          drawerMovementId,
+        );
 
         db.prepare('UPDATE purchase_orders SET paid_amount = total_amount WHERE id = ?').run(poId);
       }

@@ -263,8 +263,18 @@ export function PurchasingManager() {
     if (!receivingPo) return;
     try {
       setIsReceiving(true);
+      let activeShiftId: number | null = null;
+      if (payFromDrawer) {
+        try {
+          const sessionRes = await api.get('/cash-sessions/active');
+          activeShiftId = sessionRes.data?.id ?? null;
+        } catch {
+          // Fallback to backend auto-detection if no open shift
+        }
+      }
       const res = await api.post(`/purchasing/purchase-orders/${receivingPo.id}/receive`, {
         pay_from_drawer: payFromDrawer,
+        shift_id: activeShiftId,
       });
       toast.success(res.data?.message || t('goodsReceivedSuccess'));
       setReceivingPo(null);

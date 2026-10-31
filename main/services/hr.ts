@@ -17,7 +17,9 @@ export interface EmployeeInput {
 
 export function listEmployees(db: ReturnType<typeof getDatabase>) {
   return db.prepare(`
-    SELECT e.*, u.username
+    SELECT e.*, u.username,
+           (e.base_salary_cents / 100.0) as base_salary,
+           (e.hourly_rate_cents / 100.0) as hourly_rate
     FROM employees e
     LEFT JOIN users u ON u.id = e.user_id
     ORDER BY e.name COLLATE NOCASE

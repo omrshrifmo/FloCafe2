@@ -11,7 +11,7 @@ import { useCurrencyUnitAdapter } from '@/hooks/useCurrencyUnitAdapter';
 import { getCurrencyMinorUnitFactor } from '@/lib/countries';
 import { businessDateForInstant } from '@shared/business-date';
 
-export type CashDrawerMovementType = 'opening_float' | 'pay_in' | 'pay_out' | 'safe_drop';
+export type CashDrawerMovementType = 'opening_float' | 'pay_in' | 'pay_out' | 'safe_drop' | 'expense' | 'purchase';
 
 export interface CashDrawerMovement {
   id: number;
@@ -26,6 +26,34 @@ export interface CashDrawerMovement {
   voided_by: string | null;
   voided_by_name: string | null;
   void_reason: string | null;
+}
+
+export interface PurchaseOptionItem {
+  id: number;
+  name: string;
+  sku?: string | null;
+  category?: string;
+  unit?: string;
+  quantity: number;
+  cost_per_unit: number;
+  target_type: 'inventory' | 'supplies';
+}
+
+export interface OpenPurchaseOrder {
+  id: number;
+  po_number: string;
+  supplier_id: string;
+  supplier_name: string;
+  total_amount: number;
+  currency: string;
+  status: string;
+}
+
+export interface SupplierOption {
+  id: string;
+  name: string;
+  category?: string;
+  payment_terms?: string;
 }
 
 export function useCashDrawerMovements() {
@@ -49,6 +77,27 @@ export function useCashDrawerMovements() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Expense-specific state
+  const [expenseCategory, setExpenseCategory] = useState('Store Supplies & Ice');
+  const [costType, setCostType] = useState<'direct' | 'indirect'>('direct');
+  const [expenseTitle, setExpenseTitle] = useState('');
+  const [expenseNotes, setExpenseNotes] = useState('');
+
+  // Purchase-specific state
+  const [purchaseMode, setPurchaseMode] = useState<'po' | 'direct'>('po');
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
+  const [purchaseTargetType, setPurchaseTargetType] = useState<'inventory' | 'supplies'>('inventory');
+  const [purchaseTargetId, setPurchaseTargetId] = useState<number | null>(null);
+  const [purchaseQuantity, setPurchaseQuantity] = useState('');
+  const [purchaseSupplierId, setPurchaseSupplierId] = useState<string>('');
+
+  // Purchase options data
+  const [openPurchaseOrders, setOpenPurchaseOrders] = useState<OpenPurchaseOrder[]>([]);
+  const [availableItems, setAvailableItems] = useState<PurchaseOptionItem[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
   const movementRequestRef = useRef(0);
   const businessDateRef = useRef(businessDate);
   useEffect(() => {
@@ -76,13 +125,35 @@ export function useCashDrawerMovements() {
     }
   };
 
+  const loadPurchaseMetadata = async () => {
+    setLoadingOptions(true);
+    try {
+      const res = await api.get('/cash-closures/purchase-options');
+      if (res.data) {
+        setOpenPurchaseOrders(res.data.purchase_orders || []);
+        setSuppliers(res.data.suppliers || []);
+        setAvailableItems(res.data.items || []);
+      }
+    } catch (e) {
+      console.error('Failed to load purchase metadata:', e);
+    } finally {
+      setLoadingOptions(false);
+    }
+  };
+
   const openModal = () => {
     setBusinessDate(todayLocal);
     setMovementType('pay_in');
     setAmountInput('');
     setReason('');
+    setExpenseTitle('');
+    setExpenseNotes('');
+    setPurchaseQuantity('');
+    setSelectedPoId(null);
+    setPurchaseTargetId(null);
     setOpen(true);
     void loadMovements(todayLocal);
+    void loadPurchaseMetadata();
   };
 
   const amountCents = () => {
@@ -94,6 +165,137 @@ export function useCashDrawerMovements() {
   };
 
   const recordMovement = async () => {
+    setError(null);
+
+    // Expense Mode
+    if (movementType === 'expense') {
+      const cents = amountCents();
+      if (cents === null || cents <= 0) {
+        setError(t('movementAmountRequired'));
+        return;
+      }
+      if (!expenseTitle.trim()) {
+        setError('Expense title or vendor name is required');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        await api.post('/cash-closures/movements', {
+          business_date: businessDate,
+          movement_type: 'expense',
+          amount_cents: cents,
+          expense_category: expenseCategory,
+          cost_type: costType,
+          title: expenseTitle.trim(),
+          notes: expenseNotes.trim() || undefined,
+          reason: `${expenseCategory}: ${expenseTitle.trim()}`,
+        });
+        setAmountInput('');
+        setExpenseTitle('');
+        setExpenseNotes('');
+        await loadMovements();
+        toast.success(t('movementSaved'));
+      } catch (err: unknown) {
+        const message = axios.isAxiosError(err)
+          ? err.response?.data?.error || err.message
+          : err instanceof Error ? err.message : t('movementSaveFailed');
+        setError(message);
+        toast.error(message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Purchase Mode
+    if (movementType === 'purchase') {
+      if (purchaseMode === 'po') {
+        if (!selectedPoId) {
+          setError('Please select an open purchase order to receive');
+          return;
+        }
+        const cents = amountCents();
+        if (cents === null || cents <= 0) {
+          setError(t('movementAmountRequired'));
+          return;
+        }
+
+        setSubmitting(true);
+        try {
+          await api.post('/cash-closures/movements', {
+            business_date: businessDate,
+            movement_type: 'purchase',
+            purchase_order_id: selectedPoId,
+            amount_cents: cents,
+            reason: reason.trim() || undefined,
+          });
+          setAmountInput('');
+          setSelectedPoId(null);
+          setReason('');
+          await loadMovements();
+          void loadPurchaseMetadata();
+          toast.success('Purchase order received and paid from drawer');
+        } catch (err: unknown) {
+          const message = axios.isAxiosError(err)
+            ? err.response?.data?.error || err.message
+            : err instanceof Error ? err.message : t('movementSaveFailed');
+          setError(message);
+          toast.error(message);
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      } else {
+        // Direct Walk-In Stock Purchase
+        if (!purchaseTargetId) {
+          setError('Please select an item to purchase');
+          return;
+        }
+        const qty = Number(purchaseQuantity);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          setError('Please enter a valid purchase quantity greater than 0');
+          return;
+        }
+        const cents = amountCents();
+        if (cents === null || cents <= 0) {
+          setError(t('movementAmountRequired'));
+          return;
+        }
+
+        setSubmitting(true);
+        try {
+          await api.post('/cash-closures/movements', {
+            business_date: businessDate,
+            movement_type: 'purchase',
+            target_type: purchaseTargetType,
+            target_id: purchaseTargetId,
+            quantity: qty,
+            amount_cents: cents,
+            supplier_id: purchaseSupplierId || undefined,
+            reason: reason.trim() || undefined,
+          });
+          setAmountInput('');
+          setPurchaseQuantity('');
+          setPurchaseTargetId(null);
+          setReason('');
+          await loadMovements();
+          void loadPurchaseMetadata();
+          toast.success('Stock received and paid from drawer');
+        } catch (err: unknown) {
+          const message = axios.isAxiosError(err)
+            ? err.response?.data?.error || err.message
+            : err instanceof Error ? err.message : t('movementSaveFailed');
+          setError(message);
+          toast.error(message);
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      }
+    }
+
+    // Standard Modes: opening_float, pay_in, pay_out, safe_drop
     const cents = amountCents();
     if (cents === null || (movementType !== 'opening_float' && cents === 0)) {
       setError(t('movementAmountRequired'));
@@ -153,6 +355,7 @@ export function useCashDrawerMovements() {
     setOpen,
     openModal,
     loadMovements,
+    loadPurchaseMetadata,
     businessDate,
     setBusinessDate,
     movementType,
@@ -173,6 +376,36 @@ export function useCashDrawerMovements() {
     t,
     tCommon,
     todayLocal,
+
+    // Expense fields
+    expenseCategory,
+    setExpenseCategory,
+    costType,
+    setCostType,
+    expenseTitle,
+    setExpenseTitle,
+    expenseNotes,
+    setExpenseNotes,
+
+    // Purchase fields
+    purchaseMode,
+    setPurchaseMode,
+    selectedPoId,
+    setSelectedPoId,
+    purchaseTargetType,
+    setPurchaseTargetType,
+    purchaseTargetId,
+    setPurchaseTargetId,
+    purchaseQuantity,
+    setPurchaseQuantity,
+    purchaseSupplierId,
+    setPurchaseSupplierId,
+
+    // Purchase options
+    openPurchaseOrders,
+    availableItems,
+    suppliers,
+    loadingOptions,
   };
 }
 

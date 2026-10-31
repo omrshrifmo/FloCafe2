@@ -1,13 +1,16 @@
 /**
- * FloCafe Release 4.0.5 Enterprise Operations, Costing, Stocktaking, HACCP, HRM & Finance Suite
+ * FloCafe Release 4.0.6 Enterprise Operations, Costing, Stocktaking, HACCP, HRM & Finance Suite
  * Integration Test Suite
  *
  * Verifies:
- * 1. Non-destructive SQLite migration v105 schema verification.
+ * 1. Non-destructive SQLite migration v105/v106 schema verification.
  * 2. Automated BOM gross-quantity deduction (net / (1 - waste%)) and refund restoration.
  * 3. Purchase Order GRN weighted-average unit cost recalculation and stock_logs audit.
  * 4. Physical stocktake variance calculation and inventory reconciliation.
  * 5. Automated monthly loan installment deduction and loan settlement during payroll disbursement.
+ * 6. POS Cash Movement: Direct Operating Expense with shift drawer deduction.
+ * 7. POS Cash Movement: Purchase Mode A (Open PO) & Mode B (Quick COD).
+ * 8. Endpoints Integrity verification across all enterprise modules.
  */
 const Module = require('module');
 const originalLoad = Module._load;
@@ -17,7 +20,7 @@ const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-enterprise-test-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
-    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.5' } };
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.6' } };
   }
   return originalLoad.apply(this, arguments as any);
 };
@@ -31,7 +34,7 @@ const { registerRoutes } = require('../main/routes/index');
 const { randomUUID } = require('crypto');
 
 async function main() {
-  console.log('FloCafe 4.0.5 Enterprise Suite Integration Test');
+  console.log('FloCafe 4.0.6 Enterprise Suite Integration Test');
   console.log('='.repeat(70));
   resetCounters();
 
@@ -45,10 +48,10 @@ async function main() {
   const { baseUrl, server } = await startServer(app);
 
   try {
-    // ── Test 1: Non-destructive SQLite migration v105 schema verification ──────
-    console.log('\n[1] Verifying Release 4.0.5 Schema Migration (v105)...');
+    // ── Test 1: Non-destructive SQLite migration v106 schema verification ──────
+    console.log('\n[1] Verifying Release 4.0.6 Schema Migration (v106)...');
     const userVersion = db.pragma('user_version', { simple: true });
-    assertOrThrow(userVersion >= 105, `Schema user_version is ${userVersion} (expected >= 105)`);
+    assertOrThrow(userVersion >= 106, `Schema user_version is ${userVersion} (expected >= 106)`);
 
     const tables = [
       'stock_logs', 'cash_movements', 'operating_expenses', 'suppliers',
@@ -269,6 +272,153 @@ async function main() {
     const slip2: any = db.prepare('SELECT * FROM hr_payroll_runs WHERE staff_id = ? AND payroll_month = ?').get(staffId, '2026-12');
     assertEqualOrThrow(Number(slip2.loan_installment_deducted), 100, 'Month 2 deducted remaining 100 loan balance');
     assertEqualOrThrow(Number(slip2.net_payable), 4900, 'Net payable is 5000 - 100 = 4900');
+
+    // ── Test 6: POS Cash Movement — Direct Operating Expense ─────────────────
+    console.log('\n[6] Verifying POS Cash Movement: Direct Operating Expense...');
+    // Open a cash shift session
+    const openShiftRes = await api(baseUrl, '/api/cash-sessions/open', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        opening_float_cents: 20000, // 200.00
+      },
+    });
+    assertEqualOrThrow(openShiftRes.status, 200, 'Cash session opened successfully');
+    const sessionId = openShiftRes.data.id || openShiftRes.data.session?.id;
+
+    // Record an Expense from drawer
+    const expenseRes = await api(baseUrl, '/api/cash-closures/movements', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        business_date: '2026-11-01',
+        movement_type: 'expense',
+        amount_cents: 2500, // 25.00
+        expense_category: 'Store Supplies & Ice',
+        cost_type: 'direct',
+        title: '5 Bags of Ice',
+        notes: 'Emergency ice purchase for rush hour',
+      },
+    });
+    assertEqualOrThrow(expenseRes.status, 201, 'Expense movement recorded');
+    const drawerMvtId = expenseRes.data.movement.id;
+
+    // Verify cash_drawer_movements record has movement_type = 'pay_out'
+    const cdm = db.prepare('SELECT * FROM cash_drawer_movements WHERE id = ?').get(drawerMvtId) as any;
+    assertEqualOrThrow(cdm.movement_type, 'pay_out', 'Drawer movement saved as pay_out');
+    assertEqualOrThrow(Number(cdm.amount_cents), 2500, 'Drawer movement has amount 2500 cents');
+
+    // Verify cash_movements has linked cash_drawer_movement_id
+    const cm = db.prepare('SELECT * FROM cash_movements WHERE cash_drawer_movement_id = ?').get(drawerMvtId) as any;
+    assertOrThrow(Boolean(cm), 'Cash movement linked to drawer movement');
+    assertEqualOrThrow(cm.movement_type, 'petty_expense', 'Cash movement type is petty_expense');
+
+    // Verify operating_expenses record created with session link
+    const oe = db.prepare('SELECT * FROM operating_expenses WHERE paid_from_session_id = ?').get(String(sessionId)) as any;
+    assertOrThrow(Boolean(oe), 'Operating expense record created with paid_from_session_id');
+    assertEqualOrThrow(oe.cost_type, 'direct', 'Expense cost_type is direct');
+    assertEqualOrThrow(Number(oe.amount), 25.00, 'Operating expense amount is 25.00');
+
+    // ── Test 7: POS Cash Movement — Purchase Modes A & B ─────────────────────
+    console.log('\n[7] Verifying POS Cash Movement: Purchase Mode A (Open PO) & Mode B (Quick COD)...');
+    // Mode A: Create a supplier and PO
+    const supId = randomUUID();
+    db.prepare(`
+      INSERT INTO suppliers (id, name, contact_person, phone, email, is_active, created_at, updated_at)
+      VALUES (?, 'Metro Dairy Supplies', 'Bob', '555-0199', 'bob@metro.test', 1, datetime('now'), datetime('now'))
+    `).run(supId);
+
+    const posPoId = randomUUID();
+    db.prepare(`
+      INSERT INTO purchase_orders (id, po_number, supplier_id, status, total_amount, created_by, created_at, updated_at)
+      VALUES (?, 'PO-2026-TEST', ?, 'ordered', 50.00, ?, datetime('now'), datetime('now'))
+    `).run(posPoId, supId, userId);
+
+    db.prepare(`
+      INSERT INTO purchase_order_items (id, purchase_order_id, target_type, target_id, item_name, unit, ordered_qty, unit_cost, line_total)
+      VALUES (?, ?, 'inventory', ?, 'Fresh Whole Milk', 'L', 10, 5.00, 50.00)
+    `).run(randomUUID(), posPoId, milkId);
+
+    const milkBeforePo = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(milkId) as any;
+    const initialMilkQty = Number(milkBeforePo.quantity);
+
+    // Pay & receive open PO from drawer
+    const poPayRes = await api(baseUrl, '/api/cash-closures/movements', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        business_date: '2026-11-01',
+        movement_type: 'purchase',
+        purchase_order_id: posPoId,
+        amount_cents: 5000,
+        reason: 'Paid Metro Dairy on delivery',
+      },
+    });
+    assertEqualOrThrow(poPayRes.status, 201, 'Mode A PO receipt payment processed');
+
+    // Verify PO status is now received
+    const poAfter = db.prepare('SELECT status FROM purchase_orders WHERE id = ?').get(posPoId) as any;
+    assertEqualOrThrow(poAfter.status, 'received', 'PO status updated to received');
+
+    // Verify milk stock increased by 10
+    const milkAfterPo = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(milkId) as any;
+    assertEqualOrThrow(Number(milkAfterPo.quantity), initialMilkQty + 10, 'Milk stock increased by 10');
+
+    // Mode B: Quick Walk-in COD Purchase of Arabica Coffee Beans
+    const beansBeforeCod = db.prepare('SELECT quantity, cost_per_unit FROM inventory_items WHERE id = ?').get(coffeeBeanId) as any;
+    const initialBeansQty = Number(beansBeforeCod.quantity);
+
+    const codRes = await api(baseUrl, '/api/cash-closures/movements', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        business_date: '2026-11-01',
+        movement_type: 'purchase',
+        target_type: 'inventory',
+        target_id: coffeeBeanId,
+        quantity: 500, // 500g
+        amount_cents: 10000, // 100.00 total -> 0.20/g
+        reason: 'Emergency walk-in bean purchase',
+      },
+    });
+    assertEqualOrThrow(codRes.status, 201, 'Mode B Quick COD purchase processed');
+
+    // Verify beans stock increased by 500
+    const beansAfterCod = db.prepare('SELECT quantity, cost_per_unit FROM inventory_items WHERE id = ?').get(coffeeBeanId) as any;
+    assertEqualOrThrow(Number(beansAfterCod.quantity), initialBeansQty + 500, 'Beans quantity incremented by 500g');
+
+    // Verify stock_logs contains 'Quick POS Purchase'
+    const codLog = db.prepare(`SELECT * FROM stock_logs WHERE target_id = ? AND reason = 'Quick POS Purchase'`).get(coffeeBeanId) as any;
+    assertOrThrow(Boolean(codLog), 'Stock log recorded Quick POS Purchase');
+
+    // ── Test 8: Endpoints Verification (Zero 404s or 500s) ───────────────────
+    console.log('\n[8] Verifying Endpoints Integrity (Finance, HACCP, Stocktake, Cash Sessions)...');
+    const endpoints = [
+      '/api/finance/summary',
+      '/api/finance/transactions',
+      '/api/finance/categories',
+      '/api/finance/pnl',
+      '/api/finance/reports/pnl',
+      '/api/finance/cash-movements',
+      '/api/finance/expenses',
+      '/api/haccp/templates',
+      '/api/haccp/runs',
+      '/api/haccp/ccp-logs',
+      '/api/haccp/checklists',
+      '/api/haccp/batches',
+      '/api/stocktake',
+      '/api/stocktakes',
+      '/api/cash-sessions/active',
+      '/api/cash-closures/purchase-options',
+    ];
+
+    for (const ep of endpoints) {
+      const res = await api(baseUrl, ep, {
+        method: 'GET',
+        headers: authHeader,
+      });
+      assertEqualOrThrow(res.status, 200, `Endpoint ${ep} returned 200 OK`);
+    }
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

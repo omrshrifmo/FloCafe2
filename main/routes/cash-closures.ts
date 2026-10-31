@@ -52,11 +52,14 @@ import {
 import { Z_REPORT_LANGUAGE_POLICY_KEY, parseStoredLanguagePolicy } from '../lib/print-language-settings';
 import { resolveReceiptLanguages, type ReceiptLanguagePolicy } from '../../shared/print';
 
+import { randomUUID } from 'crypto';
+
 const router = Router();
 const MAX_NOTES_LENGTH = 500;
 const MAX_MOVEMENT_REASON_LENGTH = 500;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+export type ExtendedMovementType = 'opening_float' | 'pay_in' | 'pay_out' | 'safe_drop' | 'expense' | 'purchase';
 type CashDrawerMovementType = 'opening_float' | 'pay_in' | 'pay_out' | 'safe_drop';
 
 interface CashDrawerMovementRow {
@@ -139,11 +142,11 @@ function validateCents(raw: unknown, field: string, allowZero = true): number {
   return raw;
 }
 
-function validateMovementType(raw: unknown): CashDrawerMovementType {
-  if (raw !== 'opening_float' && raw !== 'pay_in' && raw !== 'pay_out' && raw !== 'safe_drop') {
+function validateMovementType(raw: unknown): ExtendedMovementType {
+  if (raw !== 'opening_float' && raw !== 'pay_in' && raw !== 'pay_out' && raw !== 'safe_drop' && raw !== 'expense' && raw !== 'purchase') {
     throw httpError('movement_type is invalid', 400);
   }
-  return raw;
+  return raw as ExtendedMovementType;
 }
 
 function validateMovementReason(raw: unknown, required: boolean): string | null {
@@ -553,6 +556,7 @@ export function sessionExpectedCash(
         AND movement_type IN ('cash_in')
         AND payment_method = 'cash'
         AND voided_at IS NULL
+        AND (cash_drawer_movement_id IS NULL OR cash_drawer_movement_id = 0)
     ),
     extra_cash_outs AS (
       SELECT COALESCE(SUM(amount * ?), 0) AS extra_out_cents
@@ -561,6 +565,7 @@ export function sessionExpectedCash(
         AND movement_type IN ('paid_out', 'petty_expense', 'safe_drop', 'supplier_payment', 'loan_disbursement', 'payroll_payout')
         AND payment_method = 'cash'
         AND voided_at IS NULL
+        AND (cash_drawer_movement_id IS NULL OR cash_drawer_movement_id = 0)
     )
     SELECT
       (SELECT sales_cents FROM cash_sales) AS sales_cents,
@@ -778,6 +783,43 @@ export function computePeriodAggregates(
   };
 }
 
+router.get('/purchase-options', requirePermission('cash.movements.manage'), (_req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const openOrders = db.prepare(`
+      SELECT po.id, po.po_number, po.supplier_id, s.name as supplier_name, po.total_amount, po.status
+      FROM purchase_orders po
+      LEFT JOIN suppliers s ON s.id = po.supplier_id
+      WHERE po.status IN ('ordered', 'pending')
+      ORDER BY po.created_at DESC
+    `).all();
+
+    const suppliers = db.prepare(`
+      SELECT id, name, category, payment_terms FROM suppliers WHERE is_active = 1 ORDER BY name ASC
+    `).all();
+
+    const inventoryItems = db.prepare(`
+      SELECT id, name, sku, category, unit, quantity, cost_per_unit, 'inventory' as target_type
+      FROM inventory_items WHERE is_active = 1 ORDER BY name ASC
+    `).all();
+
+    const supplyItems = db.prepare(`
+      SELECT id, name, null as sku, 'supply' as category, base_unit as unit,
+             stock_quantity as quantity, 0 as cost_per_unit, 'supplies' as target_type
+      FROM supplies WHERE is_active = 1 AND deleted_at IS NULL ORDER BY name ASC
+    `).all();
+
+    res.json({
+      purchase_orders: openOrders,
+      suppliers,
+      items: [...inventoryItems, ...supplyItems],
+    });
+  } catch (error: any) {
+    console.error('[CashClosures] Purchase options error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 router.get('/movements', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
   try {
     const businessDate = validateBusinessDate(req.query.business_date);
@@ -789,35 +831,314 @@ router.get('/movements', requirePermission('cash.movements.manage'), (req: Reque
   }
 });
 
-router.post('/movements', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
+function mapOperatingExpenseCategory(cat?: string): string {
+  const c = String(cat || '').toLowerCase().trim();
+  if (c.includes('utilit')) return 'utilities';
+  if (c.includes('maint') || c.includes('repair')) return 'maintenance';
+  if (c.includes('packag') || c.includes('consumable')) return 'packaging_overhead';
+  if (c.includes('market')) return 'marketing';
+  if (c.includes('rent')) return 'rent';
+  if (c.includes('license')) return 'licenses';
+  if (c.includes('deprec')) return 'equipment_depreciation';
+  return 'other';
+}
+
+export function handleCreateCashMovement(req: Request, res: Response): void {
   try {
     const body = req.body || {};
     const businessDate = validateBusinessDate(body.business_date);
     const movementType = validateMovementType(body.movement_type);
-    const amountCents = validateCents(body.amount_cents, 'amount_cents', movementType === 'opening_float');
-    const reason = validateMovementReason(body.reason, movementType !== 'opening_float');
     const createdBy = String((req as any).user?.userId || '');
     if (!createdBy) throw httpError('Authentication required', 401);
     const db = getDatabase();
-    // Shift enforcement (#279): every movement touches the drawer.
     requireOpenSessionForCash(db);
-    const id = withTxn(() => {
-      if (closedDayExists(db, businessDate)) throw httpError('This day is already closed', 409);
-      try {
-        const result = db.prepare(`
+    const activeSession = getOpenSession(db);
+    const sessionId = activeSession?.id ?? NO_CASH_SESSION_ID;
+    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+
+    if (closedDayExists(db, businessDate)) throw httpError('This day is already closed', 409);
+
+    let id: number = 0;
+
+    if (movementType === 'expense') {
+      const amountCents = validateCents(body.amount_cents, 'amount_cents', false);
+      const categoryLabel = String(body.expense_category || 'Other').trim();
+      const mappedCategory = mapOperatingExpenseCategory(categoryLabel);
+      const costType = (body.cost_type === 'indirect' || (!body.cost_type && (mappedCategory === 'utilities' || mappedCategory === 'maintenance' || mappedCategory === 'rent'))) ? 'indirect' : 'direct';
+      const title = String(body.title || body.vendor || body.reason || 'Petty Expense').trim();
+      const notes = body.notes ? String(body.notes).trim() : null;
+      const amountUnits = amountCents / minorFactor;
+
+      id = withTxn(() => {
+        const timestamp = now();
+        const drawerResult = db.prepare(`
           INSERT INTO cash_drawer_movements (
             business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(businessDate, movementType, amountCents, reason, createdBy, now(), getOpenSession(db)?.id ?? NO_CASH_SESSION_ID);
-        return Number(result.lastInsertRowid);
-      } catch (error: any) {
-        if (String(error?.message || '').includes('cash_drawer_one_opening_float')
-          || (movementType === 'opening_float' && String(error?.message || '').includes('cash_drawer_movements.business_date'))) {
-          throw httpError('An opening float is already recorded for this day', 409);
-        }
-        throw error;
+          ) VALUES (?, 'pay_out', ?, ?, ?, ?, ?)
+        `).run(businessDate, amountCents, `Petty Expense: ${title}`, createdBy, timestamp, sessionId);
+        const drawerId = Number(drawerResult.lastInsertRowid);
+
+        const cmId = randomUUID();
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'petty_expense', ?, ?, 'cash', 'operating_expense', ?, ?, ?, ?, ?)
+        `).run(
+          cmId,
+          sessionId > 0 ? String(sessionId) : null,
+          categoryLabel,
+          amountUnits,
+          null,
+          notes || body.reason || null,
+          createdBy,
+          timestamp,
+          drawerId,
+        );
+
+        const expenseId = randomUUID();
+        db.prepare(`
+          INSERT INTO operating_expenses (
+            id, title, category, cost_type, allocation_method, amount, billing_cycle, business_date,
+            paid_from_session_id, supplier_id, notes, created_by, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'per_unit_sold', ?, 'one_time', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          expenseId,
+          title,
+          mappedCategory,
+          costType,
+          amountUnits,
+          businessDate,
+          sessionId > 0 ? String(sessionId) : null,
+          body.supplier_id ? String(body.supplier_id) : null,
+          notes || body.reason || null,
+          createdBy,
+          timestamp,
+          timestamp,
+        );
+
+        db.prepare(`UPDATE cash_movements SET reference_id = ? WHERE id = ?`).run(expenseId, cmId);
+        return drawerId;
+      });
+    } else if (movementType === 'purchase') {
+      const timestamp = now();
+      if (body.purchase_order_id) {
+        // Mode A: Pay & Receive an Open Purchase Order (GRN)
+        const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(body.purchase_order_id) as any;
+        if (!po) throw httpError('Purchase order not found', 404);
+        if (po.status === 'received') throw httpError('Purchase order already received', 400);
+
+        const poTotal = Number(po.total_amount);
+        const poAmountCents = body.amount_cents !== undefined ? validateCents(body.amount_cents, 'amount_cents', false) : Math.round(poTotal * minorFactor);
+
+        id = withTxn(() => {
+          const items = db.prepare('SELECT * FROM purchase_order_items WHERE purchase_order_id = ?').all(po.id) as any[];
+          for (const item of items) {
+            const rQty = item.ordered_qty;
+            if (rQty <= 0) continue;
+            db.prepare('UPDATE purchase_order_items SET received_qty = ? WHERE id = ?').run(rQty, item.id);
+
+            if (item.target_type === 'inventory') {
+              const inv = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(item.target_id) as any;
+              if (inv) {
+                const prevQty = Math.max(0, Number(inv.quantity) || 0);
+                const prevCost = Math.max(0, Number(inv.cost_per_unit) || 0);
+                const newTotalQty = prevQty + rQty;
+                const newCost = newTotalQty > 0
+                  ? (prevQty * prevCost + rQty * Number(item.unit_cost)) / newTotalQty
+                  : Number(item.unit_cost);
+                db.prepare(`
+                  UPDATE inventory_items
+                  SET quantity = ?, cost_per_unit = ?, updated_at = ?
+                  WHERE id = ?
+                `).run(newTotalQty, newCost, timestamp, inv.id);
+
+                db.prepare(`
+                  INSERT INTO stock_logs (
+                    target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+                  ) VALUES ('inventory', ?, ?, ?, ?, 'GRN Received (Paid at POS)', ?, 'purchase_order', ?, ?)
+                `).run(inv.id, rQty, newTotalQty, inv.unit || item.unit, createdBy, po.id, timestamp);
+              }
+            } else {
+              const sup = db.prepare('SELECT * FROM supplies WHERE id = ?').get(item.target_id) as any;
+              if (sup) {
+                const prevQty = Math.max(0, Number(sup.stock_quantity ?? sup.quantity ?? 0));
+                const prevCost = Math.max(0, Number(sup.cost_cents || 0) / 100);
+                const newTotalQty = prevQty + rQty;
+                const newCost = newTotalQty > 0
+                  ? (prevQty * prevCost + rQty * Number(item.unit_cost)) / newTotalQty
+                  : Number(item.unit_cost);
+                db.prepare(`
+                  UPDATE supplies
+                  SET stock_quantity = ?, quantity = ?, cost_cents = ?, updated_at = ?
+                  WHERE id = ?
+                `).run(newTotalQty, newTotalQty, Math.round(newCost * 100), timestamp, sup.id);
+
+                db.prepare(`
+                  INSERT INTO stock_logs (
+                    target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+                  ) VALUES ('supply', ?, ?, ?, ?, 'GRN Received (Paid at POS)', ?, 'purchase_order', ?, ?)
+                `).run(sup.id, rQty, newTotalQty, sup.base_unit || item.unit, createdBy, po.id, timestamp);
+              }
+            }
+          }
+
+          db.prepare(`
+            UPDATE purchase_orders
+            SET status = 'received', paid_amount = total_amount, received_at = ?, received_by = ?, updated_at = ?
+            WHERE id = ?
+          `).run(timestamp, createdBy, timestamp, po.id);
+
+          const drawerResult = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (?, 'pay_out', ?, ?, ?, ?, ?)
+          `).run(businessDate, poAmountCents, `Purchase Order: PO ${po.po_number}`, createdBy, timestamp, sessionId);
+          const drawerId = Number(drawerResult.lastInsertRowid);
+
+          const cmId = randomUUID();
+          db.prepare(`
+            INSERT INTO cash_movements (
+              id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+            ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?, ?)
+          `).run(
+            cmId,
+            sessionId > 0 ? String(sessionId) : null,
+            poTotal,
+            po.id,
+            `POS payment for PO ${po.po_number}`,
+            createdBy,
+            timestamp,
+            drawerId,
+          );
+
+          return drawerId;
+        });
+      } else {
+        // Mode B: Quick Direct Cash Purchase (Walk-in / COD Stock Purchase)
+        const amountCents = validateCents(body.amount_cents, 'amount_cents', false);
+        const targetType = body.target_type === 'supply' ? 'supply' : 'inventory';
+        const targetId = String(body.target_id || '').trim();
+        if (!targetId) throw httpError('target_id is required for quick purchase', 400);
+        const purchasedQty = Math.max(0.0001, Number(body.quantity) || 1);
+        const totalCashPaid = amountCents / minorFactor;
+        const unitCost = totalCashPaid / purchasedQty;
+
+        id = withTxn(() => {
+          let itemName = 'Item';
+          let unit = 'unit';
+          const quickPoId = randomUUID();
+          const poNumber = `PO-POS-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
+
+          let supplierId = body.supplier_id ? String(body.supplier_id) : null;
+          if (!supplierId) {
+            let defaultSupp = db.prepare("SELECT id FROM suppliers WHERE name = 'Walk-in / Cash Supplier' LIMIT 1").get() as any;
+            if (!defaultSupp) {
+              const dId = randomUUID();
+              db.prepare(`
+                INSERT INTO suppliers (id, name, payment_terms, is_active, created_at, updated_at)
+                VALUES (?, 'Walk-in / Cash Supplier', 'COD', 1, ?, ?)
+              `).run(dId, timestamp, timestamp);
+              supplierId = dId;
+            } else {
+              supplierId = defaultSupp.id;
+            }
+          }
+
+          if (targetType === 'inventory') {
+            const inv = db.prepare('SELECT name, unit, quantity, cost_per_unit FROM inventory_items WHERE id = ?').get(targetId) as any;
+            if (!inv) throw httpError('Inventory item not found', 404);
+            itemName = inv.name;
+            unit = inv.unit || 'unit';
+            const prevQty = Math.max(0, Number(inv.quantity) || 0);
+            const prevCost = Math.max(0, Number(inv.cost_per_unit) || 0);
+            const newTotalQty = prevQty + purchasedQty;
+            const newCost = (prevQty * prevCost + totalCashPaid) / newTotalQty;
+            db.prepare(`UPDATE inventory_items SET quantity = ?, cost_per_unit = ?, updated_at = ? WHERE id = ?`)
+              .run(newTotalQty, newCost, timestamp, targetId);
+            db.prepare(`
+              INSERT INTO stock_logs (
+                target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+              ) VALUES ('inventory', ?, ?, ?, ?, 'Quick POS Purchase', ?, 'purchase_order', ?, ?)
+            `).run(targetId, purchasedQty, newTotalQty, unit, createdBy, quickPoId, timestamp);
+          } else {
+            const sup = db.prepare('SELECT name, base_unit, quantity, stock_quantity, cost_cents FROM supplies WHERE id = ?').get(targetId) as any;
+            if (!sup) throw httpError('Supply item not found', 404);
+            itemName = sup.name;
+            unit = sup.base_unit || 'unit';
+            const prevQty = Math.max(0, Number(sup.stock_quantity ?? sup.quantity ?? 0));
+            const prevCost = Math.max(0, Number(sup.cost_cents || 0) / 100);
+            const newTotalQty = prevQty + purchasedQty;
+            const newCost = (prevQty * prevCost + totalCashPaid) / newTotalQty;
+            db.prepare(`UPDATE supplies SET stock_quantity = ?, quantity = ?, cost_cents = ?, updated_at = ? WHERE id = ?`)
+              .run(newTotalQty, newTotalQty, Math.round(newCost * 100), timestamp, targetId);
+            db.prepare(`
+              INSERT INTO stock_logs (
+                target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+              ) VALUES ('supply', ?, ?, ?, ?, 'Quick POS Purchase', ?, 'purchase_order', ?, ?)
+            `).run(targetId, purchasedQty, newTotalQty, unit, createdBy, quickPoId, timestamp);
+          }
+
+          db.prepare(`
+            INSERT INTO purchase_orders (
+              id, po_number, supplier_id, status, subtotal, total_amount, paid_amount, received_at, received_by, notes, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(quickPoId, poNumber, supplierId, totalCashPaid, totalCashPaid, totalCashPaid, timestamp, createdBy, body.notes || 'Quick Direct Cash Purchase at POS', createdBy, timestamp, timestamp);
+
+          const itemId = randomUUID();
+          db.prepare(`
+            INSERT INTO purchase_order_items (
+              id, purchase_order_id, target_type, target_id, item_name, unit, ordered_qty, received_qty, unit_cost, line_total
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(itemId, quickPoId, targetType, targetId, itemName, unit, purchasedQty, purchasedQty, unitCost, totalCashPaid);
+
+          const drawerResult = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (?, 'pay_out', ?, ?, ?, ?, ?)
+          `).run(businessDate, amountCents, `Purchase: ${itemName} (${purchasedQty} ${unit})`, createdBy, timestamp, sessionId);
+          const drawerId = Number(drawerResult.lastInsertRowid);
+
+          const cmId = randomUUID();
+          db.prepare(`
+            INSERT INTO cash_movements (
+              id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+            ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?, ?)
+          `).run(
+            cmId,
+            sessionId > 0 ? String(sessionId) : null,
+            totalCashPaid,
+            quickPoId,
+            `POS quick purchase: ${itemName}`,
+            createdBy,
+            timestamp,
+            drawerId,
+          );
+
+          return drawerId;
+        });
       }
-    });
+    } else {
+      // Standard: opening_float, pay_in, pay_out, safe_drop
+      const amountCents = validateCents(body.amount_cents, 'amount_cents', movementType === 'opening_float');
+      const reason = validateMovementReason(body.reason, movementType !== 'opening_float');
+      id = withTxn(() => {
+        try {
+          const result = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(businessDate, movementType, amountCents, reason, createdBy, now(), sessionId);
+          return Number(result.lastInsertRowid);
+        } catch (error: any) {
+          if (String(error?.message || '').includes('cash_drawer_one_opening_float')
+            || (movementType === 'opening_float' && String(error?.message || '').includes('cash_drawer_movements.business_date'))) {
+            throw httpError('An opening float is already recorded for this day', 409);
+          }
+          throw error;
+        }
+      });
+    }
+
     const movement = db.prepare(`
       SELECT m.*, created_user.name AS created_by_name, voided_user.name AS voided_by_name
       FROM cash_drawer_movements m
@@ -831,7 +1152,9 @@ router.post('/movements', requirePermission('cash.movements.manage'), (req: Requ
     if (status === 500) console.error('[CashClosures] Movement create error:', error);
     res.status(status).json({ error: status === 500 ? 'Internal server error' : error.message || 'Internal server error' });
   }
-});
+}
+
+router.post('/movements', requirePermission('cash.movements.manage'), handleCreateCashMovement);
 
 router.post('/movements/:id/void', requirePermission('cash.movements.void'), (req: Request, res: Response) => {
   try {

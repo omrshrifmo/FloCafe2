@@ -356,3 +356,146 @@ haccpRoutes.post('/batches/:id/discard', requirePermission('haccp.logs.manage'),
   }
 });
 
+// ==========================================
+// Phase 3 — HACCP Checklist Templates & Runs
+// ==========================================
+haccpRoutes.get('/templates', (req, res) => {
+  try {
+    const db = getDatabase();
+    let templates = db.prepare('SELECT * FROM haccp_templates WHERE is_active = 1 ORDER BY id ASC').all() as any[];
+    if (templates.length === 0) {
+      const defaultTemplates = [
+        {
+          title: 'Daily Opening & Food Safety Checklist',
+          category: 'Daily Opening',
+          frequency: 'daily',
+          items: [
+            { id: 'item-1', label: 'Cold Storage / Milk Fridge Temperature check', type: 'temperature', min_temp: 0, max_temp: 4 },
+            { id: 'item-2', label: 'Freezer Temperature check (-18°C or below)', type: 'temperature', min_temp: -25, max_temp: -18 },
+            { id: 'item-3', label: 'Sanitizer buckets prepared and verified with test strips', type: 'checkbox' },
+            { id: 'item-4', label: 'Handwashing sinks stocked with warm water, soap, paper towels', type: 'checkbox' },
+            { id: 'item-5', label: 'Espresso machine group heads purged and steam wands sanitized', type: 'checkbox' },
+          ],
+        },
+        {
+          title: 'Mid-Day Shift & Prep Line Hygiene',
+          category: 'Mid-Shift',
+          frequency: 'shift',
+          items: [
+            { id: 'item-6', label: 'Pastry & Food display case temperature check', type: 'temperature', min_temp: 0, max_temp: 5 },
+            { id: 'item-7', label: 'Steam wand purged after milk steaming and sanitized', type: 'checkbox' },
+            { id: 'item-8', label: 'Food contact surfaces wiped with food-safe sanitizer', type: 'checkbox' },
+            { id: 'item-9', label: 'Trash and recycling bins checked and emptied if full', type: 'checkbox' },
+          ],
+        },
+        {
+          title: 'Night Closing & Sanitation Protocol',
+          category: 'Closing',
+          frequency: 'daily',
+          items: [
+            { id: 'item-10', label: 'Espresso machine backflushed with detergent', type: 'checkbox' },
+            { id: 'item-11', label: 'Milk wands disassembled, soaked in cleaner, and wiped', type: 'checkbox' },
+            { id: 'item-12', label: 'All perishable dairy, syrups, and opened items dated and refrigerated', type: 'checkbox' },
+            { id: 'item-13', label: 'Ice bins emptied and wiped down', type: 'checkbox' },
+            { id: 'item-14', label: 'Final closing fridge temperature audit', type: 'temperature', min_temp: 0, max_temp: 4 },
+          ],
+        },
+      ];
+      const insertTpl = db.prepare(`
+        INSERT INTO haccp_templates (title, category, frequency, is_active, items_json)
+        VALUES (?, ?, ?, 1, ?)
+      `);
+      for (const dt of defaultTemplates) {
+        insertTpl.run(dt.title, dt.category, dt.frequency, JSON.stringify(dt.items));
+      }
+      templates = db.prepare('SELECT * FROM haccp_templates WHERE is_active = 1 ORDER BY id ASC').all() as any[];
+    }
+    res.json({ templates });
+  } catch (error: any) {
+    console.error('[HACCP] Error listing templates:', error);
+    res.status(500).json({ error: error.message || 'Failed to list templates' });
+  }
+});
+
+haccpRoutes.post('/templates', requirePermission('haccp.logs.manage'), (req, res) => {
+  try {
+    const db = getDatabase();
+    const { title, category, frequency = 'daily', items } = req.body;
+    if (!title || !category) return res.status(400).json({ error: 'Title and category are required' });
+    const itemsJson = typeof items === 'string' ? items : JSON.stringify(items || []);
+    const result = db.prepare(`
+      INSERT INTO haccp_templates (title, category, frequency, is_active, items_json)
+      VALUES (?, ?, ?, 1, ?)
+    `).run(String(title).trim(), String(category).trim(), String(frequency).trim(), itemsJson);
+    const template = db.prepare('SELECT * FROM haccp_templates WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ template });
+  } catch (error: any) {
+    console.error('[HACCP] Error creating template:', error);
+    res.status(500).json({ error: error.message || 'Failed to create template' });
+  }
+});
+
+haccpRoutes.get('/runs', (req, res) => {
+  try {
+    const db = getDatabase();
+    const runs = db.prepare(`
+      SELECT r.*, t.title as template_title,
+        COALESCE(u.name, r.submitted_by) as submitted_by_name,
+        COALESCE(rev.name, r.reviewed_by) as reviewed_by_name
+      FROM haccp_runs r
+      LEFT JOIN haccp_templates t ON t.id = r.template_id
+      LEFT JOIN users u ON u.id = r.submitted_by
+      LEFT JOIN users rev ON rev.id = r.reviewed_by
+      ORDER BY r.created_at DESC
+      LIMIT 100
+    `).all();
+    res.json({ runs });
+  } catch (error: any) {
+    console.error('[HACCP] Error listing runs:', error);
+    res.status(500).json({ error: error.message || 'Failed to list runs' });
+  }
+});
+
+haccpRoutes.post('/runs', (req, res) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.name || user?.userId || 'staff';
+    const { template_id, status = 'submitted', score_percent = 100, has_critical_failure = 0, answers } = req.body;
+    if (!template_id) return res.status(400).json({ error: 'template_id is required' });
+
+    const answersJson = typeof answers === 'string' ? answers : JSON.stringify(answers || {});
+    const result = db.prepare(`
+      INSERT INTO haccp_runs (template_id, status, score_percent, has_critical_failure, answers_json, submitted_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(Number(template_id), status, Number(score_percent) || 0, has_critical_failure ? 1 : 0, answersJson, actorId);
+
+    const run = db.prepare('SELECT * FROM haccp_runs WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ success: true, run });
+  } catch (error: any) {
+    console.error('[HACCP] Error creating run:', error);
+    res.status(500).json({ error: error.message || 'Failed to create run' });
+  }
+});
+
+haccpRoutes.post('/runs/:id/review', requirePermission('haccp.logs.manage'), (req, res) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.name || user?.userId || 'supervisor';
+    const { status = 'approved' } = req.body;
+
+    db.prepare(`
+      UPDATE haccp_runs
+      SET status = ?, reviewed_by = ?
+      WHERE id = ?
+    `).run(status, actorId, req.params.id);
+
+    const run = db.prepare('SELECT * FROM haccp_runs WHERE id = ?').get(req.params.id);
+    res.json({ success: true, run });
+  } catch (error: any) {
+    console.error('[HACCP] Error reviewing run:', error);
+    res.status(500).json({ error: error.message || 'Failed to review run' });
+  }
+});
+

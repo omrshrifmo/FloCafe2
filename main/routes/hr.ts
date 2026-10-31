@@ -64,6 +64,55 @@ hrRoutes.put('/employees/:id', requirePermission('staff.operational.manage'), (r
 
 
 // Advances and Loans
+hrRoutes.get('/advances', requirePermission('staff.view'), (req, res) => {
+  try {
+    const db = getDatabase();
+    const records = db.prepare(`
+      SELECT a.id, a.employee_id as user_id, e.name as staff_name,
+             (a.amount_cents / 100.0) as amount,
+             (a.remaining_cents / 100.0) as remaining_balance,
+             (a.installment_cents / 100.0) as deduction_per_period,
+             a.status, a.created_at
+      FROM employee_advances_loans a
+      JOIN employees e ON e.id = a.employee_id
+      ORDER BY a.created_at DESC
+    `).all();
+    res.json({ advances: records });
+  } catch (error: any) {
+    console.error('[API] Error listing advances:', error);
+    res.status(500).json({ error: 'Failed to list advances' });
+  }
+});
+
+hrRoutes.post('/advances', requirePermission('staff.operational.manage'), (req, res) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const { user_id, employee_id, amount, deduction_per_period, reason, disburse_from_drawer, shift_id } = req.body;
+    const targetId = user_id || employee_id;
+    if (!targetId || !amount) {
+      return res.status(400).json({ error: 'user_id and amount are required' });
+    }
+    const amountCents = Math.round(Number(amount) * 100);
+    const installmentCents = deduction_per_period ? Math.round(Number(deduction_per_period) * 100) : 0;
+
+    const record = createAdvanceOrLoan(db, {
+      employeeId: String(targetId),
+      type: 'advance',
+      amountCents,
+      installmentCents,
+      approvedBy: user?.id || user?.userId || 'system',
+      disburseNow: Boolean(disburse_from_drawer),
+      shiftId: shift_id ? Number(shift_id) : undefined,
+      notes: reason ? String(reason) : undefined,
+    });
+    res.status(201).json({ advance: record, success: true });
+  } catch (error: any) {
+    console.error('[API] Error creating advance:', error);
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to record advance' });
+  }
+});
+
 hrRoutes.get('/advances-loans', requirePermission('staff.view'), (req, res) => {
   try {
     const db = getDatabase();
@@ -170,6 +219,47 @@ hrRoutes.get('/payroll/runs', requirePermission('staff.operational.manage'), (re
   } catch (error: any) {
     console.error('[API] Error listing payroll runs:', error);
     res.status(500).json({ error: 'Failed to list payroll runs' });
+  }
+});
+
+hrRoutes.post('/payroll/calculate', requirePermission('staff.operational.manage'), (req, res) => {
+  try {
+    const db = getDatabase();
+    const employees = db.prepare(`SELECT * FROM employees WHERE employment_status = 'active' ORDER BY name ASC`).all() as any[];
+    const calculations = employees.map((emp) => {
+      const basePay = (emp.base_salary_cents || 0) / 100.0;
+      const loans = db.prepare(`
+        SELECT remaining_cents, installment_cents
+        FROM employee_advances_loans
+        WHERE employee_id = ? AND status = 'active'
+      `).all(emp.id) as any[];
+
+      let loanDeduction = 0;
+      for (const l of loans) {
+        const inst = l.installment_cents > 0 ? l.installment_cents : l.remaining_cents;
+        loanDeduction += Math.min(l.remaining_cents, inst) / 100.0;
+      }
+      const netPay = Math.max(0, basePay - loanDeduction);
+
+      return {
+        staff_id: emp.id,
+        staff_name: emp.name,
+        role: emp.role || 'staff',
+        base_pay: basePay,
+        regular_hours: 160,
+        overtime_hours: 0,
+        overtime_pay: 0,
+        loan_deduction: loanDeduction,
+        bonus: 0,
+        deductions: 0,
+        net_pay: netPay,
+      };
+    });
+
+    res.json({ calculations });
+  } catch (error: any) {
+    console.error('[API] Error calculating payroll:', error);
+    res.status(500).json({ error: error.message || 'Failed to calculate payroll' });
   }
 });
 

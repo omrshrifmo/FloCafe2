@@ -1,6 +1,6 @@
 {
   "name": "flo-desktop",
-  "version": "4.0.5",
+  "version": "4.0.6",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
@@ -46,7 +46,6 @@
     "test:flocafe-4-evolution": "node tests/run-electron-node-test.cjs tests/flocafe-4-evolution.test.ts",
     "test:enterprise-suite": "node tests/run-electron-node-test.cjs tests/enterprise-suite.test.ts",
     "test:verify-admin-pin": "node tests/run-electron-node-test.cjs tests/verify-admin-pin.test.ts",
-
     "test:dev-tooling": "ts-node --transpile-only -P tests/tsconfig.json tests/dev-tooling-scripts.test.ts && npm run test:phase2 && npm run test:runtime-recovery && npm run test:backend-health && npm run test:url-allowlist && npm run test:static-routes",
     "test:script-coverage": "node scripts/ci/validate-test-script-coverage.cjs && node tests/test-script-coverage.test.cjs && ts-node --transpile-only -P tests/tsconfig.json tests/test-harness-assertions.test.ts",
     "test:shutdown-lifecycle": "npm run build && node tests/run-electron-node-test.cjs tests/shutdown-lifecycle.test.ts",
@@ -311,6 +310,7 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "@googleapis/drive": "^26.0.0",
     "@point-of-sale/codepage-encoder": "3.0.2",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "bcryptjs": "^3.0.3",
@@ -323,7 +323,6 @@
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
-    "@googleapis/drive": "^26.0.0",
     "jsonwebtoken": "^9.0.2",
     "libphonenumber-js": "^1.13.13",
     "qrcode": "^1.5.3",

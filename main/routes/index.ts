@@ -120,6 +120,7 @@ export function registerRoutes(app: Express): void {
   app.use('/api/authorization', authorizationRoutes);
   app.use('/api/finance', financeRoutes);
   app.use('/api/stocktakes', stocktakeRoutes);
+  app.use('/api/stocktake', stocktakeRoutes);
   app.use('/api/purchasing', purchasingRoutes);
   app.use('/api/bom-costing', bomCostingRoutes);
   app.use('/api/hrm', hrmPayrollRoutes);
