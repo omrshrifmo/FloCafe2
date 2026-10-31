@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   Layers,
   Search,
@@ -15,10 +15,6 @@ import {
   Save,
   AlertTriangle,
   CheckCircle2,
-  DollarSign,
-  Clock,
-  Scale,
-  Sparkles,
 } from 'lucide-react';
 
 interface BomComponent {
@@ -73,13 +69,13 @@ interface ProductBom {
 }
 
 export default function BomPage() {
-  const { currentTenant } = useAuthStore();
+  const t = useTranslations('bomCosting');
+  const tCommon = useTranslations('common');
   const fmtCurrency = useFormatCurrency();
 
   const [products, setProducts] = useState<ProductBom[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<ProductBom | null>(null);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Available inventory & supplies for adding lines
@@ -126,9 +122,9 @@ export default function BomPage() {
         selectProduct(prods[0]);
       }
     } catch {
-      toast.error('Failed to load BOM & Costing data');
+      toast.error(t('loadError'));
     }
-  }, [selectProduct]);
+  }, [selectProduct, t]);
 
   useEffect(() => {
     let active = true;
@@ -148,16 +144,13 @@ export default function BomPage() {
         }
       })
       .catch(() => {
-        if (active) toast.error('Failed to load BOM & Costing data');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (active) toast.error(t('loadError'));
       });
 
     return () => {
       active = false;
     };
-  }, [selectProduct]);
+  }, [selectProduct, t]);
 
   const addComponentLine = () => {
     if (inventoryItems.length > 0) {
@@ -229,13 +222,13 @@ export default function BomPage() {
         header: headerForm,
         components: componentsList,
       });
-      toast.success('BOM costing saved successfully!');
+      toast.success(t('saveSuccess'));
       loadData();
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
         : null;
-      toast.error(msg || 'Failed to save BOM costing');
+      toast.error(msg || t('saveError'));
     } finally {
       setSaving(false);
     }
@@ -281,10 +274,10 @@ export default function BomPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Layers className="size-6 text-brand" />
-            Recipe BOM & Direct/Indirect Costing
+            {t('title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Multi-line Bill of Materials, waste factor scaling, prep labor rates, and overhead allocation.
+            {t('subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -296,7 +289,7 @@ export default function BomPage() {
             className="flex items-center gap-1.5"
           >
             <Save className="size-4" />
-            {saving ? 'Saving...' : 'Save Recipe BOM'}
+            {saving ? t('saving') : t('btnSaveRecipe')}
           </Button>
         </div>
       </div>
@@ -310,7 +303,7 @@ export default function BomPage() {
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search menu products..."
+                placeholder={t('searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full ps-9 pe-3 py-1.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-brand"
@@ -334,10 +327,10 @@ export default function BomPage() {
                   <div className="min-w-0">
                     <p className="font-semibold text-sm text-foreground truncate">{item.product.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {item.product.category_name || 'General'} • Price: {fmtCurrency(item.product.price)}
+                      {item.product.category_name || 'General'} • {t('kpiSellingPrice')}: {fmtCurrency(item.product.price)}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      Direct: {fmtCurrency(costing.total_direct_cost)} • Loaded: {fmtCurrency(costing.fully_loaded_unit_cost)}
+                      {t('badgeDirect')}: {fmtCurrency(costing.total_direct_cost)} • {t('kpiFullyLoadedCost')}: {fmtCurrency(costing.fully_loaded_unit_cost)}
                     </p>
                   </div>
                   <div className="shrink-0 text-end">
@@ -348,7 +341,7 @@ export default function BomPage() {
                       {costing.direct_food_cost_pct.toFixed(1)}% FC
                     </Badge>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Margin: {fmtCurrency(costing.net_contribution_margin)}
+                      {t('kpiContributionMargin')}: {fmtCurrency(costing.net_contribution_margin)}
                     </p>
                   </div>
                 </button>
@@ -356,7 +349,7 @@ export default function BomPage() {
             })}
             {filteredProducts.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
-                No products found
+                {t('noComponents')}
               </div>
             )}
           </div>
@@ -372,7 +365,7 @@ export default function BomPage() {
                   <div>
                     <h2 className="text-lg font-bold text-foreground">{selectedProduct.product.name}</h2>
                     <p className="text-xs text-muted-foreground">
-                      Menu Price: <span className="font-semibold text-foreground">{fmtCurrency(selectedProduct.product.price)}</span>
+                      {t('kpiSellingPrice')}: <span className="font-semibold text-foreground">{fmtCurrency(selectedProduct.product.price)}</span>
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -383,12 +376,12 @@ export default function BomPage() {
                       {liveExceedsTarget ? (
                         <>
                           <AlertTriangle className="size-3 text-destructive" />
-                          Exceeds Target Food Cost ({liveFoodCostPct.toFixed(1)}% &gt; {headerForm.target_food_cost_pct}%)
+                          {t('targetExceeded', { target: headerForm.target_food_cost_pct })} ({liveFoodCostPct.toFixed(1)}%)
                         </>
                       ) : (
                         <>
                           <CheckCircle2 className="size-3 text-green-500" />
-                          Food Cost In Target ({liveFoodCostPct.toFixed(1)}% ≤ {headerForm.target_food_cost_pct}%)
+                          {t('targetHealthy', { target: headerForm.target_food_cost_pct })} ({liveFoodCostPct.toFixed(1)}%)
                         </>
                       )}
                     </Badge>
@@ -398,24 +391,20 @@ export default function BomPage() {
                 {/* 4 Live Cost Metrics */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="p-3 bg-muted/40 rounded-lg border border-border/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">Direct Material</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">{t('kpiDirectMaterial')}</span>
                     <p className="text-sm font-bold text-foreground mt-0.5">{fmtCurrency(liveMaterialCost)}</p>
-                    <span className="text-[10px] text-muted-foreground">Raw ingredients & pack</span>
                   </div>
                   <div className="p-3 bg-muted/40 rounded-lg border border-border/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">Prep Labor Cost</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">{t('kpiDirectLabor')}</span>
                     <p className="text-sm font-bold text-foreground mt-0.5">{fmtCurrency(livePrepLaborCost)}</p>
-                    <span className="text-[10px] text-muted-foreground">{headerForm.prep_time_minutes} min @ {fmtCurrency(headerForm.direct_labor_rate_per_hour)}/hr</span>
                   </div>
                   <div className="p-3 bg-muted/40 rounded-lg border border-border/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">Allocated Overhead</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">{t('kpiAllocatedOverhead')}</span>
                     <p className="text-sm font-bold text-foreground mt-0.5">{fmtCurrency(liveOverhead)}</p>
-                    <span className="text-[10px] text-muted-foreground">Rent, utilities, depreciation</span>
                   </div>
                   <div className="p-3 bg-brand/10 rounded-lg border border-brand/30">
-                    <span className="text-[11px] font-medium text-brand">Fully Loaded Cost</span>
+                    <span className="text-[11px] font-medium text-brand">{t('kpiFullyLoadedCost')}</span>
                     <p className="text-sm font-bold text-brand mt-0.5">{fmtCurrency(liveFullyLoadedCost)}</p>
-                    <span className="text-[10px] text-brand/80">Margin: {fmtCurrency(liveContributionMargin)}</span>
                   </div>
                 </div>
               </div>
@@ -423,11 +412,11 @@ export default function BomPage() {
               {/* Header Parameter Controls */}
               <div className="bg-card border border-border rounded-xl p-4 shadow-xs space-y-3">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  BOM Production & Labor Parameters
+                  {t('tabCostingSettings')}
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-foreground">Yield (Portions)</label>
+                    <label className="text-xs font-medium text-foreground">{t('lblYieldPortions')}</label>
                     <input
                       type="number"
                       step="0.1"
@@ -438,7 +427,7 @@ export default function BomPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-foreground">Prep Minutes</label>
+                    <label className="text-xs font-medium text-foreground">{t('lblPrepTime')}</label>
                     <input
                       type="number"
                       step="0.5"
@@ -449,7 +438,7 @@ export default function BomPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-foreground">Labor Rate / Hr</label>
+                    <label className="text-xs font-medium text-foreground">{t('lblLaborRate')}</label>
                     <input
                       type="number"
                       step="1"
@@ -460,7 +449,7 @@ export default function BomPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-foreground">Target Food Cost %</label>
+                    <label className="text-xs font-medium text-foreground">{t('lblTargetFoodCost')}</label>
                     <input
                       type="number"
                       step="1"
@@ -478,10 +467,7 @@ export default function BomPage() {
               <div className="bg-card border border-border rounded-xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-foreground">Bill of Materials (BOM) Lines</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Gross depletion is automatically scaled by waste %: <span className="font-mono">Gross = Net / (1 - Waste%)</span>
-                    </p>
+                    <h3 className="text-sm font-bold text-foreground">{t('tabIngredients', { count: enrichedLines.length })}</h3>
                   </div>
                   <Button
                     variant="outline"
@@ -490,7 +476,7 @@ export default function BomPage() {
                     className="flex items-center gap-1 text-xs"
                   >
                     <Plus className="size-3.5" />
-                    Add Ingredient Line
+                    {t('btnAddLine')}
                   </Button>
                 </div>
 
@@ -498,15 +484,15 @@ export default function BomPage() {
                   <table className="w-full text-xs">
                     <thead className="bg-muted text-muted-foreground font-semibold">
                       <tr>
-                        <th className="p-2.5 text-start">Component</th>
-                        <th className="p-2.5 text-start">Target Type</th>
-                        <th className="p-2.5 text-end">Net Qty</th>
-                        <th className="p-2.5 text-start">Unit</th>
-                        <th className="p-2.5 text-end">Waste %</th>
-                        <th className="p-2.5 text-end">Gross Depletion</th>
-                        <th className="p-2.5 text-end">Live Cost</th>
-                        <th className="p-2.5 text-end">Line Total</th>
-                        <th className="p-2.5 text-center">Action</th>
+                        <th className="p-2.5 text-start">{t('colComponent')}</th>
+                        <th className="p-2.5 text-start">{t('colType')}</th>
+                        <th className="p-2.5 text-end">{t('colNetQty')}</th>
+                        <th className="p-2.5 text-start">{t('colType')}</th>
+                        <th className="p-2.5 text-end">{t('colWaste')}</th>
+                        <th className="p-2.5 text-end">{t('colGrossQty')}</th>
+                        <th className="p-2.5 text-end">{t('colUnitCost')}</th>
+                        <th className="p-2.5 text-end">{t('colLineCost')}</th>
+                        <th className="p-2.5 text-center">{tCommon('delete')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -585,7 +571,7 @@ export default function BomPage() {
                       {enrichedLines.length === 0 && (
                         <tr>
                           <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                            No BOM component lines added yet. Click &quot;Add Ingredient Line&quot; to configure recipe materials.
+                            {t('noComponents')}
                           </td>
                         </tr>
                       )}
@@ -596,7 +582,7 @@ export default function BomPage() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center p-12 text-center bg-card border border-border rounded-xl">
-              <p className="text-sm text-muted-foreground">Select a product from the list to view and edit its BOM</p>
+              <p className="text-sm text-muted-foreground">{t('noComponents')}</p>
             </div>
           )}
         </div>

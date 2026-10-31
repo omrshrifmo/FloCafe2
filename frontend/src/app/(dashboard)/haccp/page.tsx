@@ -7,6 +7,7 @@ import { useFormatDate } from '@/hooks/useFormatDate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   ClipboardCheck,
   Thermometer,
@@ -53,6 +54,8 @@ interface ChecklistRun {
 }
 
 export default function HaccpPage() {
+  const t = useTranslations('haccp');
+  const tCommon = useTranslations('common');
   const { currentTenant } = useAuthStore();
   const { formatDate } = useFormatDate();
 
@@ -77,9 +80,9 @@ export default function HaccpPage() {
 
       setSelectedTemplate((current) => current || (loadedTemplates.length > 0 ? loadedTemplates[0] : null));
     } catch {
-      toast.error('Failed to load HACCP checklists');
+      toast.error(t('loadError'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -95,12 +98,12 @@ export default function HaccpPage() {
         setSelectedTemplate((current) => current || (loadedTemplates.length > 0 ? loadedTemplates[0] : null));
       })
       .catch(() => {
-        if (active) toast.error('Failed to load HACCP checklists');
+        if (active) toast.error(t('loadError'));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   // Handle template selection
   const handleSelectTemplate = (tpl: ChecklistTemplate) => {
@@ -161,12 +164,12 @@ export default function HaccpPage() {
         answers,
       });
 
-      toast.success('HACCP inspection submitted successfully');
+      toast.success(t('submitSuccess'));
       setAnswers({});
       void loadData();
       setActiveTab('runs');
     } catch {
-      toast.error('Failed to submit checklist inspection');
+      toast.error(t('submitError'));
     } finally {
       setSubmittingRun(false);
     }
@@ -178,7 +181,7 @@ export default function HaccpPage() {
       toast.success(`Inspection marked as ${status}`);
       void loadData();
     } catch {
-      toast.error('Failed to review inspection');
+      toast.error(t('submitError'));
     }
   };
 
@@ -189,10 +192,10 @@ export default function HaccpPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <ClipboardCheck className="h-7 w-7 text-brand" />
-            Hygiene & HACCP Checklists
+            {t('title')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Food safety compliance, refrigeration temperatures, daily opening/closing procedures
+            {t('subtitle')}
           </p>
         </div>
       </div>
@@ -208,7 +211,7 @@ export default function HaccpPage() {
           }`}
         >
           <CheckSquare className="h-4 w-4" />
-          Perform Inspection
+          {t('tabExecute')}
         </button>
 
         <button
@@ -220,7 +223,7 @@ export default function HaccpPage() {
           }`}
         >
           <UserCheck className="h-4 w-4" />
-          Review History
+          {t('tabRuns')}
         </button>
       </div>
 
@@ -230,7 +233,7 @@ export default function HaccpPage() {
           {/* Template Selector Sidebar */}
           <div className="bg-card p-4 rounded-2xl border border-border space-y-2">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Checklists
+              {t('tabTemplates')}
             </h2>
             {templates.map((tpl) => (
               <button
@@ -261,7 +264,7 @@ export default function HaccpPage() {
                   <div>
                     <h2 className="text-xl font-bold text-foreground">{selectedTemplate.title}</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Check each item carefully. Log exact temperature numbers for coolers and freezers.
+                      {t('colChecklistItem')}
                     </p>
                   </div>
                   <Badge variant="secondary" className="capitalize">
@@ -292,7 +295,7 @@ export default function HaccpPage() {
                                 {item.label}
                               </div>
                               <span className="text-xs text-muted-foreground block mt-0.5">
-                                Safe Range: {item.min_temp}°C to {item.max_temp}°C
+                                {t('allowedRange', { min: item.min_temp ?? 0, max: item.max_temp ?? 0 })}
                               </span>
                             </div>
 
@@ -300,7 +303,7 @@ export default function HaccpPage() {
                               <input
                                 type="number"
                                 step="0.1"
-                                placeholder="°C"
+                                placeholder={t('tempUnit')}
                                 onChange={(e) => handleTempChange(item, e.target.value)}
                                 className={`w-28 px-3 py-2 bg-background border rounded-lg text-sm font-semibold text-center ${
                                   tempOutOfRange ? 'border-red-500 text-red-600 ring-2 ring-red-500/20' : 'border-border'
@@ -309,7 +312,7 @@ export default function HaccpPage() {
                               {tempOutOfRange && (
                                 <Badge variant="destructive" className="flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
-                                  Out of range!
+                                  {t('statusFail')}
                                 </Badge>
                               )}
                             </div>
@@ -346,12 +349,12 @@ export default function HaccpPage() {
                 <div className="pt-4 border-t border-border flex justify-end">
                   <Button onClick={handleSubmitRun} disabled={submittingRun} className="gap-2 px-6">
                     <CheckCircle2 className="h-4 w-4" />
-                    {submittingRun ? 'Submitting...' : 'Submit Completed Checklist'}
+                    {submittingRun ? t('submitting') : t('btnSubmitLog')}
                   </Button>
                 </div>
               </>
             ) : (
-              <p className="text-center py-12 text-muted-foreground">Select a checklist template to begin</p>
+              <p className="text-center py-12 text-muted-foreground">{t('selectTemplate')}</p>
             )}
           </div>
         </div>
@@ -361,28 +364,28 @@ export default function HaccpPage() {
       {activeTab === 'runs' && (
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Completed HACCP Submissions</h2>
-            <span className="text-xs text-muted-foreground">{runs.length} inspections</span>
+            <h2 className="text-base font-semibold text-foreground">{t('tabRuns')}</h2>
+            <span className="text-xs text-muted-foreground">{runs.length}</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">Date</th>
-                  <th className="py-3 px-4 text-start font-medium">Checklist</th>
-                  <th className="py-3 px-4 text-start font-medium">Submitted By</th>
-                  <th className="py-3 px-4 text-center font-medium">Score</th>
-                  <th className="py-3 px-4 text-center font-medium">Critical Issues</th>
-                  <th className="py-3 px-4 text-center font-medium">Status</th>
-                  <th className="py-3 px-4 text-end font-medium">Manager Action</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colRunDate')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colRunTemplate')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colRunInspector')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{t('colRunScore')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{t('colRunBreaches')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{t('colRunStatus')}</th>
+                  <th className="py-3 px-4 text-end font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {runs.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-muted-foreground">
-                      No inspection submissions recorded yet
+                      {t('noRuns')}
                     </td>
                   </tr>
                 ) : (
@@ -399,10 +402,10 @@ export default function HaccpPage() {
                       <td className="py-3.5 px-4 text-center">
                         {run.has_critical_failure ? (
                           <Badge variant="destructive" className="gap-1">
-                            <AlertTriangle className="h-3 w-3" /> Yes
+                            <AlertTriangle className="h-3 w-3" /> {tCommon('yes')}
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="text-emerald-600">None</Badge>
+                          <Badge variant="outline" className="text-emerald-600">{tCommon('no')}</Badge>
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-center">

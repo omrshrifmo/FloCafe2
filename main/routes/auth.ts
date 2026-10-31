@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto';
 import { getCurrentSchemaVersion, getDatabase, getSettingValue, now } from '../db';
 import { getJWTSecret } from '../security/jwt-secret';
 import { seedSetupProfile } from '../setup/seed-data';
-import { authorizeMasterPin, isMasterPinAvailable, setMasterPin } from '../services/master-pin';
+import { authorizeMasterPin, isMasterPinAvailable, isMasterPinSet, setMasterPin } from '../services/master-pin';
+import { checkPinRateLimit } from './orders';
 import { authRateLimit, validatePassword, revokeToken, isTokenRevoked, isTokenStale, invalidateUserAuthCache } from '../middleware/security';
 import { getCurrencySymbol, getCountryByCode, isValidTimeZone, resolveRegionalSnapshot, type RegionalSnapshot } from '../countries';
 import { countryConfirmationPatch } from '../services/country-provenance';
@@ -841,31 +842,63 @@ router.post('/verify-admin-pin', (req: Request, res: Response) => {
     if (!pin || typeof pin !== 'string') {
       return res.status(400).json({ ok: false, error: 'PIN is required' });
     }
-    const db = getDatabase();
-    const adminCandidates = db.prepare(`
-      SELECT id, name, email, role, pin_hash
-      FROM users
-      WHERE is_active = 1
-        AND pin_hash IS NOT NULL
-        AND role IN ('owner', 'manager')
-    `).all() as { id: string; name: string; email: string; role: string; pin_hash: string }[];
-
-    const matchingAdmin = adminCandidates.find((candidate) =>
-      candidate.pin_hash ? bcrypt.compareSync(pin, candidate.pin_hash) : false
-    );
-
-    if (!matchingAdmin) {
-      return res.status(401).json({ ok: false, error: 'Invalid or unauthorized Admin PIN' });
+    const trimmedPin = pin.trim();
+    if (!trimmedPin) {
+      return res.status(400).json({ ok: false, error: 'PIN is required' });
     }
 
-    return res.json({
-      ok: true,
-      admin: {
-        id: matchingAdmin.id,
-        name: matchingAdmin.name,
-        role: matchingAdmin.role,
-      },
+    const clientIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const rateLimitKey = `admin-pin-${clientIp}`;
+    if (!checkPinRateLimit(rateLimitKey)) {
+      return res.status(429).json({ ok: false, error: 'Too many incorrect PIN attempts. Please try again later.' });
+    }
+
+    const db = getDatabase();
+    const adminCandidates = db.prepare(`
+      SELECT id, name, email, role, pin, pin_hash
+      FROM users
+      WHERE is_active = 1
+        AND (pin_hash IS NOT NULL OR pin IS NOT NULL)
+        AND role IN ('owner', 'manager')
+    `).all() as { id: string; name: string; email: string; role: string; pin?: string | null; pin_hash?: string | null }[];
+
+    const matchingAdmin = adminCandidates.find((candidate) => {
+      if (candidate.pin_hash && bcrypt.compareSync(trimmedPin, candidate.pin_hash)) {
+        return true;
+      }
+      if (candidate.pin && String(candidate.pin) === trimmedPin) {
+        return true;
+      }
+      return false;
     });
+
+    if (matchingAdmin) {
+      return res.json({
+        ok: true,
+        admin: {
+          id: matchingAdmin.id,
+          name: matchingAdmin.name,
+          role: matchingAdmin.role,
+        },
+      });
+    }
+
+    // Support Master PIN fallback if configured on device
+    if (isMasterPinAvailable() && isMasterPinSet()) {
+      const masterAuth = authorizeMasterPin(trimmedPin, rateLimitKey);
+      if (masterAuth.ok) {
+        return res.json({
+          ok: true,
+          admin: {
+            id: 'master',
+            name: 'Master Admin',
+            role: 'owner',
+          },
+        });
+      }
+    }
+
+    return res.status(401).json({ ok: false, error: 'Invalid or unauthorized Admin PIN' });
   } catch (error: any) {
     console.error('[Auth] verify-admin-pin error:', error);
     res.status(500).json({ ok: false, error: 'Failed to verify admin PIN' });

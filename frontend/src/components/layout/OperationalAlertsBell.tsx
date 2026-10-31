@@ -5,6 +5,7 @@ import { Bell, AlertTriangle, ShieldAlert, ArrowRight, RefreshCw } from 'lucide-
 import Link from 'next/link';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,7 @@ interface LowItem {
 }
 
 export default function OperationalAlertsBell() {
+  const t = useTranslations('operationalAlerts');
   const [warnings, setWarnings] = useState<LowItem[]>([]);
   const [haccpBreaches, setHaccpBreaches] = useState<number>(0);
   const [generatingPo, setGeneratingPo] = useState(false);
@@ -73,14 +75,14 @@ export default function OperationalAlertsBell() {
     setGeneratingPo(true);
     try {
       const res = await api.post('/purchasing/purchase-orders/auto-restock-low', {});
-      toast.success(res.data?.message || 'Generated restock purchase orders!');
+      toast.success(res.data?.message || t('generatedSuccess'));
       setOpen(false);
       void fetchAlerts();
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
         : null;
-      toast.error(msg || 'Failed to auto-generate restock PO');
+      toast.error(msg || t('generatedError'));
     } finally {
       setGeneratingPo(false);
     }
@@ -91,7 +93,7 @@ export default function OperationalAlertsBell() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Operational & HACCP Alerts"
+          aria-label={t('ariaLabel')}
           className="relative flex items-center justify-center size-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors focus:outline-none"
         >
           <Bell className="size-4" />
@@ -106,11 +108,11 @@ export default function OperationalAlertsBell() {
         <div className="flex items-center justify-between p-3 border-b border-border bg-muted/40">
           <div className="flex items-center gap-2">
             <AlertTriangle className="size-4 text-amber-500" />
-            <h4 className="text-sm font-semibold text-foreground">Operational Alerts</h4>
+            <h4 className="text-sm font-semibold text-foreground">{t('title')}</h4>
           </div>
           {totalAlerts > 0 && (
             <Badge variant="destructive" className="text-xs px-1.5 py-0">
-              {totalAlerts} Alert{totalAlerts > 1 ? 's' : ''}
+              {t('alertBadge', { count: totalAlerts })}
             </Badge>
           )}
         </div>
@@ -122,9 +124,9 @@ export default function OperationalAlertsBell() {
                 <ShieldAlert className="size-4 text-red-500 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-semibold text-red-700 dark:text-red-400">
-                    {haccpBreaches} HACCP Critical Breach{haccpBreaches > 1 ? 'es' : ''}
+                    {t('haccpBreachTitle', { count: haccpBreaches })}
                   </p>
-                  <p className="text-[11px] text-muted-foreground">Action required in kitchen food safety log.</p>
+                  <p className="text-[11px] text-muted-foreground">{t('haccpBreachDesc')}</p>
                 </div>
               </div>
               <Link
@@ -132,19 +134,19 @@ export default function OperationalAlertsBell() {
                 onClick={() => setOpen(false)}
                 className="text-xs font-medium text-red-600 hover:underline flex items-center shrink-0"
               >
-                Log <ArrowRight className="size-3 ms-1" />
+                {t('logAction')} <ArrowRight className="size-3 ms-1" />
               </Link>
             </div>
           )}
 
           {warnings.length === 0 && haccpBreaches === 0 ? (
             <div className="py-6 text-center text-xs text-muted-foreground">
-              ✅ All inventory par levels and HACCP logs are healthy!
+              {t('allHealthy')}
             </div>
           ) : (
             <div>
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                Low & Par Threshold Items ({warnings.length})
+                {t('lowParItems', { count: warnings.length })}
               </p>
               <div className="space-y-1.5">
                 {warnings.slice(0, 6).map((item) => (
@@ -164,17 +166,17 @@ export default function OperationalAlertsBell() {
                         className="text-[10px] px-1 py-0 uppercase"
                       >
                         {item.severity === 'out_of_stock'
-                          ? 'Out'
+                          ? t('outOfStockBadge')
                           : item.severity === 'critical'
-                          ? 'Crit'
-                          : 'Low'}
+                          ? t('criticalBadge')
+                          : t('lowBadge')}
                       </Badge>
                     </div>
                   </div>
                 ))}
                 {warnings.length > 6 && (
                   <p className="text-[11px] text-center text-muted-foreground pt-1">
-                    +{warnings.length - 6} more items low on stock
+                    {t('moreLowItems', { count: warnings.length - 6 })}
                   </p>
                 )}
               </div>
@@ -192,14 +194,14 @@ export default function OperationalAlertsBell() {
               className="w-full text-xs font-semibold h-8"
             >
               <RefreshCw className={`size-3.5 me-1.5 ${generatingPo ? 'animate-spin' : ''}`} />
-              Auto-Generate Restock PO
+              {t('autoGenerateRestock')}
             </Button>
             <Link
               href="/inventory"
               onClick={() => setOpen(false)}
               className="shrink-0 text-xs text-muted-foreground hover:text-foreground font-medium px-2 py-1"
             >
-              Stocktake
+              {t('stocktakeLink')}
             </Link>
           </div>
         )}

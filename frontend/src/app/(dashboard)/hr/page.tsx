@@ -8,6 +8,7 @@ import { useFormatDate } from '@/hooks/useFormatDate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   Users,
   Clock,
@@ -65,6 +66,8 @@ interface PayrollCalculation {
 }
 
 export default function HrPage() {
+  const t = useTranslations('hrm');
+  const tCommon = useTranslations('common');
   const { currentTenant } = useAuthStore();
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
@@ -108,9 +111,9 @@ export default function HrPage() {
       setEmployees(empRes.data?.employees || []);
       setAdvances(advRes.data?.advances || []);
     } catch {
-      toast.error('Failed to load HR records');
+      toast.error(t('loadError'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -124,18 +127,18 @@ export default function HrPage() {
         setAdvances(advRes.data?.advances || []);
       })
       .catch(() => {
-        if (active) toast.error('Failed to load HR records');
+        if (active) toast.error(t('loadError'));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   // Attendance Clock-in / Clock-out
   const handlePunchClock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!punchPin || punchPin.length < 4) {
-      toast.error('Please enter a 4-digit PIN');
+      toast.error(t('pinPlaceholder'));
       return;
     }
 
@@ -143,15 +146,15 @@ export default function HrPage() {
       setPunching(true);
       if (punchAction === 'in') {
         const res = await api.post('/hr/attendance/clock-in', { pin: punchPin });
-        toast.success(`Clocked in: ${res.data?.attendance?.staff_name || 'Staff'}`);
+        toast.success(res.data?.attendance?.staff_name || t('punchSuccess'));
       } else {
         const res = await api.post('/hr/attendance/clock-out', { pin: punchPin });
-        toast.success(`Clocked out: ${res.data?.attendance?.staff_name || 'Staff'}`);
+        toast.success(res.data?.attendance?.staff_name || t('punchSuccess'));
       }
       setPunchPin('');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      toast.error(msg || 'Punch failed. Check PIN and try again.');
+      toast.error(msg || t('punchError'));
     } finally {
       setPunching(false);
     }
@@ -161,7 +164,7 @@ export default function HrPage() {
   const handleRequestAdvance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!advanceForm.user_id || !advanceForm.amount) {
-      toast.error('Employee and amount are required');
+      toast.error(t('formAmount'));
       return;
     }
 
@@ -172,12 +175,12 @@ export default function HrPage() {
         deduction_per_period: Number(advanceForm.deduction_per_period || 0),
         reason: advanceForm.reason || null,
       });
-      toast.success('Salary advance recorded');
+      toast.success(t('advanceSuccess'));
       setShowAdvanceModal(false);
       setAdvanceForm({ user_id: '', amount: '', deduction_per_period: '', reason: '' });
       void loadAll();
     } catch {
-      toast.error('Failed to record advance');
+      toast.error(t('advanceError'));
     }
   };
 
@@ -187,9 +190,9 @@ export default function HrPage() {
       setCalculating(true);
       const res = await api.post('/hr/payroll/calculate', payrollPeriod);
       setPayrollCalculations(res.data?.calculations || []);
-      toast.success(`Calculated payroll for ${res.data?.calculations?.length || 0} employees`);
+      toast.success(t('calculating'));
     } catch {
-      toast.error('Failed to calculate payroll');
+      toast.error(t('payrollFinalizedError'));
     } finally {
       setCalculating(false);
     }
@@ -205,10 +208,10 @@ export default function HrPage() {
         period_end: payrollPeriod.period_end,
         items: payrollCalculations,
       });
-      toast.success('Payroll run finalized & recorded to financial ledger');
+      toast.success(t('payrollFinalizedSuccess'));
       void loadAll();
     } catch {
-      toast.error('Failed to finalize payroll run');
+      toast.error(t('payrollFinalizedError'));
     } finally {
       setGeneratingRun(false);
     }
@@ -221,10 +224,10 @@ export default function HrPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Users className="h-7 w-7 text-brand" />
-            HR, Attendance & Payroll
+            {t('title')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Staff shifts, PIN punch clock, advances/loans, and automated payroll calculations
+            {t('subtitle')}
           </p>
         </div>
 
@@ -232,7 +235,7 @@ export default function HrPage() {
           {activeTab === 'advances' && (
             <Button onClick={() => setShowAdvanceModal(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
-              New Advance / Loan
+              {t('btnRequestAdvance')}
             </Button>
           )}
         </div>
@@ -249,7 +252,7 @@ export default function HrPage() {
           }`}
         >
           <Clock className="h-4 w-4" />
-          Punch Clock
+          {t('tabAttendance')}
         </button>
 
         <button
@@ -261,7 +264,7 @@ export default function HrPage() {
           }`}
         >
           <CreditCard className="h-4 w-4" />
-          Advances & Loans
+          {t('tabAdvances')}
         </button>
 
         <button
@@ -273,7 +276,7 @@ export default function HrPage() {
           }`}
         >
           <DollarSign className="h-4 w-4" />
-          Payroll Runs
+          {t('tabPayroll')}
         </button>
 
         <button
@@ -285,7 +288,7 @@ export default function HrPage() {
           }`}
         >
           <Briefcase className="h-4 w-4" />
-          Staff Profiles
+          {t('tabProfiles')}
         </button>
       </div>
 
@@ -295,10 +298,10 @@ export default function HrPage() {
           <div className="bg-card p-6 rounded-2xl border border-border shadow-xs space-y-4">
             <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
               <Clock className="h-5 w-5 text-brand" />
-              Staff Time Clock
+              {t('punchClockTitle')}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Enter your 4-digit staff PIN to clock in or clock out for your shift.
+              {t('punchClockSubtitle')}
             </p>
 
             <form onSubmit={handlePunchClock} className="space-y-4 pt-2">
@@ -309,7 +312,7 @@ export default function HrPage() {
                   onClick={() => setPunchAction('in')}
                   className="flex-1"
                 >
-                  Clock In
+                  {t('btnClockIn')}
                 </Button>
                 <Button
                   type="button"
@@ -317,12 +320,12 @@ export default function HrPage() {
                   onClick={() => setPunchAction('out')}
                   className="flex-1"
                 >
-                  Clock Out
+                  {t('btnClockOut')}
                 </Button>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Staff PIN</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('pinPlaceholder')}</label>
                 <input
                   type="password"
                   maxLength={6}
@@ -335,16 +338,16 @@ export default function HrPage() {
               </div>
 
               <Button type="submit" disabled={punching} className="w-full py-6 text-base font-semibold">
-                {punching ? 'Verifying...' : punchAction === 'in' ? 'Confirm Clock-In' : 'Confirm Clock-Out'}
+                {punching ? t('punching') : punchAction === 'in' ? t('btnClockIn') : t('btnClockOut')}
               </Button>
             </form>
           </div>
 
           <div className="md:col-span-2 bg-card p-6 rounded-2xl border border-border">
-            <h2 className="text-base font-semibold text-foreground mb-4">Today&apos;s Active Attendance</h2>
+            <h2 className="text-base font-semibold text-foreground mb-4">{t('tabAttendance')}</h2>
             <div className="space-y-3">
               {employees.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">No staff profiles loaded</p>
+                <p className="text-sm text-muted-foreground py-8 text-center">{t('noAdvances')}</p>
               ) : (
                 employees.slice(0, 6).map((emp) => (
                   <div key={emp.id} className="flex items-center justify-between p-3.5 bg-muted/40 rounded-xl border border-border/50">
@@ -367,28 +370,28 @@ export default function HrPage() {
       {activeTab === 'advances' && (
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Advances & Loans Ledger</h2>
-            <span className="text-xs text-muted-foreground">{advances.length} records</span>
+            <h2 className="text-base font-semibold text-foreground">{t('tabAdvances')}</h2>
+            <span className="text-xs text-muted-foreground">{advances.length}</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">Date</th>
-                  <th className="py-3 px-4 text-start font-medium">Staff Member</th>
-                  <th className="py-3 px-4 text-start font-medium">Reason</th>
-                  <th className="py-3 px-4 text-end font-medium">Total Loan</th>
-                  <th className="py-3 px-4 text-end font-medium">Per Period</th>
-                  <th className="py-3 px-4 text-end font-medium">Remaining</th>
-                  <th className="py-3 px-4 text-center font-medium">Status</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colDateRequested')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colStaff')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colReason')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{t('colAdvanceAmount')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{t('colInstallment')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{t('colBalance')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{t('colStatus')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {advances.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-muted-foreground">
-                      No staff loans or salary advances on record
+                      {t('noAdvances')}
                     </td>
                   </tr>
                 ) : (
@@ -421,7 +424,7 @@ export default function HrPage() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Calendar className="h-4 w-4" />
-                <span>Pay Period:</span>
+                <span>{t('payrollPeriodStart')}:</span>
               </div>
               <input
                 type="date"
@@ -429,7 +432,7 @@ export default function HrPage() {
                 onChange={(e) => setPayrollPeriod({ ...payrollPeriod, period_start: e.target.value })}
                 className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-xs"
               />
-              <span className="text-xs text-muted-foreground">to</span>
+              <span className="text-xs text-muted-foreground">-</span>
               <input
                 type="date"
                 value={payrollPeriod.period_end}
@@ -441,12 +444,12 @@ export default function HrPage() {
             <div className="flex items-center gap-2">
               <Button onClick={handleCalculatePayroll} disabled={calculating} variant="outline" className="gap-1.5">
                 <Play className="h-4 w-4" />
-                {calculating ? 'Calculating...' : 'Calculate Draft'}
+                {calculating ? t('calculating') : t('btnCalculatePayroll')}
               </Button>
               {payrollCalculations.length > 0 && (
                 <Button onClick={handleFinalizePayrollRun} disabled={generatingRun} className="gap-1.5">
                   <CheckCircle2 className="h-4 w-4" />
-                  {generatingRun ? 'Finalizing...' : 'Finalize & Record Run'}
+                  {generatingRun ? t('generating') : t('btnGenerateRun')}
                 </Button>
               )}
             </div>
@@ -454,28 +457,28 @@ export default function HrPage() {
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Calculated Payroll Preview</h2>
-              <span className="text-xs text-muted-foreground">{payrollCalculations.length} staff members</span>
+              <h2 className="text-base font-semibold text-foreground">{t('tabPayroll')}</h2>
+              <span className="text-xs text-muted-foreground">{payrollCalculations.length}</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                   <tr>
-                    <th className="py-3 px-4 text-start font-medium">Employee</th>
-                    <th className="py-3 px-4 text-start font-medium">Basis</th>
-                    <th className="py-3 px-4 text-end font-medium">Base Pay</th>
-                    <th className="py-3 px-4 text-end font-medium">Overtime</th>
-                    <th className="py-3 px-4 text-end font-medium">Advance Deduct</th>
-                    <th className="py-3 px-4 text-end font-medium font-bold text-foreground">Net Pay</th>
-                    <th className="py-3 px-4 text-center font-medium">Action</th>
+                    <th className="py-3 px-4 text-start font-medium">{t('colEmployee')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{t('colSalaryBasis')}</th>
+                    <th className="py-3 px-4 text-end font-medium">{t('colBaseSalary')}</th>
+                    <th className="py-3 px-4 text-end font-medium">{t('colOvertime')}</th>
+                    <th className="py-3 px-4 text-end font-medium">{t('colDeductions')}</th>
+                    <th className="py-3 px-4 text-end font-medium font-bold text-foreground">{t('colNetPay')}</th>
+                    <th className="py-3 px-4 text-center font-medium">{t('colAction')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {payrollCalculations.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-12 text-center text-muted-foreground">
-                        Click &quot;Calculate Draft&quot; to compute base salary, overtime, and deductions for the period
+                        {t('noPayrollCalculations')}
                       </td>
                     </tr>
                   ) : (
@@ -493,7 +496,7 @@ export default function HrPage() {
                         <td className="py-3.5 px-4 text-center">
                           <Button size="sm" variant="ghost" onClick={() => setSelectedPayslip(calc)} className="gap-1 text-xs">
                             <Printer className="h-3.5 w-3.5" />
-                            Payslip
+                            {t('btnViewPayslip')}
                           </Button>
                         </td>
                       </tr>
@@ -510,20 +513,20 @@ export default function HrPage() {
       {activeTab === 'profiles' && (
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Employee Employment & Compensation Profiles</h2>
-            <span className="text-xs text-muted-foreground">{employees.length} active profiles</span>
+            <h2 className="text-base font-semibold text-foreground">{t('tabProfiles')}</h2>
+            <span className="text-xs text-muted-foreground">{employees.length}</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">Name</th>
-                  <th className="py-3 px-4 text-start font-medium">Role</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colEmployee')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colSalaryBasis')}</th>
                   <th className="py-3 px-4 text-start font-medium">Type</th>
-                  <th className="py-3 px-4 text-start font-medium">Salary Basis</th>
-                  <th className="py-3 px-4 text-end font-medium">Base Salary / Rate</th>
-                  <th className="py-3 px-4 text-start font-medium">Phone / Contact</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colSalaryBasis')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{t('colBaseSalary')}</th>
+                  <th className="py-3 px-4 text-start font-medium">Contact</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -550,7 +553,7 @@ export default function HrPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">Record Salary Advance</h3>
+              <h3 className="text-lg font-bold text-foreground">{t('modalAdvanceTitle')}</h3>
               <button type="button" onClick={() => setShowAdvanceModal(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-5 w-5" />
               </button>
@@ -558,14 +561,14 @@ export default function HrPage() {
 
             <form onSubmit={handleRequestAdvance} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Select Employee</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formEmployee')}</label>
                 <select
                   value={advanceForm.user_id}
                   onChange={(e) => setAdvanceForm({ ...advanceForm, user_id: e.target.value })}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                   required
                 >
-                  <option value="">Select staff member...</option>
+                  <option value="">{t('formEmployee')}...</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} ({emp.role})
@@ -576,7 +579,7 @@ export default function HrPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Advance Amount</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formAmount')}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -590,7 +593,7 @@ export default function HrPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Deduction / Period</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formInstallment')}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -604,11 +607,11 @@ export default function HrPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Reason / Notes</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formReason')}</label>
                 <textarea
                   value={advanceForm.reason}
                   onChange={(e) => setAdvanceForm({ ...advanceForm, reason: e.target.value })}
-                  placeholder="Medical emergency, tuition, etc."
+                  placeholder={t('formReason')}
                   rows={2}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
@@ -616,9 +619,9 @@ export default function HrPage() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowAdvanceModal(false)}>
-                  Cancel
+                  {t('btnCancel')}
                 </Button>
-                <Button type="submit">Save Advance</Button>
+                <Button type="submit">{t('btnSaveAdvance')}</Button>
               </div>
             </form>
           </div>
@@ -631,7 +634,7 @@ export default function HrPage() {
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="font-bold text-foreground text-lg">Employee Payslip</h3>
+                <h3 className="font-bold text-foreground text-lg">{t('modalPayslipTitle')}</h3>
                 <span className="text-xs text-muted-foreground">{currentTenant?.business_name || 'FloCafe'}</span>
               </div>
               <button type="button" onClick={() => setSelectedPayslip(null)} className="text-muted-foreground hover:text-foreground">
@@ -641,7 +644,7 @@ export default function HrPage() {
 
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Staff Name:</span>
+                <span className="text-muted-foreground">{t('colStaff')}:</span>
                 <span className="font-semibold">{selectedPayslip.staff_name}</span>
               </div>
               <div className="flex justify-between">
@@ -649,28 +652,28 @@ export default function HrPage() {
                 <span className="capitalize">{selectedPayslip.role}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Pay Period:</span>
-                <span>{payrollPeriod.period_start} to {payrollPeriod.period_end}</span>
+                <span className="text-muted-foreground">{t('payrollPeriodStart')}:</span>
+                <span>{payrollPeriod.period_start} - {payrollPeriod.period_end}</span>
               </div>
               <div className="border-t border-border pt-2 space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Base Earnings:</span>
+                  <span className="text-muted-foreground">{t('lblGrossPay')}</span>
                   <span>{fmtCurrency(selectedPayslip.base_pay)}</span>
                 </div>
                 {selectedPayslip.overtime_pay > 0 && (
                   <div className="flex justify-between text-emerald-600">
-                    <span>Overtime ({selectedPayslip.overtime_hours} hrs):</span>
+                    <span>{t('lblOvertimePay')} ({selectedPayslip.overtime_hours} hrs):</span>
                     <span>+{fmtCurrency(selectedPayslip.overtime_pay)}</span>
                   </div>
                 )}
                 {selectedPayslip.loan_deduction > 0 && (
                   <div className="flex justify-between text-rose-600">
-                    <span>Advance / Loan Deduction:</span>
+                    <span>{t('lblLoanDeduction')}</span>
                     <span>-{fmtCurrency(selectedPayslip.loan_deduction)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
-                  <span>Net Take-Home Pay:</span>
+                  <span>{t('lblNetPayable')}</span>
                   <span className="text-brand">{fmtCurrency(selectedPayslip.net_pay)}</span>
                 </div>
               </div>
@@ -679,7 +682,7 @@ export default function HrPage() {
             <div className="pt-3 flex gap-2">
               <Button onClick={() => window.print()} className="w-full gap-1.5">
                 <Printer className="h-4 w-4" />
-                Print Payslip
+                {t('btnPrintPayslip')}
               </Button>
             </div>
           </div>

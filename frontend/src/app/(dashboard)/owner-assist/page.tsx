@@ -7,6 +7,7 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   Sparkles,
   TrendingUp,
@@ -46,6 +47,8 @@ interface OperationalAlerts {
 }
 
 export default function OwnerAssistPage() {
+  const t = useTranslations('ownerAssist');
+  const tCommon = useTranslations('common');
   const { currentTenant } = useAuthStore();
   const fmtCurrency = useFormatCurrency();
 
@@ -67,9 +70,9 @@ export default function OwnerAssistPage() {
       setAverages(res.data?.averages || { volume: 0, margin: 0 });
       setAlerts(res.data?.operational_alerts || null);
     } catch {
-      toast.error('Failed to load Owner Assist diagnostics');
+      toast.error(t('loadError'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -81,7 +84,7 @@ export default function OwnerAssistPage() {
         setAlerts(res.data?.operational_alerts || null);
       })
       .catch(() => {
-        if (active) toast.error('Failed to load Owner Assist diagnostics');
+        if (active) toast.error(t('loadError'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -90,7 +93,7 @@ export default function OwnerAssistPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const starsCount = matrix.filter((m) => m.classification === 'Star').length;
   const plowhorsesCount = matrix.filter((m) => m.classification === 'Plowhorse').length;
@@ -123,10 +126,10 @@ export default function OwnerAssistPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Sparkles className="size-6 text-brand" />
-            Owner & Manager Assist AI Diagnostics
+            {t('title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Menu Engineering Matrix, 30-day product margins, operational alerts, and interactive profit forecasting.
+            {t('subtitle')}
           </p>
         </div>
       </div>
@@ -136,40 +139,40 @@ export default function OwnerAssistPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Low Par Inventory</span>
+              <span className="text-xs font-medium text-muted-foreground">{t('kpiLowInventory')}</span>
               <AlertTriangle className={`size-4 ${alerts.low_inventory_count > 0 ? 'text-amber-500' : 'text-muted-foreground'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.low_inventory_count}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Items at or below reorder threshold
+              {t('kpiLowInventory')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Food Cost Overrun</span>
+              <span className="text-xs font-medium text-muted-foreground">{t('kpiRecipesExceeding')}</span>
               <Layers className={`size-4 ${alerts.recipes_exceeding_food_cost_target > 0 ? 'text-red-500' : 'text-green-500'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.recipes_exceeding_food_cost_target}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Recipes exceeding target food cost %
+              {t('kpiRecipesExceeding')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">HACCP Breaches</span>
+              <span className="text-xs font-medium text-muted-foreground">{t('kpiHaccpBreaches')}</span>
               <ShieldAlert className={`size-4 ${alerts.haccp_critical_breaches_last_7d > 0 ? 'text-red-500' : 'text-green-500'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.haccp_critical_breaches_last_7d}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Critical food safety CCP breaches (7d)
+              {t('kpiHaccpBreaches')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Labor / Revenue Ratio</span>
+              <span className="text-xs font-medium text-muted-foreground">{t('kpiLaborRatio')}</span>
               <Activity className="size-4 text-brand" />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">
@@ -179,7 +182,7 @@ export default function OwnerAssistPage() {
               variant={alerts.labor_ratio_status === 'healthy' ? 'secondary' : 'destructive'}
               className="mt-1 text-[10px] px-1.5 py-0"
             >
-              {alerts.labor_ratio_status === 'healthy' ? 'Healthy Labor Ratio' : 'Attention Needed'}
+              {alerts.labor_ratio_status === 'healthy' ? t('healthyBadge') : t('attentionBadge')}
             </Badge>
           </div>
         </div>
@@ -191,10 +194,10 @@ export default function OwnerAssistPage() {
           <div>
             <h2 className="text-base font-bold text-foreground flex items-center gap-2">
               <TrendingUp className="size-5 text-brand" />
-              Menu Engineering Matrix (Last 30 Days)
+              {t('matrixTitle')}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Classifies items by Volume (Avg: {averages.volume.toFixed(0)} units) and Contribution Margin (Avg: {fmtCurrency(averages.margin)}).
+              {t('matrixSubtitle')}
             </p>
           </div>
 
@@ -206,7 +209,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('all')}
               className="text-xs h-7"
             >
-              All ({matrix.length})
+              {t('filterAll', { count: matrix.length })}
             </Button>
             <Button
               variant={activeFilter === 'Star' ? 'default' : 'outline'}
@@ -214,7 +217,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Star')}
               className="text-xs h-7 border-green-500/40 text-green-700 dark:text-green-400"
             >
-              ⭐ Stars ({starsCount})
+              ⭐ {t('filterStars', { count: starsCount })}
             </Button>
             <Button
               variant={activeFilter === 'Plowhorse' ? 'default' : 'outline'}
@@ -222,7 +225,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Plowhorse')}
               className="text-xs h-7 border-blue-500/40 text-blue-700 dark:text-blue-400"
             >
-              🐎 Plowhorses ({plowhorsesCount})
+              🐎 {t('filterPlowhorses', { count: plowhorsesCount })}
             </Button>
             <Button
               variant={activeFilter === 'Puzzle' ? 'default' : 'outline'}
@@ -230,7 +233,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Puzzle')}
               className="text-xs h-7 border-amber-500/40 text-amber-700 dark:text-amber-400"
             >
-              🧩 Puzzles ({puzzlesCount})
+              🧩 {t('filterPuzzles', { count: puzzlesCount })}
             </Button>
             <Button
               variant={activeFilter === 'Dog' ? 'default' : 'outline'}
@@ -238,7 +241,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Dog')}
               className="text-xs h-7 border-red-500/40 text-red-700 dark:text-red-400"
             >
-              🐕 Dogs ({dogsCount})
+              🐕 {t('filterDogs', { count: dogsCount })}
             </Button>
           </div>
         </div>
@@ -247,15 +250,15 @@ export default function OwnerAssistPage() {
           <table className="w-full text-xs">
             <thead className="bg-muted text-muted-foreground font-semibold">
               <tr>
-                <th className="p-2.5 text-start">Product Name</th>
-                <th className="p-2.5 text-start">Category</th>
-                <th className="p-2.5 text-end">Selling Price</th>
-                <th className="p-2.5 text-end">Unit Cost</th>
-                <th className="p-2.5 text-end">Margin</th>
-                <th className="p-2.5 text-end">Units Sold</th>
-                <th className="p-2.5 text-end">Revenue</th>
-                <th className="p-2.5 text-center">Quadrant</th>
-                <th className="p-2.5 text-start">Actionable Recommendation</th>
+                <th className="p-2.5 text-start">{t('colProduct')}</th>
+                <th className="p-2.5 text-start">{t('colProduct')}</th>
+                <th className="p-2.5 text-end">{t('colPriceCost')}</th>
+                <th className="p-2.5 text-end">{t('colPriceCost')}</th>
+                <th className="p-2.5 text-end">{t('colMargin')}</th>
+                <th className="p-2.5 text-end">{t('colUnitsSold')}</th>
+                <th className="p-2.5 text-end">{t('colRevenue')}</th>
+                <th className="p-2.5 text-center">{t('colClassification')}</th>
+                <th className="p-2.5 text-start">{t('colRecommendation')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -292,7 +295,7 @@ export default function OwnerAssistPage() {
               {filteredMatrix.length === 0 && (
                 <tr>
                   <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                    No products in this category.
+                    {tCommon('no')}
                   </td>
                 </tr>
               )}
@@ -306,17 +309,17 @@ export default function OwnerAssistPage() {
         <div>
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             <Sliders className="size-5 text-brand" />
-            Interactive &quot;What-If&quot; Menu Price & Inflation Simulator
+            {t('simTitle')}
           </h2>
           <p className="text-xs text-muted-foreground">
-            Forecast the net profit impact of menu price adjustments, sales volume swings, and supplier ingredient cost inflation.
+            {t('simSubtitle')}
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 bg-muted/30 rounded-lg border border-border/70">
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>Menu Price Adjustment:</span>
+              <span>{t('lblPriceChange')}</span>
               <span className="font-bold text-brand">{priceChangePct > 0 ? `+${priceChangePct}` : priceChangePct}%</span>
             </label>
             <input
@@ -332,7 +335,7 @@ export default function OwnerAssistPage() {
 
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>Sales Volume Growth:</span>
+              <span>{t('lblVolumeGrowth')}</span>
               <span className="font-bold text-brand">{volumeGrowthPct > 0 ? `+${volumeGrowthPct}` : volumeGrowthPct}%</span>
             </label>
             <input
@@ -348,7 +351,7 @@ export default function OwnerAssistPage() {
 
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>Ingredient Cost Inflation:</span>
+              <span>{t('lblCostInflation')}</span>
               <span className="font-bold text-brand">{costInflationPct > 0 ? `+${costInflationPct}` : costInflationPct}%</span>
             </label>
             <input
@@ -366,59 +369,31 @@ export default function OwnerAssistPage() {
         {/* Projected Results */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">Projected Revenue</span>
+            <span className="text-[11px] text-muted-foreground">{t('simProjectedRevenue')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simRevenue)}</p>
-            <span className="text-[10px] text-muted-foreground">Baseline: {fmtCurrency(baselineRevenue)}</span>
+            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineRevenue)}</span>
           </div>
 
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">Projected COGS</span>
+            <span className="text-[11px] text-muted-foreground">{t('simBaselineRevenue')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simCogs)}</p>
-            <span className="text-[10px] text-muted-foreground">Baseline: {fmtCurrency(baselineCogs)}</span>
+            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineCogs)}</span>
           </div>
 
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">Projected Gross Profit</span>
+            <span className="text-[11px] text-muted-foreground">{t('simProjectedProfit')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simGrossProfit)}</p>
-            <span className="text-[10px] text-muted-foreground">Baseline: {fmtCurrency(baselineGrossProfit)}</span>
+            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineGrossProfit)}</span>
           </div>
 
           <div className={`p-3 rounded-lg border ${profitDelta >= 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-            <span className="text-[11px] font-medium text-foreground">Estimated Profit Delta</span>
+            <span className="text-[11px] font-medium text-foreground">{t('simProjectedDelta')}</span>
             <p className={`text-base font-bold mt-0.5 ${profitDelta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               {profitDelta >= 0 ? `+${fmtCurrency(profitDelta)}` : fmtCurrency(profitDelta)}
             </p>
             <span className="text-[10px] text-muted-foreground">
-              {baselineGrossProfit > 0 ? `${((profitDelta / baselineGrossProfit) * 100).toFixed(1)}% change` : 'N/A'}
+              {baselineGrossProfit > 0 ? `${((profitDelta / baselineGrossProfit) * 100).toFixed(1)}%` : 'N/A'}
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Built-in Operational SOP Guide */}
-      <div className="bg-card border border-border rounded-xl p-5 shadow-xs space-y-3">
-        <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-          <BookOpen className="size-5 text-brand" />
-          Standard Operating Procedures (SOP) & Management Guide
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-muted-foreground">
-          <div className="p-3 bg-muted/20 border border-border rounded-lg space-y-1.5">
-            <h4 className="font-semibold text-foreground">1. Morning Shift Opening</h4>
-            <p>• Verify cash drawer opening float (counted and confirmed in FloCafe).</p>
-            <p>• Complete Opening HACCP Sanitation Checklist before serving.</p>
-            <p>• Log refrigerator/freezer CCP temperatures (ensure &lt; 4°C).</p>
-          </div>
-          <div className="p-3 bg-muted/20 border border-border rounded-lg space-y-1.5">
-            <h4 className="font-semibold text-foreground">2. Receiving Deliveries (GRN)</h4>
-            <p>• Check package seals, temperature, and expiry dates upon delivery.</p>
-            <p>• Receive PO inside FloCafe to update weighted-average unit costs.</p>
-            <p>• If paying cash on delivery, mark &quot;Pay From Cash Drawer&quot;.</p>
-          </div>
-          <div className="p-3 bg-muted/20 border border-border rounded-lg space-y-1.5">
-            <h4 className="font-semibold text-foreground">3. Closing & Physical Reconciliation</h4>
-            <p>• Perform blind cash drawer count; verify discrepancies with admin PIN.</p>
-            <p>• Complete physical stocktake count lines to detect variance shrinkage.</p>
-            <p>• Review daily P&L statement to track COGS and direct operating costs.</p>
           </div>
         </div>
       </div>

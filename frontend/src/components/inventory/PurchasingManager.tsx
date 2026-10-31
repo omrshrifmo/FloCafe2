@@ -7,15 +7,13 @@ import { useFormatDate } from '@/hooks/useFormatDate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   Truck,
   Plus,
   PackageCheck,
   Building,
-  Calendar,
   CheckCircle2,
-  Clock,
-  ArrowRight,
   RefreshCw,
   Search,
   X,
@@ -63,6 +61,8 @@ interface PurchaseOrder {
 }
 
 export function PurchasingManager() {
+  const t = useTranslations('purchasing');
+  const tCommon = useTranslations('common');
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
 
@@ -148,9 +148,9 @@ export function PurchasingManager() {
       }));
       setAvailableItems([...invs, ...sups]);
     } catch {
-      toast.error('Failed to load purchasing data');
+      toast.error(t('loadDataError'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -186,7 +186,7 @@ export function PurchasingManager() {
         }
       })
       .catch(() => {
-        if (active) toast.error('Failed to load purchasing data');
+        if (active) toast.error(t('loadDataError'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -195,13 +195,13 @@ export function PurchasingManager() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await api.post('/purchasing/suppliers', supplierForm);
-      toast.success('Supplier created');
+      toast.success(t('supplierCreated'));
       setShowSupplierModal(false);
       setSupplierForm({
         name: '',
@@ -214,7 +214,7 @@ export function PurchasingManager() {
       });
       loadData();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to create supplier'));
+      toast.error(getErrorMessage(err, t('loadDataError')));
     }
   };
 
@@ -240,12 +240,12 @@ export function PurchasingManager() {
   const handleCreatePo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (poForm.items.length === 0) {
-      toast.error('Add at least one item to purchase order');
+      toast.error(t('addItemRequired'));
       return;
     }
     try {
       await api.post('/purchasing/purchase-orders', poForm);
-      toast.success('Purchase order created');
+      toast.success(t('poCreated'));
       setShowPoModal(false);
       setPoForm({
         supplier_id: suppliers[0]?.id || '',
@@ -255,7 +255,7 @@ export function PurchasingManager() {
       });
       loadData();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to create purchase order'));
+      toast.error(getErrorMessage(err, t('loadDataError')));
     }
   };
 
@@ -266,12 +266,12 @@ export function PurchasingManager() {
       const res = await api.post(`/purchasing/purchase-orders/${receivingPo.id}/receive`, {
         pay_from_drawer: payFromDrawer,
       });
-      toast.success(res.data?.message || 'Goods received and stock updated!');
+      toast.success(res.data?.message || t('goodsReceivedSuccess'));
       setReceivingPo(null);
       setPayFromDrawer(false);
       loadData();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to receive goods delivery'));
+      toast.error(getErrorMessage(err, t('loadDataError')));
     } finally {
       setIsReceiving(false);
     }
@@ -280,10 +280,10 @@ export function PurchasingManager() {
   const handleAutoRestock = async () => {
     try {
       const res = await api.post('/purchasing/purchase-orders/auto-restock-low', {});
-      toast.success(res.data?.message || 'Generated restock purchase orders');
+      toast.success(res.data?.message || t('autoRestockSuccess'));
       loadData();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to auto restock'));
+      toast.error(getErrorMessage(err, t('autoRestockError')));
     }
   };
 
@@ -305,7 +305,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <Truck className="size-3.5 me-1.5" />
-            Purchase Orders & GRN ({purchaseOrders.length})
+            {t('tabOrders', { count: purchaseOrders.length })}
           </Button>
           <Button
             variant={activeSubTab === 'suppliers' ? 'default' : 'outline'}
@@ -314,7 +314,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <Building className="size-3.5 me-1.5" />
-            Suppliers Directory ({suppliers.length})
+            {t('tabSuppliers', { count: suppliers.length })}
           </Button>
         </div>
 
@@ -328,7 +328,7 @@ export function PurchasingManager() {
                 className="text-xs flex items-center gap-1.5"
               >
                 <RefreshCw className="size-3.5" />
-                Auto-Restock Low Par
+                {t('autoRestockLow')}
               </Button>
               <Button
                 variant="default"
@@ -337,7 +337,7 @@ export function PurchasingManager() {
                 className="text-xs flex items-center gap-1.5"
               >
                 <Plus className="size-3.5" />
-                New Purchase Order
+                {t('newPurchaseOrder')}
               </Button>
             </>
           )}
@@ -349,7 +349,7 @@ export function PurchasingManager() {
               className="text-xs flex items-center gap-1.5"
             >
               <Plus className="size-3.5" />
-              Add Supplier
+              {t('addSupplier')}
             </Button>
           )}
         </div>
@@ -363,7 +363,7 @@ export function PurchasingManager() {
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search PO number or supplier..."
+                placeholder={t('searchOrdersPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full ps-9 pe-3 py-1.5 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-brand"
@@ -375,13 +375,13 @@ export function PurchasingManager() {
             <table className="w-full text-xs">
               <thead className="bg-muted text-muted-foreground font-semibold">
                 <tr>
-                  <th className="p-3 text-start">PO #</th>
-                  <th className="p-3 text-start">Supplier</th>
-                  <th className="p-3 text-start">Status</th>
-                  <th className="p-3 text-end">Total Amount</th>
-                  <th className="p-3 text-start">Date Created</th>
-                  <th className="p-3 text-start">Expected Date</th>
-                  <th className="p-3 text-end">Action</th>
+                  <th className="p-3 text-start">{t('colPoNumber')}</th>
+                  <th className="p-3 text-start">{t('colSupplier')}</th>
+                  <th className="p-3 text-start">{t('colStatus')}</th>
+                  <th className="p-3 text-end">{t('colTotalAmount')}</th>
+                  <th className="p-3 text-start">{t('colDateCreated')}</th>
+                  <th className="p-3 text-start">{t('colExpectedDate')}</th>
+                  <th className="p-3 text-end">{t('colAction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -419,12 +419,12 @@ export function PurchasingManager() {
                           className="text-[11px] h-7 bg-brand hover:bg-brand/90"
                         >
                           <PackageCheck className="size-3.5 me-1" />
-                          Receive GRN
+                          {t('receiveGrn')}
                         </Button>
                       ) : (
                         <span className="text-[11px] text-muted-foreground flex items-center justify-end gap-1">
                           <CheckCircle2 className="size-3.5 text-green-500" />
-                          Received
+                          {t('received')}
                         </span>
                       )}
                     </td>
@@ -433,7 +433,7 @@ export function PurchasingManager() {
                 {filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                      No purchase orders found.
+                      {t('noOrdersFound')}
                     </td>
                   </tr>
                 )}
@@ -450,13 +450,13 @@ export function PurchasingManager() {
             <table className="w-full text-xs">
               <thead className="bg-muted text-muted-foreground font-semibold">
                 <tr>
-                  <th className="p-3 text-start">Supplier Name</th>
-                  <th className="p-3 text-start">Contact Person</th>
-                  <th className="p-3 text-start">Phone</th>
-                  <th className="p-3 text-start">Category</th>
-                  <th className="p-3 text-start">Terms</th>
-                  <th className="p-3 text-end">Lead Time</th>
-                  <th className="p-3 text-end">Balance Due</th>
+                  <th className="p-3 text-start">{t('colSupplierName')}</th>
+                  <th className="p-3 text-start">{t('colContactPerson')}</th>
+                  <th className="p-3 text-start">{t('colPhone')}</th>
+                  <th className="p-3 text-start">{t('colCategory')}</th>
+                  <th className="p-3 text-start">{t('colTerms')}</th>
+                  <th className="p-3 text-end">{t('colLeadTime')}</th>
+                  <th className="p-3 text-end">{t('colBalanceDue')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -467,7 +467,7 @@ export function PurchasingManager() {
                     <td className="p-3 text-muted-foreground">{sup.phone || '—'}</td>
                     <td className="p-3 text-muted-foreground">{sup.category || 'General'}</td>
                     <td className="p-3 text-muted-foreground">{sup.payment_terms}</td>
-                    <td className="p-3 text-end font-mono">{sup.lead_time_days} days</td>
+                    <td className="p-3 text-end font-mono">{t('leadTimeDays', { days: sup.lead_time_days })}</td>
                     <td className="p-3 text-end font-bold text-foreground">
                       {fmtCurrency(sup.balance_due)}
                     </td>
@@ -476,7 +476,7 @@ export function PurchasingManager() {
                 {suppliers.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                      No suppliers registered yet.
+                      {t('noSuppliersFound')}
                     </td>
                   </tr>
                 )}
@@ -494,7 +494,7 @@ export function PurchasingManager() {
               <div className="flex items-center gap-2">
                 <PackageCheck className="size-5 text-brand" />
                 <h3 className="text-sm font-bold text-foreground">
-                  Receive Delivery (GRN) — {receivingPo.po_number}
+                  {t('receiveGrnTitle', { poNumber: receivingPo.po_number })}
                 </h3>
               </div>
               <button
@@ -508,15 +508,15 @@ export function PurchasingManager() {
 
             <div className="space-y-3 text-xs">
               <p className="text-muted-foreground">
-                Receiving items will automatically update physical stock and recalculate weighted-average unit costs.
+                {t('receiveGrnNotice')}
               </p>
               <div className="p-3 bg-muted/40 rounded-lg space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Supplier:</span>
+                  <span className="text-muted-foreground">{t('lblSupplier')}</span>
                   <span className="font-semibold text-foreground">{receivingPo.supplier_name || 'Vendor'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Order Total:</span>
+                  <span className="text-muted-foreground">{t('lblOrderTotal')}</span>
                   <span className="font-bold text-foreground">{fmtCurrency(receivingPo.total_amount)}</span>
                 </div>
               </div>
@@ -529,9 +529,9 @@ export function PurchasingManager() {
                   className="rounded accent-brand size-4"
                 />
                 <div>
-                  <p className="font-semibold text-foreground">Pay From Current Cash Drawer</p>
+                  <p className="font-semibold text-foreground">{t('payFromDrawer')}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Records a Cash Supplier Payment cash movement in active shift.
+                    {t('payFromDrawerDesc')}
                   </p>
                 </div>
               </label>
@@ -539,7 +539,7 @@ export function PurchasingManager() {
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
               <Button variant="outline" size="sm" onClick={() => setReceivingPo(null)}>
-                Cancel
+                {t('btnCancel')}
               </Button>
               <Button
                 variant="default"
@@ -548,7 +548,7 @@ export function PurchasingManager() {
                 disabled={isReceiving}
                 className="bg-brand hover:bg-brand/90"
               >
-                {isReceiving ? 'Processing...' : 'Confirm Delivery & Recalculate Costs'}
+                {isReceiving ? t('processing') : t('btnConfirmDelivery')}
               </Button>
             </div>
           </div>
@@ -560,7 +560,7 @@ export function PurchasingManager() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-xl shadow-lg space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="text-sm font-bold text-foreground">Create Purchase Order</h3>
+              <h3 className="text-sm font-bold text-foreground">{t('modalCreatePo')}</h3>
               <button
                 type="button"
                 onClick={() => setShowPoModal(false)}
@@ -573,7 +573,7 @@ export function PurchasingManager() {
             <form onSubmit={handleCreatePo} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-foreground">Supplier</label>
+                  <label className="font-medium text-foreground">{t('colSupplier')}</label>
                   <select
                     value={poForm.supplier_id}
                     onChange={(e) => setPoForm({ ...poForm, supplier_id: e.target.value })}
@@ -588,7 +588,7 @@ export function PurchasingManager() {
                   </select>
                 </div>
                 <div>
-                  <label className="font-medium text-foreground">Expected Date</label>
+                  <label className="font-medium text-foreground">{t('formExpectedDate')}</label>
                   <input
                     type="date"
                     value={poForm.expected_date}
@@ -600,7 +600,7 @@ export function PurchasingManager() {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-foreground">Order Items</span>
+                  <span className="font-bold text-foreground">{t('formOrderItems')}</span>
                   <Button
                     type="button"
                     variant="outline"
@@ -608,7 +608,7 @@ export function PurchasingManager() {
                     onClick={handleAddItemToPo}
                     className="text-xs h-7"
                   >
-                    <Plus className="size-3 me-1" /> Add Item
+                    <Plus className="size-3 me-1" /> {t('btnAddItem')}
                   </Button>
                 </div>
 
@@ -644,7 +644,7 @@ export function PurchasingManager() {
                         type="number"
                         step="any"
                         min="0.1"
-                        placeholder="Qty"
+                        placeholder={t('qtyPlaceholder')}
                         value={it.ordered_qty}
                         onChange={(e) => {
                           const next = [...poForm.items];
@@ -657,7 +657,7 @@ export function PurchasingManager() {
                         type="number"
                         step="any"
                         min="0"
-                        placeholder="Cost"
+                        placeholder={t('costPlaceholder')}
                         value={it.unit_cost}
                         onChange={(e) => {
                           const next = [...poForm.items];
@@ -678,17 +678,17 @@ export function PurchasingManager() {
                     </div>
                   ))}
                   {poForm.items.length === 0 && (
-                    <p className="text-center text-muted-foreground py-4">Click Add Item to add goods to this PO</p>
+                    <p className="text-center text-muted-foreground py-4">{t('emptyPoItems')}</p>
                   )}
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-border">
                 <Button type="button" variant="outline" size="sm" onClick={() => setShowPoModal(false)}>
-                  Cancel
+                  {t('btnCancel')}
                 </Button>
                 <Button type="submit" variant="default" size="sm">
-                  Save Purchase Order
+                  {t('btnSavePo')}
                 </Button>
               </div>
             </form>
@@ -701,7 +701,7 @@ export function PurchasingManager() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="text-sm font-bold text-foreground">Add New Supplier</h3>
+              <h3 className="text-sm font-bold text-foreground">{t('modalAddSupplier')}</h3>
               <button
                 type="button"
                 onClick={() => setShowSupplierModal(false)}
@@ -713,7 +713,7 @@ export function PurchasingManager() {
 
             <form onSubmit={handleCreateSupplier} className="space-y-3 text-xs">
               <div>
-                <label className="font-medium text-foreground">Supplier Name</label>
+                <label className="font-medium text-foreground">{t('formSupplierName')}</label>
                 <input
                   type="text"
                   required
@@ -723,7 +723,7 @@ export function PurchasingManager() {
                 />
               </div>
               <div>
-                <label className="font-medium text-foreground">Contact Person</label>
+                <label className="font-medium text-foreground">{t('formContactPerson')}</label>
                 <input
                   type="text"
                   value={supplierForm.contact_person}
@@ -733,7 +733,7 @@ export function PurchasingManager() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="font-medium text-foreground">Phone</label>
+                  <label className="font-medium text-foreground">{t('formPhone')}</label>
                   <input
                     type="text"
                     value={supplierForm.phone}
@@ -742,7 +742,7 @@ export function PurchasingManager() {
                   />
                 </div>
                 <div>
-                  <label className="font-medium text-foreground">Terms</label>
+                  <label className="font-medium text-foreground">{t('formTerms')}</label>
                   <input
                     type="text"
                     value={supplierForm.payment_terms}
@@ -754,10 +754,10 @@ export function PurchasingManager() {
 
               <div className="flex justify-end gap-2 pt-2 border-t border-border">
                 <Button type="button" variant="outline" size="sm" onClick={() => setShowSupplierModal(false)}>
-                  Cancel
+                  {t('btnCancel')}
                 </Button>
                 <Button type="submit" variant="default" size="sm">
-                  Save Supplier
+                  {t('btnSaveSupplier')}
                 </Button>
               </div>
             </form>

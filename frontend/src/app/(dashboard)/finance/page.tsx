@@ -8,6 +8,7 @@ import { useFormatDate } from '@/hooks/useFormatDate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
 import {
   Wallet,
   ArrowUpRight,
@@ -47,6 +48,8 @@ interface FinanceTransaction {
 }
 
 export default function FinancePage() {
+  const t = useTranslations('finance');
+  const tCommon = useTranslations('common');
   const { currentTenant } = useAuthStore();
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
@@ -105,9 +108,9 @@ export default function FinancePage() {
       setTransactions(txRes.data?.transactions || []);
       setCategories(catRes.data?.categories || []);
     } catch {
-      toast.error('Failed to load financial records');
+      toast.error(t('loadError'));
     }
-  }, [startDate, endDate, typeFilter]);
+  }, [startDate, endDate, typeFilter, t]);
 
   useEffect(() => {
     let active = true;
@@ -135,17 +138,17 @@ export default function FinancePage() {
         setCategories(catRes.data?.categories || []);
       })
       .catch(() => {
-        if (active) toast.error('Failed to load financial records');
+        if (active) toast.error(t('loadError'));
       });
     return () => {
       active = false;
     };
-  }, [startDate, endDate, typeFilter]);
+  }, [startDate, endDate, typeFilter, t]);
 
   const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.amount || Number(formData.amount) <= 0) {
-      toast.error('Please enter a valid amount');
+      toast.error(t('formAmount'));
       return;
     }
 
@@ -160,7 +163,7 @@ export default function FinancePage() {
         reference_no: formData.reference_no || null,
         description: formData.description || null,
       });
-      toast.success('Transaction recorded successfully');
+      toast.success(t('recordSuccess'));
       setShowModal(false);
       setFormData({
         type: 'expense',
@@ -173,7 +176,7 @@ export default function FinancePage() {
       });
       void loadData();
     } catch {
-      toast.error('Failed to record transaction');
+      toast.error(t('recordError'));
     } finally {
       setSubmitting(false);
     }
@@ -192,9 +195,9 @@ export default function FinancePage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      toast.success('Export downloaded');
+      toast.success(t('recordSuccess'));
     } catch {
-      toast.error('Failed to export financial report');
+      toast.error(t('recordError'));
     }
   };
 
@@ -216,21 +219,21 @@ export default function FinancePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Wallet className="h-7 w-7 text-brand" />
-            Financial Ledger & Expenses
+            {t('title')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Real-time double-entry operational expenses, vendor purchases, and net profit tracking
+            {t('subtitle')}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleExportCsv} className="gap-1.5">
             <Download className="h-4 w-4" />
-            Export CSV
+            CSV
           </Button>
           <Button onClick={() => setShowModal(true)} className="gap-1.5">
             <Plus className="h-4 w-4" />
-            New Transaction
+            {t('btnNewTransaction')}
           </Button>
         </div>
       </div>
@@ -239,7 +242,7 @@ export default function FinancePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-card p-5 rounded-2xl border border-border shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Inflow / Sales</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('kpiTotalIncome')}</span>
             <div className="p-2 bg-emerald-500/10 text-emerald-600 rounded-xl">
               <ArrowUpRight className="h-5 w-5" />
             </div>
@@ -247,12 +250,12 @@ export default function FinancePage() {
           <div className="mt-3 text-2xl font-bold text-foreground">
             {fmtCurrency(summary.income)}
           </div>
-          <span className="text-xs text-muted-foreground mt-1 inline-block">POS sales & operational receipts</span>
+          <span className="text-xs text-muted-foreground mt-1 inline-block">{t('tabIncome')}</span>
         </div>
 
         <div className="bg-card p-5 rounded-2xl border border-border shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Operating Expenses</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('kpiOperatingExpenses')}</span>
             <div className="p-2 bg-rose-500/10 text-rose-600 rounded-xl">
               <ArrowDownRight className="h-5 w-5" />
             </div>
@@ -260,12 +263,12 @@ export default function FinancePage() {
           <div className="mt-3 text-2xl font-bold text-foreground">
             {fmtCurrency(summary.expenses)}
           </div>
-          <span className="text-xs text-muted-foreground mt-1 inline-block">Rent, utilities, licenses, waste</span>
+          <span className="text-xs text-muted-foreground mt-1 inline-block">{t('tabExpense')}</span>
         </div>
 
         <div className="bg-card p-5 rounded-2xl border border-border shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Supplies & Inventory</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('kpiPurchases')}</span>
             <div className="p-2 bg-amber-500/10 text-amber-600 rounded-xl">
               <Receipt className="h-5 w-5" />
             </div>
@@ -273,12 +276,12 @@ export default function FinancePage() {
           <div className="mt-3 text-2xl font-bold text-foreground">
             {fmtCurrency(summary.purchases)}
           </div>
-          <span className="text-xs text-muted-foreground mt-1 inline-block">Raw ingredient & packaging invoices</span>
+          <span className="text-xs text-muted-foreground mt-1 inline-block">{t('tabPurchases')}</span>
         </div>
 
         <div className="bg-card p-5 rounded-2xl border border-border shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Net Operating Margin</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('kpiNetProfit')}</span>
             <div className={`p-2 rounded-xl ${summary.net_profit >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-600'}`}>
               <Building className="h-5 w-5" />
             </div>
@@ -286,7 +289,7 @@ export default function FinancePage() {
           <div className={`mt-3 text-2xl font-bold ${summary.net_profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
             {fmtCurrency(summary.net_profit)}
           </div>
-          <span className="text-xs text-muted-foreground mt-1 inline-block">Inflow minus all outlays</span>
+          <span className="text-xs text-muted-foreground mt-1 inline-block">{t('kpiNetProfit')}</span>
         </div>
       </div>
 
@@ -299,7 +302,7 @@ export default function FinancePage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search category, notes, ref..."
+              placeholder={t('searchPlaceholder')}
               className="w-full ps-9 pe-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-brand"
             />
           </div>
@@ -309,19 +312,19 @@ export default function FinancePage() {
             onChange={(e) => setTypeFilter(e.target.value)}
             className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-brand"
           >
-            <option value="all">All Types</option>
-            <option value="expense">Expenses</option>
-            <option value="purchase">Inventory Purchases</option>
-            <option value="salary">Staff Salaries</option>
-            <option value="owner_draw">Owner Draws</option>
-            <option value="income">Other Income</option>
+            <option value="all">{t('tabAll')}</option>
+            <option value="expense">{t('tabExpense')}</option>
+            <option value="purchase">{t('tabPurchases')}</option>
+            <option value="salary">{t('tabSalaries')}</option>
+            <option value="owner_draw">{t('tabOwnerDraw')}</option>
+            <option value="income">{t('tabIncome')}</option>
           </select>
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Calendar className="h-4 w-4" />
-            <span>Range:</span>
+            <span>{t('colDate')}</span>
           </div>
           <input
             type="date"
@@ -329,7 +332,7 @@ export default function FinancePage() {
             onChange={(e) => setStartDate(e.target.value)}
             className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-xs"
           />
-          <span className="text-xs text-muted-foreground">to</span>
+          <span className="text-xs text-muted-foreground">-</span>
           <input
             type="date"
             value={endDate}
@@ -345,18 +348,18 @@ export default function FinancePage() {
         <div className="bg-card p-5 rounded-2xl border border-border space-y-4">
           <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
             <Filter className="h-4 w-4 text-brand" />
-            Top Outlay Categories
+            {t('formCategory')}
           </h2>
 
           <div className="space-y-3">
             {categories.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">No categorized expenses recorded</p>
+              <p className="text-sm text-muted-foreground py-6 text-center">{t('noTransactions')}</p>
             ) : (
               categories.map((cat, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border/50">
                   <div>
                     <span className="text-sm font-medium text-foreground block">{cat.category}</span>
-                    <span className="text-xs text-muted-foreground">{cat.count} transactions</span>
+                    <span className="text-xs text-muted-foreground">{cat.count}</span>
                   </div>
                   <div className="text-end">
                     <span className="text-sm font-semibold text-foreground">{fmtCurrency(cat.total)}</span>
@@ -370,26 +373,26 @@ export default function FinancePage() {
         {/* Transactions Table */}
         <div className="lg:col-span-2 bg-card rounded-2xl border border-border overflow-hidden">
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Transactions Log</h2>
-            <span className="text-xs text-muted-foreground">{filteredTransactions.length} recorded</span>
+            <h2 className="text-base font-semibold text-foreground">{t('title')}</h2>
+            <span className="text-xs text-muted-foreground">{filteredTransactions.length}</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">Date</th>
-                  <th className="py-3 px-4 text-start font-medium">Type</th>
-                  <th className="py-3 px-4 text-start font-medium">Category / Notes</th>
-                  <th className="py-3 px-4 text-start font-medium">Method</th>
-                  <th className="py-3 px-4 text-end font-medium">Amount</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colDate')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colType')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colCategory')} / {t('colDescription')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{t('colMethod')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{t('colAmount')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-12 text-center text-muted-foreground">
-                      No matching financial transactions found
+                      {t('noTransactions')}
                     </td>
                   </tr>
                 ) : (
@@ -439,7 +442,7 @@ export default function FinancePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">Record Financial Entry</h3>
+              <h3 className="text-lg font-bold text-foreground">{t('modalRecordTitle')}</h3>
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
@@ -452,27 +455,27 @@ export default function FinancePage() {
             <form onSubmit={handleCreateTransaction} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Transaction Type</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formType')}</label>
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                   >
-                    <option value="expense">Operating Expense</option>
-                    <option value="purchase">Inventory Purchase</option>
-                    <option value="salary">Staff Salary</option>
-                    <option value="owner_draw">Owner Draw</option>
-                    <option value="income">Income / Deposit</option>
+                    <option value="expense">{t('tabExpense')}</option>
+                    <option value="purchase">{t('tabPurchases')}</option>
+                    <option value="salary">{t('tabSalaries')}</option>
+                    <option value="owner_draw">{t('tabOwnerDraw')}</option>
+                    <option value="income">{t('tabIncome')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formCategory')}</label>
                   <input
                     type="text"
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="e.g. Rent, Electricity, Beans"
+                    placeholder="Operations"
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                     required
                   />
@@ -481,7 +484,7 @@ export default function FinancePage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Amount</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formAmount')}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -495,7 +498,7 @@ export default function FinancePage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Tax Amount (if applicable)</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tCommon('tax')}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -510,21 +513,21 @@ export default function FinancePage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Payment Method</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formPaymentMethod')}</label>
                   <select
                     value={formData.payment_method}
                     onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                   >
                     <option value="cash">Cash</option>
-                    <option value="card">Credit / Debit Card</option>
+                    <option value="card">Card</option>
                     <option value="bank_transfer">Bank Transfer</option>
                     <option value="check">Check</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Invoice / Ref #</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formReferenceNo')}</label>
                   <input
                     type="text"
                     value={formData.reference_no}
@@ -536,11 +539,11 @@ export default function FinancePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Notes / Description</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('formDescription')}</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Additional context about this expenditure..."
+                  placeholder={t('formDescription')}
                   rows={2}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
@@ -548,10 +551,10 @@ export default function FinancePage() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
-                  Cancel
+                  {t('btnCancel')}
                 </Button>
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? 'Recording...' : 'Save Transaction'}
+                  {submitting ? t('saving') : t('btnSaveTransaction')}
                 </Button>
               </div>
             </form>

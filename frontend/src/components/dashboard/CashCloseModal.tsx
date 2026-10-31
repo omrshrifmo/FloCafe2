@@ -33,12 +33,12 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
         setAdminUnlocked(true);
         setShowAdminPinPrompt(false);
         setAdminPinInput('');
-        toast.success(`Admin verified: ${res.data.admin?.name || 'Authorized'}`);
+        toast.success(t('adminPinVerified', { name: res.data.admin?.name || 'Authorized' }));
       } else {
-        setAdminPinError(res.data?.error || 'Invalid Admin PIN');
+        setAdminPinError(res.data?.error || t('adminPinError'));
       }
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Invalid or unauthorized Admin PIN';
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('adminPinError');
       setAdminPinError(msg);
     } finally {
       setAdminPinLoading(false);
@@ -173,7 +173,7 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                         className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-2 py-0.5 rounded-md"
                       >
                         <KeyRound size={12} />
-                        <span>Admin PIN</span>
+                        <span>{t('adminPinButton')}</span>
                       </button>
                     )}
                   </div>
@@ -196,14 +196,14 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                       <Lock size={13} className="text-brand" />
-                      <span>Enter Manager / Owner PIN</span>
+                      <span>{t('adminPinPrompt')}</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowAdminPinPrompt(false)}
                       className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
                     >
-                      Cancel
+                      {tCommon('cancel')}
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
@@ -223,7 +223,7 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                       className="h-8 px-3 gap-1 bg-brand text-white font-bold"
                     >
                       {adminPinLoading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                      <span>Unlock</span>
+                      <span>{t('adminPinUnlock')}</span>
                     </Button>
                   </div>
                   {adminPinError && (
@@ -325,7 +325,7 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                     className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-2 py-0.5 rounded-md"
                   >
                     <KeyRound size={12} />
-                    <span>Admin PIN</span>
+                    <span>{t('adminPinButton')}</span>
                   </button>
                 )}
               </div>
@@ -347,14 +347,14 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                   <Lock size={13} className="text-brand" />
-                  <span>Enter Manager / Owner PIN</span>
+                  <span>{t('adminPinPrompt')}</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowAdminPinPrompt(false)}
                   className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
                 >
-                  Cancel
+                  {tCommon('cancel')}
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -374,7 +374,7 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                   className="h-8 px-3 gap-1 bg-brand text-white font-bold"
                 >
                   {adminPinLoading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                  <span>Unlock</span>
+                  <span>{t('adminPinUnlock')}</span>
                 </Button>
               </div>
               {adminPinError && (
