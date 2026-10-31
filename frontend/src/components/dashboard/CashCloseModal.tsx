@@ -1,16 +1,49 @@
 'use client';
+import { useState } from 'react';
 import { Ltr } from '@/components/layout/Ltr';
 import { CashCloseTicketPreview, type CashCloseTicketPreviewProps } from '@/components/dashboard/CashCloseTicketPreview';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Lock, Loader2, Printer, AlertTriangle, X, Check, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Lock, Loader2, Printer, AlertTriangle, X, Check, ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
 import type { CashCloseModel } from '@/hooks/useCashClose';
+import api from '@/lib/api';
+import toast from 'react-hot-toast';
 
 /** Day-close wizard modal (steps 1 Revisar / 2 Contar / 3 Cerrar).
  *  Pure view over useCashClose: every value and action arrives on
- *  `model`, so this file holds JSX only. */
+ *  `model`, so this file holds JSX only. Expected cash is hidden by default
+ *  and revealed only via Admin (Owner/Manager) PIN. */
 export function CashCloseModal({ model }: { model: CashCloseModel }) {
   const { closeOpen, setCloseOpen, closeAnotherDay, businessDate, setBusinessDate, xReport, xLoading, xError, closeStep, setCloseStep, openingFloatInput, setOpeningFloatInput, countedInput, setCountedInput, submittingClose, submitError, alreadyClosedOverride, setAlreadyClosedOverride, amountsValid, expectedCashTotalCents, varianceCents, closedZ, printingZ, hasPrintedFresh, setHasPrintedFresh, hydratedZ, minorFactor, fmt, unitAdapter, t, tCommon, shiftDate, todayLocal, submitClose, printZ } = model;
+
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [showAdminPinPrompt, setShowAdminPinPrompt] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinLoading, setAdminPinLoading] = useState(false);
+  const [adminPinError, setAdminPinError] = useState<string | null>(null);
+
+  const handleVerifyAdminPin = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!adminPinInput.trim()) return;
+    setAdminPinLoading(true);
+    setAdminPinError(null);
+    try {
+      const res = await api.post('/auth/verify-admin-pin', { pin: adminPinInput.trim() });
+      if (res.data?.ok) {
+        setAdminUnlocked(true);
+        setShowAdminPinPrompt(false);
+        setAdminPinInput('');
+        toast.success(`Admin verified: ${res.data.admin?.name || 'Authorized'}`);
+      } else {
+        setAdminPinError(res.data?.error || 'Invalid Admin PIN');
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Invalid or unauthorized Admin PIN';
+      setAdminPinError(msg);
+    } finally {
+      setAdminPinLoading(false);
+    }
+  };
   return (
     <>
 {/* ── Close-day modal ─────────────────────────────────────────────── */}
@@ -127,8 +160,28 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                   </p>
                 </div>
                 <div className="rounded-lg border border-border p-3 bg-muted/40">
-                  <p className="text-xs text-muted-foreground">{t('expectedCashWithMovements')}</p>
-                  <p className="text-lg font-semibold text-foreground ltr-island"><Ltr>{fmt((xReport.expectedCashCents + (xReport.openingFloatCents ?? 0)) / minorFactor)}</Ltr></p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">{t('expectedCashWithMovements')}</p>
+                    {!adminUnlocked && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminPinError(null);
+                          setAdminPinInput('');
+                          setShowAdminPinPrompt(!showAdminPinPrompt);
+                        }}
+                        className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-2 py-0.5 rounded-md"
+                      >
+                        <KeyRound size={12} />
+                        <span>Admin PIN</span>
+                      </button>
+                    )}
+                  </div>
+                  {adminUnlocked ? (
+                    <p className="text-lg font-semibold text-foreground ltr-island"><Ltr>{fmt((xReport.expectedCashCents + (xReport.openingFloatCents ?? 0)) / minorFactor)}</Ltr></p>
+                  ) : (
+                    <p className="text-lg font-mono tracking-widest text-muted-foreground select-none">••••••••</p>
+                  )}
                   <p className="text-[11px] text-muted-foreground mt-1">
                     {t('refundsCount', { count: xReport.refundCount })}
                     {/* refunded is display MAJOR units like grossCollected above. */}
@@ -136,6 +189,48 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                   </p>
                 </div>
               </div>
+
+              {/* Admin PIN Form for Step 1 */}
+              {showAdminPinPrompt && !adminUnlocked && (
+                <form onSubmit={handleVerifyAdminPin} className="p-3 rounded-xl border border-brand/30 bg-brand/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Lock size={13} className="text-brand" />
+                      <span>Enter Manager / Owner PIN</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPinPrompt(false)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoFocus
+                      placeholder="PIN"
+                      value={adminPinInput}
+                      onChange={(e) => setAdminPinInput(e.target.value)}
+                      className="flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-mono tracking-widest text-foreground outline-none focus:ring-2 focus:ring-brand/30"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={adminPinLoading || !adminPinInput.trim()}
+                      className="h-8 px-3 gap-1 bg-brand text-white font-bold"
+                    >
+                      {adminPinLoading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                      <span>Unlock</span>
+                    </Button>
+                  </div>
+                  {adminPinError && (
+                    <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">{adminPinError}</p>
+                  )}
+                </form>
+              )}
               <div className="rounded-lg border border-border bg-muted/40 p-3">
                 <p className="text-xs font-medium text-muted-foreground mb-2">{t('ticketSectionCashMovements')}</p>
                 <div className="grid grid-cols-3 gap-2 text-xs">
@@ -217,19 +312,76 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
               variance box. */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-border p-3 bg-muted/40">
-              <p className="text-xs text-muted-foreground">{t('expectedCash')}</p>
-              <p className="text-xl font-bold text-foreground ltr-island"><Ltr>{amountsValid ? fmt(expectedCashTotalCents / minorFactor) : '—'}</Ltr></p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">{t('expectedCash')}</p>
+                {!adminUnlocked && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPinError(null);
+                      setAdminPinInput('');
+                      setShowAdminPinPrompt(!showAdminPinPrompt);
+                    }}
+                    className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-2 py-0.5 rounded-md"
+                  >
+                    <KeyRound size={12} />
+                    <span>Admin PIN</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-xl font-bold text-foreground ltr-island">
+                {adminUnlocked ? (amountsValid ? fmt(expectedCashTotalCents / minorFactor) : '—') : '••••••••'}
+              </p>
             </div>
-            <div className={`rounded-lg border p-3 ${varianceCents === 0 ? 'border-border bg-muted/40' : varianceCents < 0 ? 'border-red-300 dark:border-red-800/40 bg-red-50 dark:bg-red-950/40' : 'border-amber-300 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/40'}`}>
+            <div className={`rounded-lg border p-3 ${adminUnlocked && varianceCents === 0 ? 'border-border bg-muted/40' : adminUnlocked && varianceCents < 0 ? 'border-red-300 dark:border-red-800/40 bg-red-50 dark:bg-red-950/40' : adminUnlocked && varianceCents > 0 ? 'border-amber-300 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/40' : 'border-border bg-muted/40'}`}>
               <p className="text-xs text-muted-foreground">{t('variance')}</p>
-              <p className={`text-xl font-bold ltr-island ${varianceCents === 0 ? 'text-foreground' : varianceCents < 0 ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                {/* Invalid/empty input renders no figure: the ?? 0 fallback
-                    below would show a plausible-but-wrong variance while
-                    Close stays disabled. */}
-                <Ltr>{amountsValid ? fmt(varianceCents / minorFactor) : '—'}</Ltr>
+              <p className={`text-xl font-bold ltr-island ${!adminUnlocked ? 'text-muted-foreground font-mono tracking-widest select-none' : varianceCents === 0 ? 'text-foreground' : varianceCents < 0 ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                {adminUnlocked ? (amountsValid ? fmt(varianceCents / minorFactor) : '—') : '••••••••'}
               </p>
             </div>
           </div>
+
+          {/* Admin PIN Form for Step 2 */}
+          {showAdminPinPrompt && !adminUnlocked && (
+            <form onSubmit={handleVerifyAdminPin} className="p-3 rounded-xl border border-brand/30 bg-brand/5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Lock size={13} className="text-brand" />
+                  <span>Enter Manager / Owner PIN</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPinPrompt(false)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoFocus
+                  placeholder="PIN"
+                  value={adminPinInput}
+                  onChange={(e) => setAdminPinInput(e.target.value)}
+                  className="flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-mono tracking-widest text-foreground outline-none focus:ring-2 focus:ring-brand/30"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={adminPinLoading || !adminPinInput.trim()}
+                  className="h-8 px-3 gap-1 bg-brand text-white font-bold"
+                >
+                  {adminPinLoading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                  <span>Unlock</span>
+                </Button>
+              </div>
+              {adminPinError && (
+                <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">{adminPinError}</p>
+              )}
+            </form>
+          )}
           {submitError && (
             <div className="flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-800/40 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />

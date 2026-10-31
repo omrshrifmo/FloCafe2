@@ -831,4 +831,46 @@ router.post('/setup/seed', (req: Request, res: Response) => {
   res.status(410).json({ error: 'Use /api/auth/setup/initialize with setup_profile and owner details.' });
 });
 
+// ── POST /api/auth/verify-admin-pin ──────────────────────────────────────────
+// Verifies if the provided PIN belongs to an active manager or owner.
+// Used for security gates such as revealing expected cash during shift close.
+
+router.post('/verify-admin-pin', (req: Request, res: Response) => {
+  try {
+    const { pin } = req.body || {};
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ ok: false, error: 'PIN is required' });
+    }
+    const db = getDatabase();
+    const adminCandidates = db.prepare(`
+      SELECT id, name, email, role, pin_hash
+      FROM users
+      WHERE is_active = 1
+        AND pin_hash IS NOT NULL
+        AND role IN ('owner', 'manager')
+    `).all() as { id: string; name: string; email: string; role: string; pin_hash: string }[];
+
+    const matchingAdmin = adminCandidates.find((candidate) =>
+      candidate.pin_hash ? bcrypt.compareSync(pin, candidate.pin_hash) : false
+    );
+
+    if (!matchingAdmin) {
+      return res.status(401).json({ ok: false, error: 'Invalid or unauthorized Admin PIN' });
+    }
+
+    return res.json({
+      ok: true,
+      admin: {
+        id: matchingAdmin.id,
+        name: matchingAdmin.name,
+        role: matchingAdmin.role,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Auth] verify-admin-pin error:', error);
+    res.status(500).json({ ok: false, error: 'Failed to verify admin PIN' });
+  }
+});
+
 export const authRoutes = router;
+

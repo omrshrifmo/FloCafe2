@@ -33,6 +33,7 @@ import {
   Clock,
   RotateCcw,
   CheckCircle2,
+  Lock,
 } from 'lucide-react';
 
 interface FastTouchModeProps {
@@ -50,6 +51,8 @@ interface FastTouchModeProps {
   onEditItem?: (item: CartItem) => void;
   onCheckout?: () => void;
   onQuickCheckout?: (method: 'cash' | 'card', tenderAmount?: number) => void;
+  hasOpenShift?: boolean;
+  onOpenShift?: () => void;
 }
 
 // Canonical Category Color Mapping matching FloCafe category palette
@@ -231,6 +234,8 @@ export function FastTouchMode({
   onEditItem,
   onCheckout,
   onQuickCheckout,
+  hasOpenShift = true,
+  onOpenShift,
 }: FastTouchModeProps) {
   const cart = useCartStore();
   const heldOrders = useHeldOrdersStore();
@@ -347,6 +352,11 @@ export function FastTouchMode({
 
   // Repeat Last Item
   const handleRepeatLast = () => {
+    if (hasOpenShift === false) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      onOpenShift?.();
+      return;
+    }
     if (cart.items.length === 0) {
       toast.error(isArabic ? 'لا توجد عناصر في الطلب لتكرارها' : 'No items in order to repeat');
       return;
@@ -381,6 +391,11 @@ export function FastTouchMode({
 
   // Hold order
   const handleHold = async () => {
+    if (hasOpenShift === false) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      onOpenShift?.();
+      return;
+    }
     if (cart.orderType === 'dine_in' && !cart.tableId) {
       toast.error(t('selectTableFirst'));
       return;
@@ -435,6 +450,11 @@ export function FastTouchMode({
 
   // Serve Order
   const handleServeOrder = () => {
+    if (hasOpenShift === false) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      onOpenShift?.();
+      return;
+    }
     if (cart.items.length === 0) {
       toast.error(t('cartEmpty'));
       return;
@@ -449,6 +469,11 @@ export function FastTouchMode({
 
   // Handle direct checkout
   const handleCheckoutClick = () => {
+    if (hasOpenShift === false) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      onOpenShift?.();
+      return;
+    }
     if (cart.items.length === 0 && servedItems.length === 0) {
       toast.error(t('cartEmpty'));
       return;
@@ -462,6 +487,11 @@ export function FastTouchMode({
 
   // Tap product: 1-TAP DIRECT ADD if product has NO addons!
   const handleTileClick = (prod: Product) => {
+    if (hasOpenShift === false) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      onOpenShift?.();
+      return;
+    }
     const hasAddons = Boolean(
       prod.addon_groups &&
       prod.addon_groups.length > 0 &&
@@ -607,6 +637,17 @@ export function FastTouchMode({
 
         {/* 3. PHYSICAL RIGHT: Held Orders, Repeat Last Item & Clear Cart */}
         <div className="flex items-center gap-2 shrink-0">
+          {hasOpenShift === false && (
+            <button
+              type="button"
+              onClick={onOpenShift}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-extrabold text-xs animate-pulse cursor-pointer hover:bg-amber-500/20"
+            >
+              <Lock className="h-3.5 w-3.5" />
+              <span>{isArabic ? 'الوردية مغلقة - افتح الوردية' : 'Shift Closed - Open Shift'}</span>
+            </button>
+          )}
+
           {allHeldOrdersList.length > 0 && (
             <Button
               variant="outline"
@@ -642,6 +683,9 @@ export function FastTouchMode({
             </Button>
           )}
         </div>
+
+        {/* 4. TOP-RIGHT 25% EMPTY SPACE: User requested the top-right 25% space to remain completely empty */}
+        <div className="w-[25%] shrink-0 hidden md:block pointer-events-none" />
       </div>
 
       {/* =========================================================================

@@ -36,7 +36,7 @@ import { showPrintWarningsToast } from '@/lib/printer/warnings-toast';
 import { formatKotErrorToast, formatReceiptErrorToast } from '@/lib/printer/warnings';
 import { AI_HELP_PROVIDERS, copyPrinterDiagnostic } from '@/lib/printer/ai-help';
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
-import { useTranslations } from 'use-intl';
+import { useTranslations, useLocale } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useSupportTicketStatus } from '@/hooks/useSupportTicketStatus';
@@ -105,6 +105,8 @@ export default function POSPage() {
   const { customerMandatory, autoPrintKot, autoPrintBill, billingType, tablesRequired, kotPrintingEnabled, setBillingType, setTablesRequired, setKotPrintingEnabled } = usePosSettingsStore();
   const { open: leftSidebarOpen } = useSidebar();
   const t = useTranslations('pos');
+  const locale = useLocale();
+  const isArabic = locale.startsWith('ar');
   const tOrders = useTranslations('orders');
   const tSupport = useTranslations('support');
   const currencyFmt = useFormatCurrency();
@@ -587,6 +589,11 @@ export default function POSPage() {
   }, [isRestaurant, setBillingType, setTablesRequired, setKotPrintingEnabled]);
 
   const handleProductClick = (product: Product) => {
+    if (!shift.session) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      shift.setOpenModalOpen(true);
+      return;
+    }
     // Always open modal so user can add notes and adjust quantity
     setAddonProduct(product);
   };
@@ -617,6 +624,11 @@ export default function POSPage() {
   }, !anyModalOpen);
 
   const handlePlaceOrder = async () => {
+    if (!shift.session) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      shift.setOpenModalOpen(true);
+      return;
+    }
     if (cart.items.length === 0) {
       toast.error(t('cartEmpty'));
       return;
@@ -753,6 +765,11 @@ export default function POSPage() {
 
   // Handle prepaid checkout - place order and pay in one step
   const handlePrepaidCheckout = async (payments: PrepaidPayment[], walletAmount: number, discount: PrepaidDiscount | null) => {
+    if (!shift.session) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      shift.setOpenModalOpen(true);
+      return;
+    }
     const isPrepaidCheckout = shouldTakePaymentNow;
     setShowPrepaidCheckout(false);
     setSubmitting(true);
@@ -1249,6 +1266,8 @@ export default function POSPage() {
           tables={tables}
           currency={currency}
           submitting={submitting}
+          hasOpenShift={!!shift.session}
+          onOpenShift={() => shift.setOpenModalOpen(true)}
           onExit={() => setFastTouchMode(false)}
           onProductClick={handleProductClick}
           onPlaceOrder={handlePlaceOrder}

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Banknote, BarChart3, CalendarDays, ChefHat, ChevronDown, ClipboardList, Clock, Download, FileSpreadsheet, FileText, Hourglass, LayoutGrid, Lock, Minus, ReceiptText, RotateCcw, Tags, Timer, TrendingUp, Trophy, Wallet, type LucideIcon } from 'lucide-react';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Banknote, BarChart3, CalendarDays, ChefHat, ChevronDown, ClipboardList, Clock, Download, FileSpreadsheet, FileText, Hourglass, LayoutGrid, Lock, Minus, ReceiptText, RotateCcw, Tags, Timer, TrendingUp, Trophy, Wallet, Search, Package, type LucideIcon } from 'lucide-react';
 import { useTranslations, useLocale, type AppConfig } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { CashCloseModal } from '@/components/dashboard/CashCloseModal';
@@ -79,9 +79,11 @@ interface FinancialSummary {
 interface TopProduct {
   product_id: number;
   product_name: string;
+  category_name?: string;
   total_quantity: number;
   total_revenue: number;
   order_count: number;
+  avg_price?: number;
 }
 
 interface RecentOrder {
@@ -162,6 +164,19 @@ function getMonthRange(month: string): { startDate: string; endDate: string } {
   return { startDate: `${month}-01`, endDate: `${month}-${String(lastDay).padStart(2, '0')}` };
 }
 
+function getWeekRange(dateStr: string): { startDate: string; endDate: string } {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const day = d.getUTCDay();
+  const monday = new Date(d);
+  monday.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return {
+    startDate: monday.toISOString().slice(0, 10),
+    endDate: sunday.toISOString().slice(0, 10),
+  };
+}
+
 function shiftDate(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
@@ -225,6 +240,7 @@ export default function DashboardPage() {
   const numFinancial = (value: number): string | number => (canViewFinancials ? value : '—');
   const { formatDateTime } = useFormatDate();
   const locale = useLocale();
+  const isAr = locale.startsWith('ar');
   const timeZone = currentTenant?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   // The store's business day starts at its configured time, not at midnight, so
   // the day picker and its upper bound follow the same rule the cash-close modal
@@ -236,13 +252,37 @@ export default function DashboardPage() {
   });
   const [selectedDate, setSelectedDate] = useState(todayLocal);
   const [selectedMonth, setSelectedMonth] = useState(todayLocal.slice(0, 7));
-  const [periodMode, setPeriodMode] = useState<'day' | 'month'>('day');
+  const [customStartDate, setCustomStartDate] = useState(shiftDate(todayLocal, -7));
+  const [customEndDate, setCustomEndDate] = useState(todayLocal);
+  const [periodMode, setPeriodMode] = useState<'day' | 'week' | 'month' | 'custom'>('day');
   const dayInputRef = useRef<HTMLInputElement>(null);
+  const weekInputRef = useRef<HTMLInputElement>(null);
   const monthInputRef = useRef<HTMLInputElement>(null);
+  const customStartInputRef = useRef<HTMLInputElement>(null);
+  const customEndInputRef = useRef<HTMLInputElement>(null);
+
+  // Ordered items table filter/sort state
+  const [itemSearch, setItemSearch] = useState('');
+  const [itemCategoryFilter, setItemCategoryFilter] = useState<string>('all');
+  const [itemSortField, setItemSortField] = useState<'quantity' | 'revenue' | 'name' | 'avg_price'>('quantity');
+  const [itemSortAsc, setItemSortAsc] = useState<boolean>(false);
+
   const isToday = periodMode === 'day' && selectedDate === todayLocal;
-  const range = periodMode === 'month'
-    ? getMonthRange(selectedMonth)
-    : { startDate: selectedDate, endDate: selectedDate };
+  const range = useMemo(() => {
+    if (periodMode === 'day') {
+      return { startDate: selectedDate, endDate: selectedDate };
+    }
+    if (periodMode === 'week') {
+      return getWeekRange(selectedDate);
+    }
+    if (periodMode === 'month') {
+      return getMonthRange(selectedMonth);
+    }
+    return {
+      startDate: customStartDate || todayLocal,
+      endDate: customEndDate || todayLocal,
+    };
+  }, [periodMode, selectedDate, selectedMonth, customStartDate, customEndDate, todayLocal]);
 
   /** Opens Chromium's native calendar UI while preserving keyboard fallback. */
   const openPicker = (input: HTMLInputElement | null) => {
@@ -276,9 +316,10 @@ export default function DashboardPage() {
     const dailyStatsRequest = isToday
       ? api.get('/reports/daily-stats', { signal: controller.signal })
       : Promise.resolve(null);
-    const scopedSummary = periodMode === 'month'
-      ? Promise.resolve(null)
-      : api.get('/reports/summary', { params: { date: selectedDate }, signal: controller.signal });
+    const scopedSummary = api.get('/reports/summary', {
+      params: { start_date: range.startDate, end_date: range.endDate },
+      signal: controller.signal,
+    });
     const previousWeekDate = shiftDate(selectedDate, -7);
     const comparisonRequest = periodMode === 'day' && canViewFinancials
       ? api.get('/reports/financial-summary', {
@@ -305,14 +346,12 @@ export default function DashboardPage() {
       dailyStatsRequest,
       scopedSummary,
       financialSummaryRequest,
-      api.get('/reports/topProducts', { params: { start_date: range.startDate, end_date: range.endDate, limit: 5 }, signal: controller.signal }),
+      api.get('/reports/topProducts', { params: { start_date: range.startDate, end_date: range.endDate, limit: 1000 }, signal: controller.signal }),
       api.get('/reports/recentOrders', {
-        params: periodMode === 'month'
-          ? { start_date: range.startDate, end_date: range.endDate, limit: 6 }
-          : { date: selectedDate, limit: 6 },
+        params: { start_date: range.startDate, end_date: range.endDate, limit: 8 },
         signal: controller.signal,
       }),
-      api.get('/reports/insights', { params: { days: 30 }, signal: controller.signal }),
+      api.get('/reports/insights', { params: { start_date: range.startDate, end_date: range.endDate }, signal: controller.signal }),
       comparisonRequest,
     ])
       .then(([statsRes, summaryRes, financialRes, topRes, recentRes, insightsRes, comparisonRes]) => {
@@ -333,7 +372,7 @@ export default function DashboardPage() {
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOwner, canViewFinancials, periodMode, selectedDate, selectedMonth]);
+  }, [isOwner, canViewFinancials, periodMode, range.startDate, range.endDate]);
 
   // Day-close wizard lives in useCashClose + CashCloseModal; the page
   // only opens it and mounts it.
@@ -403,6 +442,71 @@ export default function DashboardPage() {
     }
   };
 
+  const exportOrderedItemsCsv = () => {
+    if (topProducts.length === 0) {
+      toast.error(isAr ? 'لا توجد منتجات مباعة في هذه الفترة' : 'No ordered items in selected period');
+      return;
+    }
+    const header = 'Product,Category,Quantity Ordered,Average Price,Total Revenue,Order Count\n';
+    const rows = topProducts.map((p) =>
+      `"${(p.product_name || '').replace(/"/g, '""')}","${(p.category_name || '').replace(/"/g, '""')}",${p.total_quantity},${p.avg_price ?? (p.total_quantity > 0 ? (p.total_revenue / p.total_quantity).toFixed(2) : 0)},${p.total_revenue},${p.order_count}`
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+    downloadBlob(blob, `ordered-items-${range.startDate}-to-${range.endDate}.csv`);
+    toast.success(isAr ? 'تم تنزيل تقرير المنتجات المطلوبة' : 'Ordered items report downloaded');
+  };
+
+  const categoriesList = useMemo(() => {
+    const set = new Set<string>();
+    topProducts.forEach((p) => {
+      if (p.category_name) set.add(p.category_name);
+    });
+    return Array.from(set).sort();
+  }, [topProducts]);
+
+  const filteredOrderedItems = useMemo(() => {
+    return topProducts
+      .filter((item) => {
+        if (itemCategoryFilter !== 'all' && item.category_name !== itemCategoryFilter) {
+          return false;
+        }
+        if (itemSearch.trim()) {
+          const q = itemSearch.toLowerCase();
+          const matchName = item.product_name.toLowerCase().includes(q);
+          const matchCat = (item.category_name || '').toLowerCase().includes(q);
+          if (!matchName && !matchCat) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        let diff = 0;
+        if (itemSortField === 'quantity') {
+          diff = a.total_quantity - b.total_quantity;
+        } else if (itemSortField === 'revenue') {
+          diff = a.total_revenue - b.total_revenue;
+        } else if (itemSortField === 'avg_price') {
+          const pA = a.avg_price ?? (a.total_quantity ? a.total_revenue / a.total_quantity : 0);
+          const pB = b.avg_price ?? (b.total_quantity ? b.total_revenue / b.total_quantity : 0);
+          diff = pA - pB;
+        } else if (itemSortField === 'name') {
+          diff = a.product_name.localeCompare(b.product_name);
+        }
+        return itemSortAsc ? diff : -diff;
+      });
+  }, [topProducts, itemCategoryFilter, itemSearch, itemSortField, itemSortAsc]);
+
+  const totalOrderedQuantity = useMemo(() => {
+    return topProducts.reduce((sum, p) => sum + Number(p.total_quantity || 0), 0);
+  }, [topProducts]);
+
+  const totalOrderedRevenue = useMemo(() => {
+    return topProducts.reduce((sum, p) => sum + Number(p.total_revenue || 0), 0);
+  }, [topProducts]);
+
+  const maxProductQuantity = useMemo(() => {
+    return Math.max(...topProducts.map((p) => Number(p.total_quantity || 0)), 1);
+  }, [topProducts]);
+
   if (!isOwner) return null;
 
   const paymentMethods = financialSummary?.paymentMethods ?? [];
@@ -437,210 +541,342 @@ export default function DashboardPage() {
   const aovComparison = weeklyComparison
     ? getComparisonBadge(financialSummary?.averageOrderValue ?? 0, weeklyComparison.averageOrderValue)
     : null;
-  const primaryTiles: DashboardTile[] = periodMode === 'month'
+
+  const primaryTiles: DashboardTile[] = isToday
     ? [
         {
-          label: t('netCollections'),
+          label: t('todaySales'),
           value: fmtFinancial(financialSummary?.netCollected ?? 0),
+          comparison: salesComparison,
           icon: Banknote,
           color: 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-800/50 dark:bg-emerald-950/30',
           iconBg: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
           href: '/orders',
         },
         {
-          label: t('grossCollections'),
-          value: fmtFinancial(financialSummary?.grossCollected ?? 0),
-          icon: TrendingUp,
+          label: t('runningOrders'),
+          value: stats?.runningOrders ?? 0,
+          meta: t('liveNow'),
+          icon: ChefHat,
           color: 'border-blue-200 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30',
           iconBg: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
           href: '/orders',
         },
         {
+          label: t('pendingOrders'),
+          value: stats?.pendingOrders ?? 0,
+          meta: t('liveNow'),
+          icon: Clock,
+          color: 'border-amber-200 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30',
+          iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+          href: '/orders',
+        },
+        {
+          label: t('tablesOccupied'),
+          value: stats?.tablesOccupied ?? 0,
+          meta: t('liveNow'),
+          icon: LayoutGrid,
+          color: 'border-violet-200 bg-violet-50/80 dark:border-violet-800/50 dark:bg-violet-950/30',
+          iconBg: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
+          href: '/tables',
+        },
+      ]
+    : [
+        {
+          label: t('sales'),
+          value: fmtFinancial(financialSummary?.netCollected ?? daySummary?.bills.collected ?? 0),
+          comparison: salesComparison,
+          icon: Banknote,
+          color: 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-800/50 dark:bg-emerald-950/30',
+          iconBg: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
+          href: '/orders',
+        },
+        {
+          label: t('orders'),
+          value: daySummary?.orders.count ?? recentOrders.length,
+          icon: ClipboardList,
+          color: 'border-blue-200 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30',
+          iconBg: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
+          href: '/orders',
+        },
+        {
+          label: isAr ? 'القطع المباعة' : 'Units Sold',
+          value: totalOrderedQuantity,
+          icon: Package,
+          color: 'border-amber-200 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30',
+          iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+          href: '#ordered-items-section',
+        },
+        {
           label: t('billsCollected'),
-          value: numFinancial(financialSummary?.billCount ?? 0),
+          value: numFinancial(financialSummary?.billCount ?? daySummary?.bills.count ?? 0),
           icon: ReceiptText,
           color: 'border-violet-200 bg-violet-50/80 dark:border-violet-800/50 dark:bg-violet-950/30',
           iconBg: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
           href: '/orders',
         },
-        {
-          label: t('refunds'),
-          value: fmtFinancial(financialSummary?.refunded ?? 0),
-          icon: RotateCcw,
-          color: 'border-red-200 bg-red-50/80 dark:border-red-800/50 dark:bg-red-950/30',
-          iconBg: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
-          href: '/orders',
-        },
-      ]
-    : isToday
-      ? [
-          {
-            label: t('todaySales'),
-            value: fmtFinancial(financialSummary?.netCollected ?? 0),
-            comparison: salesComparison,
-            icon: Banknote,
-            color: 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-800/50 dark:bg-emerald-950/30',
-            iconBg: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
-            href: '/orders',
-          },
-          {
-            label: t('runningOrders'),
-            value: stats?.runningOrders ?? 0,
-            meta: t('liveNow'),
-            icon: ChefHat,
-            color: 'border-blue-200 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30',
-            iconBg: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
-            href: '/orders',
-          },
-          {
-            label: t('pendingOrders'),
-            value: stats?.pendingOrders ?? 0,
-            meta: t('liveNow'),
-            icon: Clock,
-            color: 'border-amber-200 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30',
-            iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
-            href: '/orders',
-          },
-          {
-            label: t('tablesOccupied'),
-            value: stats?.tablesOccupied ?? 0,
-            meta: t('liveNow'),
-            icon: LayoutGrid,
-            color: 'border-violet-200 bg-violet-50/80 dark:border-violet-800/50 dark:bg-violet-950/30',
-            iconBg: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
-            href: '/tables',
-          },
-        ]
-      : [
-          {
-            label: t('sales'),
-            value: fmtFinancial(financialSummary?.netCollected ?? 0),
-            comparison: salesComparison,
-            icon: Banknote,
-            color: 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-800/50 dark:bg-emerald-950/30',
-            iconBg: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
-            href: '/orders',
-          },
-          {
-            label: t('orders'),
-            value: daySummary?.orders.count ?? 0,
-            icon: ClipboardList,
-            color: 'border-blue-200 bg-blue-50/80 dark:border-blue-800/50 dark:bg-blue-950/30',
-            iconBg: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
-            href: '/orders',
-          },
-          {
-            label: t('newCustomers'),
-            value: daySummary?.customers.new ?? 0,
-            icon: Trophy,
-            color: 'border-amber-200 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30',
-            iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
-            href: '/customers',
-          },
-          {
-            label: t('billsCollected'),
-            value: numFinancial(financialSummary?.billCount ?? 0),
-            icon: ReceiptText,
-            color: 'border-violet-200 bg-violet-50/80 dark:border-violet-800/50 dark:bg-violet-950/30',
-            iconBg: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300',
-            href: '/orders',
-          },
-        ];
+      ];
 
-  const secondaryMetrics: DashboardMetric[] = periodMode === 'day' && isToday
-    ? [
-        {
-          label: t('avgTableTurn'),
-          value: stats?.avgTableTurnMinutes != null
-            ? (() => {
-                const { h, m } = splitHoursMinutes(stats.avgTableTurnMinutes);
-                return h > 0 ? tCommon('timeHoursMinutes', { h, m }) : tCommon('timeMinutes', { m });
-              })()
-            : '—',
-          icon: Hourglass,
-          iconBg: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300',
-        },
-        {
-          label: t('aov'),
-          value: fmtFinancial(financialSummary?.averageOrderValue ?? 0),
-          comparison: aovComparison,
-          icon: TrendingUp,
-          iconBg: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300',
-        },
-        {
-          label: t('avgPrepTime'),
-          value: insights?.avgPrepTimeMinutes != null ? t('minutesValue', { minutes: insights.avgPrepTimeMinutes }) : '—',
-          icon: Timer,
-          iconBg: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300',
-        },
-      ]
-    : [];
+  const secondaryMetrics: DashboardMetric[] = [
+    {
+      label: t('aov'),
+      value: fmtFinancial(financialSummary?.averageOrderValue ?? 0),
+      comparison: aovComparison,
+      icon: TrendingUp,
+      iconBg: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300',
+    },
+    {
+      label: t('busiestHour'),
+      value: insights?.busiestHour ? `${formatHourLabel(insights.busiestHour.hour, locale)} (${insights.busiestHour.orderCount})` : '—',
+      icon: Clock,
+      iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+    },
+    {
+      label: t('busiestDay'),
+      value: insights?.busiestDayOfWeek ? `${formatWeekdayLabel(insights.busiestDayOfWeek.dayIndex, locale)} (${insights.busiestDayOfWeek.orderCount})` : '—',
+      icon: CalendarDays,
+      iconBg: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
+    },
+    {
+      label: t('avgPrepTime'),
+      value: insights?.avgPrepTimeMinutes != null ? t('minutesValue', { minutes: insights.avgPrepTimeMinutes }) : '—',
+      icon: Timer,
+      iconBg: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300',
+    },
+    ...(isToday && stats?.avgTableTurnMinutes != null ? [{
+      label: t('avgTableTurn'),
+      value: (() => {
+        const { h, m } = splitHoursMinutes(stats.avgTableTurnMinutes);
+        return h > 0 ? tCommon('timeHoursMinutes', { h, m }) : tCommon('timeMinutes', { m });
+      })(),
+      icon: Hourglass,
+      iconBg: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300',
+    }] : []),
+  ];
 
   return (
-    <div className="min-h-full bg-background p-4 sm:p-6 lg:p-7">
-      <div className="mb-7 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div className="min-h-full bg-background p-4 sm:p-6 lg:p-7 space-y-7">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {t('title')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {periodMode === 'month' ? t('selectMonth') : t('selectDate')}
+            {periodMode === 'day'
+              ? (isToday ? (isAr ? 'عرض إحصائيات وتقارير اليوم المباشرة' : 'Live today stats and reports') : (isAr ? `تقرير يوم: ${selectedDate}` : `Report for ${selectedDate}`))
+              : periodMode === 'week'
+                ? (isAr ? `تقرير الأسبوع: من ${range.startDate} إلى ${range.endDate}` : `Week report: ${range.startDate} to ${range.endDate}`)
+                : periodMode === 'month'
+                  ? (isAr ? `تقرير شهر: ${selectedMonth}` : `Month report: ${selectedMonth}`)
+                  : (isAr ? `تقرير فترة مخصصة: من ${range.startDate} إلى ${range.endDate}` : `Custom period: ${range.startDate} to ${range.endDate}`)}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
-          {periodMode === 'day' ? (
-            <div className="relative">
-              <input
-                ref={dayInputRef}
-                type="date"
-                value={selectedDate}
-                max={todayLocal}
-                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
-                aria-label={t('selectDate')}
-              />
-              <button
+          {/* Day Mode Picker */}
+          {periodMode === 'day' && (
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
+                <input
+                  ref={dayInputRef}
+                  type="date"
+                  value={selectedDate}
+                  max={todayLocal}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
+                  aria-label={t('selectDate')}
+                />
+                <button
+                  type="button"
+                  onClick={() => openPicker(dayInputRef.current)}
+                  className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={t('openDatePicker')}
+                >
+                  <CalendarDays size={16} />
+                </button>
+              </div>
+              <Button
                 type="button"
-                onClick={() => openPicker(dayInputRef.current)}
-                className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label={t('openDatePicker')}
+                variant={selectedDate === todayLocal ? 'default' : 'outline'}
+                size="sm"
+                className="h-10 rounded-xl text-xs px-3"
+                onClick={() => setSelectedDate(todayLocal)}
               >
-                <CalendarDays size={16} />
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              <input
-                ref={monthInputRef}
-                type="month"
-                value={selectedMonth}
-                max={todayLocal.slice(0, 7)}
-                onChange={(e) => e.target.value && setSelectedMonth(e.target.value)}
-                className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
-                aria-label={t('selectMonth')}
-              />
-              <button
+                {isAr ? 'اليوم' : 'Today'}
+              </Button>
+              <Button
                 type="button"
-                onClick={() => openPicker(monthInputRef.current)}
-                className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label={t('openMonthPicker')}
+                variant={selectedDate === shiftDate(todayLocal, -1) ? 'default' : 'outline'}
+                size="sm"
+                className="h-10 rounded-xl text-xs px-3"
+                onClick={() => setSelectedDate(shiftDate(todayLocal, -1))}
               >
-                <CalendarDays size={16} />
-              </button>
+                {isAr ? 'أمس' : 'Yesterday'}
+              </Button>
             </div>
           )}
 
+          {/* Week Mode Picker */}
+          {periodMode === 'week' && (
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
+                <input
+                  ref={weekInputRef}
+                  type="date"
+                  value={selectedDate}
+                  max={todayLocal}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
+                  aria-label="Select Week Date"
+                />
+                <button
+                  type="button"
+                  onClick={() => openPicker(weekInputRef.current)}
+                  className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="Open Week Picker"
+                >
+                  <CalendarDays size={16} />
+                </button>
+              </div>
+              <Button
+                type="button"
+                variant={selectedDate === todayLocal ? 'default' : 'outline'}
+                size="sm"
+                className="h-10 rounded-xl text-xs px-3"
+                onClick={() => setSelectedDate(todayLocal)}
+              >
+                {isAr ? 'هذا الأسبوع' : 'This Week'}
+              </Button>
+              <Button
+                type="button"
+                variant={selectedDate === shiftDate(todayLocal, -7) ? 'default' : 'outline'}
+                size="sm"
+                className="h-10 rounded-xl text-xs px-3"
+                onClick={() => setSelectedDate(shiftDate(todayLocal, -7))}
+              >
+                {isAr ? 'الأسبوع الماضي' : 'Last Week'}
+              </Button>
+            </div>
+          )}
+
+          {/* Month Mode Picker */}
+          {periodMode === 'month' && (
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
+                <input
+                  ref={monthInputRef}
+                  type="month"
+                  value={selectedMonth}
+                  max={todayLocal.slice(0, 7)}
+                  onChange={(e) => e.target.value && setSelectedMonth(e.target.value)}
+                  className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
+                  aria-label={t('selectMonth')}
+                />
+                <button
+                  type="button"
+                  onClick={() => openPicker(monthInputRef.current)}
+                  className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={t('openMonthPicker')}
+                >
+                  <CalendarDays size={16} />
+                </button>
+              </div>
+              <Button
+                type="button"
+                variant={selectedMonth === todayLocal.slice(0, 7) ? 'default' : 'outline'}
+                size="sm"
+                className="h-10 rounded-xl text-xs px-3"
+                onClick={() => setSelectedMonth(todayLocal.slice(0, 7))}
+              >
+                {isAr ? 'هذا الشهر' : 'This Month'}
+              </Button>
+            </div>
+          )}
+
+          {/* Custom Date Range Mode Pickers */}
+          {periodMode === 'custom' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="relative">
+                <input
+                  ref={customStartInputRef}
+                  type="date"
+                  value={customStartDate}
+                  max={customEndDate || todayLocal}
+                  onChange={(e) => e.target.value && setCustomStartDate(e.target.value)}
+                  className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
+                  aria-label="Start Date"
+                />
+                <button
+                  type="button"
+                  onClick={() => openPicker(customStartInputRef.current)}
+                  className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <CalendarDays size={16} />
+                </button>
+              </div>
+              <span className="text-muted-foreground text-xs font-semibold px-1">→</span>
+              <div className="relative">
+                <input
+                  ref={customEndInputRef}
+                  type="date"
+                  value={customEndDate}
+                  min={customStartDate}
+                  max={todayLocal}
+                  onChange={(e) => e.target.value && setCustomEndDate(e.target.value)}
+                  className="h-10 appearance-none rounded-xl border border-border bg-card ps-3 pe-10 text-sm text-foreground shadow-sm [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-brand/30 dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0"
+                  aria-label="End Date"
+                />
+                <button
+                  type="button"
+                  onClick={() => openPicker(customEndInputRef.current)}
+                  className="absolute inset-y-0 end-0 z-10 flex w-9 items-center justify-center rounded-e-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <CalendarDays size={16} />
+                </button>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-xl text-xs px-2.5"
+                onClick={() => {
+                  setCustomStartDate(shiftDate(todayLocal, -7));
+                  setCustomEndDate(todayLocal);
+                }}
+              >
+                7d
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-xl text-xs px-2.5"
+                onClick={() => {
+                  setCustomStartDate(shiftDate(todayLocal, -30));
+                  setCustomEndDate(todayLocal);
+                }}
+              >
+                30d
+              </Button>
+            </div>
+          )}
+
+          {/* Period Mode Selector Tabs */}
           <div className="flex h-10 rounded-xl border border-border bg-card p-1 shadow-sm" role="group" aria-label={t('periodView')}>
-            {(['day', 'month'] as const).map((mode) => (
+            {([
+              { mode: 'day', label: isAr ? 'يوم' : t('day') },
+              { mode: 'week', label: isAr ? 'أسبوع' : 'Week' },
+              { mode: 'month', label: isAr ? 'شهر' : t('month') },
+              { mode: 'custom', label: isAr ? 'مخصص' : 'Custom' },
+            ] as const).map(({ mode, label }) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setPeriodMode(mode)}
-                className={`min-w-16 rounded-lg px-3 text-sm font-medium transition-colors ${periodMode === mode ? 'bg-foreground text-background shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+                className={`min-w-14 rounded-lg px-2.5 text-xs font-semibold transition-colors ${periodMode === mode ? 'bg-foreground text-background shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
                 aria-pressed={periodMode === mode}
               >
-                {t(mode)}
+                {label}
               </button>
             ))}
           </div>
@@ -666,37 +902,44 @@ export default function DashboardPage() {
             <Lock size={14} />
             {t('closeShift')}
           </Button>
-          {periodMode === 'day' && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isExporting}
-                  className="h-10 rounded-xl bg-card px-4 shadow-sm"
-                  title={t('exportSales')}
-                >
-                  <Download size={14} />
-                  {t('exportSales')}
-                  <ChevronDown size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onSelect={() => exportDailySales('xlsx')}>
-                  <FileSpreadsheet size={14} />
-                  {t('exportXlsx')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => exportDailySales('csv')}>
-                  <FileText size={14} />
-                  {t('exportCsv')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => exportItemizedReport()}>
-                  <ReceiptText size={14} />
-                  Itemized Margins (CSV)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isExporting}
+                className="h-10 rounded-xl bg-card px-4 shadow-sm"
+                title={t('exportSales')}
+              >
+                <Download size={14} />
+                {t('exportSales')}
+                <ChevronDown size={14} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onSelect={exportOrderedItemsCsv}>
+                <Package size={14} />
+                {isAr ? 'تقرير المنتجات المطلوبة (CSV)' : 'Ordered Items & Qty (CSV)'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => exportItemizedReport()}>
+                <ReceiptText size={14} />
+                Itemized Margins (CSV)
+              </DropdownMenuItem>
+              {periodMode === 'day' && (
+                <>
+                  <DropdownMenuItem onSelect={() => exportDailySales('xlsx')}>
+                    <FileSpreadsheet size={14} />
+                    {t('exportXlsx')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => exportDailySales('csv')}>
+                    <FileText size={14} />
+                    {t('exportCsv')}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -963,6 +1206,247 @@ export default function DashboardPage() {
               )}
             </section>
           )}
+
+          {/* All Ordered Items & Quantities Section */}
+          <section id="ordered-items-section" className="mt-5 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                  <Package size={20} />
+                </span>
+                <div>
+                  <h2 className="text-base font-bold text-foreground">
+                    {isAr ? 'جميع المنتجات المطلوبة والكميات' : 'All Ordered Items & Quantities'}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {isAr
+                      ? 'قائمة تفصيلية بجميع الأصناف المطلوبة مع كمياتها ومتوسط أسعارها وإجمالي مبيعاتها'
+                      : 'Detailed breakdown of all ordered products with quantities, average price, and revenue'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={exportOrderedItemsCsv}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-xl text-xs gap-1.5"
+                >
+                  <Download size={13} />
+                  {isAr ? 'تصدير المنتجات (CSV)' : 'Export Items (CSV)'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="border-b border-border bg-muted/30 p-4 space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 max-w-sm">
+                  <Search size={14} className="absolute inset-y-0 start-3 my-auto text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={itemSearch}
+                    onChange={(e) => setItemSearch(e.target.value)}
+                    placeholder={isAr ? 'بحث عن صنف أو قسم...' : 'Search item or category...'}
+                    className="h-9 w-full rounded-xl border border-border bg-card ps-9 pe-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/30"
+                  />
+                  {itemSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setItemSearch('')}
+                      className="absolute inset-y-0 end-2.5 my-auto text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Sort controls */}
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="font-medium me-1">{isAr ? 'الترتيب:' : 'Sort:'}</span>
+                  {(
+                    [
+                      { id: 'quantity', label: isAr ? 'الكمية' : 'Quantity' },
+                      { id: 'revenue', label: isAr ? 'الإيراد' : 'Revenue' },
+                      { id: 'avg_price', label: isAr ? 'السعر' : 'Price' },
+                      { id: 'name', label: isAr ? 'الاسم' : 'Name' },
+                    ] as const
+                  ).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        if (itemSortField === s.id) {
+                          setItemSortAsc(!itemSortAsc);
+                        } else {
+                          setItemSortField(s.id);
+                          setItemSortAsc(s.id === 'name');
+                        }
+                      }}
+                      className={`h-7 px-2.5 rounded-lg border text-xs font-semibold transition-colors ${
+                        itemSortField === s.id
+                          ? 'border-brand bg-brand text-white'
+                          : 'border-border bg-card text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {s.label} {itemSortField === s.id ? (itemSortAsc ? '↑' : '↓') : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category Filter Pills */}
+              {categoriesList.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setItemCategoryFilter('all')}
+                    className={`h-6 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${
+                      itemCategoryFilter === 'all'
+                        ? 'bg-foreground text-background'
+                        : 'bg-card border border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {isAr ? 'الكل' : 'All'} ({topProducts.length})
+                  </button>
+                  {categoriesList.map((cat) => {
+                    const count = topProducts.filter((p) => p.category_name === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setItemCategoryFilter(cat)}
+                        className={`h-6 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${
+                          itemCategoryFilter === cat
+                            ? 'bg-brand text-white'
+                            : 'bg-card border border-border text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {cat} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Summary Stats Strip */}
+              <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-muted-foreground pt-1">
+                <span>
+                  {isAr ? 'عدد الأصناف المطلوبة:' : 'Ordered Items:'}{' '}
+                  <strong className="text-foreground">{topProducts.length}</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  {isAr ? 'إجمالي القطع المباعة:' : 'Total Units Sold:'}{' '}
+                  <strong className="text-foreground">{totalOrderedQuantity}</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  {isAr ? 'إجمالي مبيعات الأصناف:' : 'Total Items Revenue:'}{' '}
+                  <strong className="text-foreground">{fmt(totalOrderedRevenue)}</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Table */}
+            {filteredOrderedItems.length === 0 ? (
+              <div className="flex min-h-48 flex-col items-center justify-center px-6 py-12 text-center">
+                <span className="mb-3 flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                  <Package size={24} />
+                </span>
+                <p className="text-sm font-semibold text-foreground">
+                  {isAr ? 'لا توجد منتجات مطابقة في هذه الفترة' : 'No matching items ordered in this period'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isAr ? 'جرّب تغيير التاريخ أو كلمات البحث' : 'Try selecting another date or clearing your search'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-start text-xs">
+                  <thead className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 text-start w-12">#</th>
+                      <th className="px-4 py-3 text-start">{isAr ? 'المنتج والقسم' : 'Product & Category'}</th>
+                      <th className="px-4 py-3 text-start min-w-[160px]">{isAr ? 'الكمية المطلوبة' : 'Quantity Sold'}</th>
+                      <th className="px-4 py-3 text-end">{isAr ? 'متوسط السعر' : 'Avg Unit Price'}</th>
+                      <th className="px-4 py-3 text-end">{isAr ? 'إجمالي المبيعات' : 'Total Revenue'}</th>
+                      <th className="px-4 py-3 text-end">{isAr ? 'نسبة المبيعات' : 'Sales Share'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredOrderedItems.map((item, idx) => {
+                      const avgPrice = item.avg_price ?? (item.total_quantity > 0 ? item.total_revenue / item.total_quantity : 0);
+                      const sharePercent = totalOrderedRevenue > 0
+                        ? Math.round((item.total_revenue / totalOrderedRevenue) * 100)
+                        : 0;
+                      const qtyBarPercent = maxProductQuantity > 0
+                        ? Math.max(8, Math.round((item.total_quantity / maxProductQuantity) * 100))
+                        : 0;
+                      const isTop3 = idx < 3 && itemSortField === 'quantity' && !itemSortAsc;
+
+                      return (
+                        <tr key={item.product_id} className="transition-colors hover:bg-muted/40">
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex size-6 items-center justify-center rounded-lg text-[11px] font-bold ${
+                                isTop3
+                                  ? idx === 0
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
+                                    : idx === 1
+                                      ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300'
+                                  : 'text-muted-foreground'
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-foreground text-sm">{item.product_name}</div>
+                            {item.category_name && (
+                              <span className="inline-block mt-0.5 text-[11px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
+                                {item.category_name}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <span className="font-bold text-foreground text-sm min-w-8">
+                                {item.total_quantity}
+                              </span>
+                              <div className="h-2 flex-1 max-w-[120px] rounded-full bg-muted overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-brand transition-all"
+                                  style={{ width: `${qtyBarPercent}%` }}
+                                />
+                              </div>
+                              <span className="text-[11px] text-muted-foreground">
+                                ({item.order_count} {isAr ? 'طلب' : 'orders'})
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-end font-medium text-muted-foreground">
+                            {fmt(avgPrice)}
+                          </td>
+                          <td className="px-4 py-3 text-end font-bold text-foreground">
+                            {fmt(Number(item.total_revenue))}
+                          </td>
+                          <td className="px-4 py-3 text-end">
+                            <span className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand/10 text-brand">
+                              {sharePercent}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
             {/* Payment Methods */}

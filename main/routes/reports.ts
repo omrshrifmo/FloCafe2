@@ -158,10 +158,11 @@ router.get('/summary', requirePermission('reports.view'), (req: Request, res: Re
   try {
     const db = getDatabase();
     const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
-    // #208: an explicit date param is a tenant-local `YYYY-MM-DD`; resolve
-    // it to the corresponding half-open UTC range. `reportDate` validates the param shape.
-    const date = reportDate(req.query.date, reportToday());
-    const [start, end] = reportDayBounds(date);
+    const today = reportToday();
+    const startDate = reportDate(req.query.start_date, req.query.date ? reportDate(req.query.date, today) : today);
+    const endDate = reportDate(req.query.end_date, startDate);
+    const [start] = reportDayBounds(startDate);
+    const [, end] = reportDayBounds(endDate);
 
     const ordersToday = db.prepare(`
       SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total
@@ -174,7 +175,7 @@ router.get('/summary', requirePermission('reports.view'), (req: Request, res: Re
         - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE created_at >= ? AND created_at < ?), 0) as collected
       FROM bills WHERE created_at >= ? AND created_at < ?
     `).get(start, end, minorFactor, start, end, start, end) as { count: number; total: number; collected: number };
-    const paymentMethodsToday = paymentMethodBreakdown(db, { startDate: date });
+    const paymentMethodsToday = paymentMethodBreakdown(db, { startDate, endDate });
 
     const customersToday = db.prepare(`
       SELECT COUNT(*) as count FROM customers WHERE created_at >= ? AND created_at < ?
@@ -186,7 +187,9 @@ router.get('/summary', requirePermission('reports.view'), (req: Request, res: Re
 
     res.json({
       summary: {
-        date,
+        date: startDate === endDate ? startDate : `${startDate} to ${endDate}`,
+        startDate,
+        endDate,
         orders: { count: ordersToday.count, total: ordersToday.total },
         bills: { count: billsToday.count, total: billsToday.total, collected: billsToday.collected },
         customers: { new: customersToday.count },
@@ -381,19 +384,24 @@ router.get('/topProducts', requirePermission('reports.view'), (req: Request, res
       return res.status(400).json({ error: 'start_date must be on or before end_date' });
     }
     const requestedLimit = Number(req.query.limit);
-    const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 10;
+    const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 10000) : 1000;
     const windowStart = reportDayBounds(startDate)[0];
     const windowEnd = reportDayBounds(endDate)[1];
 
     const topProducts = db.prepare(`
       SELECT oi.product_id, oi.product_name,
+        COALESCE(c.name, 'Uncategorized') as category_name,
         SUM(oi.quantity) as total_quantity,
         SUM(oi.subtotal) as total_revenue,
-        COUNT(DISTINCT oi.order_id) as order_count
+        COUNT(DISTINCT oi.order_id) as order_count,
+        ROUND(SUM(oi.subtotal) / NULLIF(SUM(oi.quantity), 0), 2) as avg_price
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
+      LEFT JOIN products p ON p.id = oi.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
       WHERE o.created_at >= ? AND o.created_at < ?
-      GROUP BY oi.product_id
+        AND o.status != 'cancelled'
+      GROUP BY oi.product_id, oi.product_name
       ORDER BY total_quantity DESC
       LIMIT ?
     `).all(windowStart, windowEnd, limit);
@@ -522,26 +530,36 @@ router.get('/tables', requirePermission('reports.view'), (req: Request, res: Res
 router.get('/insights', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
-    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
-    const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
-    // #208: "N days back" in the tenant's local calendar, with a UTC range
-    // so the window filters on the index. The same timezone drives the
-    // hour/day-of-week bucketing below.
     const timeZone = tenantTimezone();
     const today = reportToday();
-    const startDateValue = new Date(`${today}T00:00:00Z`);
-    startDateValue.setUTCDate(startDateValue.getUTCDate() - days);
-    const startDate = startDateValue.toISOString().slice(0, 10);
-    const [windowStart] = reportDayBounds(startDate);
+    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+    let windowStart: string;
+    let windowEnd: string;
+    let windowDays = 30;
+
+    if (req.query.start_date) {
+      const sDate = reportDate(req.query.start_date, today);
+      const eDate = reportDate(req.query.end_date, sDate);
+      windowStart = reportDayBounds(sDate)[0];
+      windowEnd = reportDayBounds(eDate)[1];
+    } else {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      windowDays = days;
+      const startDateValue = new Date(`${today}T00:00:00Z`);
+      startDateValue.setUTCDate(startDateValue.getUTCDate() - days);
+      const startDate = startDateValue.toISOString().slice(0, 10);
+      windowStart = reportDayBounds(startDate)[0];
+      windowEnd = reportDayBounds(today)[1];
+    }
 
     // AOV — same revenue basis ("paid bills") as the existing daily-stats tile.
     const revenue = db.prepare(`
       SELECT COUNT(*) as billCount,
         COALESCE(SUM(paid_amount), 0)
-        - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE created_at >= ?), 0) as total
+        - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE created_at >= ? AND created_at < ?), 0) as total
       FROM bills
-      WHERE paid_at >= ?
-    `).get(minorFactor, windowStart, windowStart) as { billCount: number; total: number };
+      WHERE paid_at >= ? AND paid_at < ?
+    `).get(minorFactor, windowStart, windowEnd, windowStart, windowEnd) as { billCount: number; total: number };
     const aov = revenue.billCount > 0 ? revenue.total / revenue.billCount : 0;
 
     // Kitchen velocity — substitutes for "best cook", which isn't derivable:
@@ -553,8 +571,8 @@ router.get('/insights', requirePermission('reports.view'), (req: Request, res: R
         COUNT(*) as sampleSize
       FROM orders
       WHERE cooking_started_at IS NOT NULL AND ready_at IS NOT NULL
-        AND created_at >= ? AND status != 'cancelled'
-    `).get(windowStart) as { avgMinutes: number | null; sampleSize: number };
+        AND created_at >= ? AND created_at < ? AND status != 'cancelled'
+    `).get(windowStart, windowEnd) as { avgMinutes: number | null; sampleSize: number };
 
     // Top staff by revenue — covers whoever creates orders (owner/manager/
     // cashier/server, per POST /orders' own role gate), i.e. "best cashier".
@@ -564,11 +582,11 @@ router.get('/insights', requirePermission('reports.view'), (req: Request, res: R
         COUNT(o.id) as orderCount
       FROM orders o
       JOIN users u ON u.id = o.user_id
-      WHERE o.created_at >= ? AND o.status != 'cancelled'
+      WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'cancelled'
       GROUP BY u.id
       ORDER BY revenue DESC
-      LIMIT 5
-    `).all(windowStart);
+      LIMIT 10
+    `).all(windowStart, windowEnd);
 
     // Top categories by revenue.
     const topCategories = db.prepare(`
@@ -579,16 +597,16 @@ router.get('/insights', requirePermission('reports.view'), (req: Request, res: R
       JOIN orders o ON o.id = oi.order_id
       JOIN products p ON p.id = oi.product_id
       LEFT JOIN categories c ON c.id = p.category_id
-      WHERE o.created_at >= ? AND oi.status != 'cancelled'
+      WHERE o.created_at >= ? AND o.created_at < ? AND oi.status != 'cancelled'
       GROUP BY c.id
       ORDER BY revenue DESC
-      LIMIT 5
-    `).all(windowStart);
+      LIMIT 10
+    `).all(windowStart, windowEnd);
 
     // Busiest/idlest hour & day-of-week, bucketed in the tenant's local timezone.
     const orderTimestamps = (db.prepare(
-      `SELECT created_at FROM orders WHERE created_at >= ? AND status != 'cancelled'`
-    ).all(windowStart) as { created_at: string }[]).map((r) => r.created_at);
+      `SELECT created_at FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'`
+    ).all(windowStart, windowEnd) as { created_at: string }[]).map((r) => r.created_at);
 
     const { hourCounts, dayCounts } = bucketByLocalHourAndWeekday(orderTimestamps, timeZone, tenantStartTime());
 
@@ -604,7 +622,7 @@ router.get('/insights', requirePermission('reports.view'), (req: Request, res: R
     const idlestDay = pickExtreme(dayCounts, 'min', () => true);
 
     res.json({
-      windowDays: days,
+      windowDays,
       aov,
       ordersAnalyzed: orderTimestamps.length,
       avgPrepTimeMinutes: prepTime.sampleSize > 0 && prepTime.avgMinutes !== null ? Math.round(prepTime.avgMinutes) : null,
