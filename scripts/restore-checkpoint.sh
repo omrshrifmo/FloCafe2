@@ -5,8 +5,8 @@ set -euo pipefail
 # Restores the verified checkpoint database with safety auto-backup.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CHECKPOINT_DIR="${REPO_ROOT}/backups/checkpoints/checkpoint-4.0.2"
+TAG="${1:-checkpoint-4.0.5}"
+CHECKPOINT_DIR="${REPO_ROOT}/backups/checkpoints/${TAG}"
 CHECKPOINT_DB="${CHECKPOINT_DIR}/flo.db"
 CHECKPOINT_CONFIG_DB="${CHECKPOINT_DIR}/config_flo_desktop/flo.db"
 

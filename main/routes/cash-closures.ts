@@ -545,16 +545,41 @@ export function sessionExpectedCash(
           cash_session_id = ?
           OR (cash_session_id IS NULL AND created_at >= ? AND created_at < ?)
         )
+    ),
+    extra_cash_ins AS (
+      SELECT COALESCE(SUM(amount * ?), 0) AS extra_in_cents
+      FROM cash_movements
+      WHERE (session_id = CAST(? AS TEXT) OR session_id = ?)
+        AND movement_type IN ('cash_in')
+        AND payment_method = 'cash'
+        AND voided_at IS NULL
+    ),
+    extra_cash_outs AS (
+      SELECT COALESCE(SUM(amount * ?), 0) AS extra_out_cents
+      FROM cash_movements
+      WHERE (session_id = CAST(? AS TEXT) OR session_id = ?)
+        AND movement_type IN ('paid_out', 'petty_expense', 'safe_drop', 'supplier_payment', 'loan_disbursement', 'payroll_payout')
+        AND payment_method = 'cash'
+        AND voided_at IS NULL
     )
     SELECT
       (SELECT sales_cents FROM cash_sales) AS sales_cents,
-      (SELECT refunds_cents FROM cash_refunds) AS refunds_cents
-  `).get(minorFactor, session.id, start, end, session.id, start, end) as { sales_cents: number; refunds_cents: number };
+      (SELECT refunds_cents FROM cash_refunds) AS refunds_cents,
+      (SELECT extra_in_cents FROM extra_cash_ins) AS extra_in_cents,
+      (SELECT extra_out_cents FROM extra_cash_outs) AS extra_out_cents
+  `).get(minorFactor, session.id, start, end, session.id, start, end, minorFactor, session.id, String(session.id), minorFactor, session.id, String(session.id)) as {
+    sales_cents: number;
+    refunds_cents: number;
+    extra_in_cents: number;
+    extra_out_cents: number;
+  };
   return Number(session.opening_float_cents || 0)
     + Math.round(Number(eventTotals.sales_cents || 0))
     + movementTotals.payInCents
+    + Math.round(Number(eventTotals.extra_in_cents || 0))
     - movementTotals.payOutCents
     - movementTotals.safeDropCents
+    - Math.round(Number(eventTotals.extra_out_cents || 0))
     - Number(eventTotals.refunds_cents || 0);
 }
 

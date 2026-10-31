@@ -107,12 +107,46 @@ router.post('/', requirePermission('refunds.initiate'), (req: Request, res: Resp
       checkPinRateLimit,
       idempotencyKey,
       requestHash,
-    };
+      waste: body.waste === true || body.waste === 'true' || body.waste === 1,
+    } as any;
 
     const result = withTxn(() => createRefund(db, refundRequest));
     res.status(201).json(result);
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Unable to process refund' });
+  }
+});
+
+router.post('/items/:itemId', requirePermission('refunds.initiate'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const itemId = req.params.itemId;
+    const body = req.body || {};
+    const item = db.prepare('SELECT * FROM order_items WHERE id = ?').get(itemId) as any;
+    if (!item) return res.status(404).json({ error: 'Order item not found' });
+
+    const isWaste = body.waste === true || body.waste === 'true' || body.waste === 1;
+    const actorId = String((req as any).user?.userId || 'system');
+    const timestamp = now();
+
+    withTxn(() => {
+      db.prepare("UPDATE order_items SET status = 'refunded', updated_at = ? WHERE id = ?").run(timestamp, itemId);
+      if (!isWaste) {
+        const { restoreBomForOrderItem } = require('../services/bom-depletion');
+        restoreBomForOrderItem(db, {
+          productId: item.product_id,
+          quantity: item.quantity,
+          orderId: item.order_id,
+          actorUserId: actorId,
+          createdAt: timestamp,
+          waste: false,
+        });
+      }
+    });
+
+    res.json({ message: 'Order item refunded', status: 'refunded', item_id: itemId });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to refund order item' });
   }
 });
 

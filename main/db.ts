@@ -5752,6 +5752,334 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 105,
+    name: 'flocafe_4_0_5_enterprise_suite',
+    up: () => {
+      // 1. Extend or create inventory_items
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS inventory_items (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          sku TEXT,
+          category TEXT DEFAULT 'ingredient',
+          unit TEXT NOT NULL DEFAULT 'each',
+          quantity REAL NOT NULL DEFAULT 0,
+          cost_per_unit REAL NOT NULL DEFAULT 0,
+          reorder_level REAL NOT NULL DEFAULT 0,
+          critical_level REAL NOT NULL DEFAULT 0,
+          last_counted_qty REAL,
+          last_counted_at TEXT,
+          supplier_id TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      const invCols = getColumns(db, 'inventory_items');
+      if (!invCols.includes('sku')) db.exec(`ALTER TABLE inventory_items ADD COLUMN sku TEXT`);
+      if (!invCols.includes('category')) db.exec(`ALTER TABLE inventory_items ADD COLUMN category TEXT DEFAULT 'ingredient'`);
+      if (!invCols.includes('critical_level')) db.exec(`ALTER TABLE inventory_items ADD COLUMN critical_level REAL NOT NULL DEFAULT 0`);
+      if (!invCols.includes('last_counted_qty')) db.exec(`ALTER TABLE inventory_items ADD COLUMN last_counted_qty REAL`);
+      if (!invCols.includes('last_counted_at')) db.exec(`ALTER TABLE inventory_items ADD COLUMN last_counted_at TEXT`);
+      if (!invCols.includes('supplier_id')) db.exec(`ALTER TABLE inventory_items ADD COLUMN supplier_id TEXT`);
+
+      // 2. Extend supplies
+      const supCols = getColumns(db, 'supplies');
+      if (!supCols.includes('quantity')) db.exec(`ALTER TABLE supplies ADD COLUMN quantity REAL NOT NULL DEFAULT 0`);
+      if (!supCols.includes('critical_level')) db.exec(`ALTER TABLE supplies ADD COLUMN critical_level REAL NOT NULL DEFAULT 0`);
+      if (!supCols.includes('last_counted_qty')) db.exec(`ALTER TABLE supplies ADD COLUMN last_counted_qty REAL`);
+      if (!supCols.includes('last_counted_at')) db.exec(`ALTER TABLE supplies ADD COLUMN last_counted_at TEXT`);
+      if (!supCols.includes('supplier_id')) db.exec(`ALTER TABLE supplies ADD COLUMN supplier_id TEXT`);
+      // Synchronize quantity with stock_quantity for supplies if 0
+      db.exec(`UPDATE supplies SET quantity = stock_quantity WHERE (quantity = 0 OR quantity IS NULL) AND stock_quantity != 0`);
+
+      // 3. Extend recipes
+      const rcpCols = getColumns(db, 'recipes');
+      if (!rcpCols.includes('item_type')) db.exec(`ALTER TABLE recipes ADD COLUMN item_type TEXT NOT NULL DEFAULT 'supply'`);
+      if (!rcpCols.includes('inventory_item_id')) db.exec(`ALTER TABLE recipes ADD COLUMN inventory_item_id TEXT`);
+      if (!rcpCols.includes('waste_pct')) db.exec(`ALTER TABLE recipes ADD COLUMN waste_pct REAL NOT NULL DEFAULT 0`);
+      if (!rcpCols.includes('notes')) db.exec(`ALTER TABLE recipes ADD COLUMN notes TEXT`);
+
+      // 4. Create stock_logs (immutable ledger)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS stock_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          target_type TEXT NOT NULL DEFAULT 'supply' CHECK (target_type IN ('inventory', 'supply')),
+          target_id TEXT NOT NULL,
+          quantity_delta REAL NOT NULL,
+          stock_after REAL NOT NULL,
+          unit TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          actor_user_id TEXT,
+          reference_type TEXT,
+          reference_id TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_logs_target ON stock_logs(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_logs_created ON stock_logs(created_at);
+      `);
+
+      // 5. Create cash_movements
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cash_movements (
+          id TEXT PRIMARY KEY,
+          session_id TEXT,
+          movement_type TEXT NOT NULL CHECK (movement_type IN ('cash_in', 'paid_out', 'petty_expense', 'safe_drop', 'supplier_payment', 'loan_disbursement', 'payroll_payout')),
+          category TEXT NOT NULL,
+          amount REAL NOT NULL,
+          payment_method TEXT NOT NULL DEFAULT 'cash',
+          reference_type TEXT,
+          reference_id TEXT,
+          notes TEXT,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          voided_at TEXT,
+          voided_by TEXT,
+          void_reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id);
+        CREATE INDEX IF NOT EXISTS idx_cash_movements_created ON cash_movements(created_at);
+      `);
+
+      // 6. Create operating_expenses
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS operating_expenses (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          category TEXT NOT NULL CHECK (category IN ('rent', 'utilities', 'equipment_depreciation', 'marketing', 'maintenance', 'packaging_overhead', 'licenses', 'other')),
+          cost_type TEXT NOT NULL DEFAULT 'indirect' CHECK (cost_type IN ('direct', 'indirect')),
+          allocation_method TEXT NOT NULL DEFAULT 'per_unit_sold' CHECK (allocation_method IN ('per_unit_sold', 'percent_of_revenue', 'prep_minute')),
+          amount REAL NOT NULL,
+          billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+          business_date TEXT NOT NULL,
+          paid_from_session_id TEXT,
+          supplier_id TEXT,
+          notes TEXT,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operating_expenses_date ON operating_expenses(business_date);
+      `);
+
+      // 7. Create suppliers
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS suppliers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          contact_person TEXT,
+          phone TEXT,
+          email TEXT,
+          category TEXT,
+          payment_terms TEXT DEFAULT 'COD',
+          lead_time_days INTEGER NOT NULL DEFAULT 1,
+          balance_due REAL NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      // 8. Create purchase_orders & purchase_order_items
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+          id TEXT PRIMARY KEY,
+          po_number TEXT NOT NULL UNIQUE,
+          supplier_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'ordered', 'received', 'cancelled')),
+          subtotal REAL NOT NULL DEFAULT 0,
+          tax_amount REAL NOT NULL DEFAULT 0,
+          shipping_cost REAL NOT NULL DEFAULT 0,
+          total_amount REAL NOT NULL DEFAULT 0,
+          paid_amount REAL NOT NULL DEFAULT 0,
+          expected_date TEXT,
+          received_at TEXT,
+          received_by TEXT,
+          notes TEXT,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS purchase_order_items (
+          id TEXT PRIMARY KEY,
+          purchase_order_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_id TEXT NOT NULL,
+          item_name TEXT NOT NULL,
+          unit TEXT NOT NULL,
+          ordered_qty REAL NOT NULL,
+          received_qty REAL NOT NULL DEFAULT 0,
+          unit_cost REAL NOT NULL,
+          line_total REAL NOT NULL,
+          batch_lot_number TEXT,
+          expiry_date TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_poi_order ON purchase_order_items(purchase_order_id);
+      `);
+
+      // 9. Extend stocktake_sessions & create stocktake_lines
+      const stsCols = getColumns(db, 'stocktake_sessions');
+      if (!stsCols.includes('reference_code')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN reference_code TEXT`);
+      if (!stsCols.includes('scope')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN scope TEXT NOT NULL DEFAULT 'all'`);
+      if (!stsCols.includes('total_expected_value')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN total_expected_value REAL NOT NULL DEFAULT 0`);
+      if (!stsCols.includes('total_actual_value')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN total_actual_value REAL NOT NULL DEFAULT 0`);
+      if (!stsCols.includes('total_variance_value')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN total_variance_value REAL NOT NULL DEFAULT 0`);
+      if (!stsCols.includes('started_by')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN started_by TEXT NOT NULL DEFAULT 'system'`);
+      if (!stsCols.includes('started_at')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN started_at TEXT`);
+      if (!stsCols.includes('reconciled_by')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN reconciled_by TEXT`);
+      if (!stsCols.includes('reconciled_at')) db.exec(`ALTER TABLE stocktake_sessions ADD COLUMN reconciled_at TEXT`);
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS stocktake_lines (
+          id TEXT PRIMARY KEY,
+          stocktake_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_id TEXT NOT NULL,
+          item_name TEXT NOT NULL,
+          unit TEXT NOT NULL,
+          expected_qty REAL NOT NULL,
+          actual_qty REAL NOT NULL,
+          variance_qty REAL NOT NULL,
+          unit_cost REAL NOT NULL,
+          variance_value REAL NOT NULL,
+          variance_reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_stocktake_lines_session ON stocktake_lines(stocktake_id);
+      `);
+
+      // 10. Create bom_headers & bom_components
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS bom_headers (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL UNIQUE,
+          yield_portions REAL NOT NULL DEFAULT 1,
+          prep_time_minutes REAL NOT NULL DEFAULT 2,
+          direct_labor_rate_per_hour REAL NOT NULL DEFAULT 60,
+          target_food_cost_pct REAL NOT NULL DEFAULT 30,
+          indirect_overhead_override REAL,
+          notes TEXT,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bom_components (
+          id TEXT PRIMARY KEY,
+          bom_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_id TEXT NOT NULL,
+          component_name TEXT NOT NULL,
+          unit TEXT NOT NULL,
+          net_quantity REAL NOT NULL,
+          waste_pct REAL NOT NULL DEFAULT 0,
+          gross_quantity REAL NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_bom_components_bom ON bom_components(bom_id);
+      `);
+
+      // 11. Create haccp_ccp_logs, haccp_checklists, haccp_batches
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS haccp_ccp_logs (
+          id TEXT PRIMARY KEY,
+          station_name TEXT NOT NULL,
+          ccp_category TEXT NOT NULL,
+          target_min REAL,
+          target_max REAL,
+          recorded_value REAL NOT NULL,
+          unit TEXT NOT NULL DEFAULT 'C',
+          status TEXT NOT NULL CHECK (status IN ('pass', 'warning', 'critical_breach')),
+          corrective_action TEXT,
+          recorded_by TEXT NOT NULL,
+          recorded_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS haccp_checklists (
+          id TEXT PRIMARY KEY,
+          business_date TEXT NOT NULL,
+          shift_type TEXT NOT NULL CHECK (shift_type IN ('opening', 'mid_shift', 'closing')),
+          task_title TEXT NOT NULL,
+          area TEXT NOT NULL,
+          is_completed INTEGER NOT NULL DEFAULT 0,
+          verified_by TEXT,
+          completed_at TEXT,
+          notes TEXT
+        );
+        CREATE TABLE IF NOT EXISTS haccp_batches (
+          id TEXT PRIMARY KEY,
+          item_name TEXT NOT NULL,
+          lot_number TEXT NOT NULL,
+          storage_area TEXT NOT NULL,
+          prepared_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'expiring_soon', 'discarded')),
+          created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_haccp_ccp_recorded ON haccp_ccp_logs(recorded_at);
+        CREATE INDEX IF NOT EXISTS idx_haccp_checklists_date ON haccp_checklists(business_date);
+        CREATE INDEX IF NOT EXISTS idx_haccp_batches_status ON haccp_batches(status);
+      `);
+
+      // 12. Create hr_employee_profiles, hr_attendance_summaries, hr_employee_loans, hr_payroll_runs
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS hr_employee_profiles (
+          staff_id TEXT PRIMARY KEY,
+          employee_code TEXT NOT NULL UNIQUE,
+          department TEXT NOT NULL DEFAULT 'Operations',
+          contract_type TEXT NOT NULL DEFAULT 'full_time',
+          base_monthly_salary REAL NOT NULL DEFAULT 0,
+          hourly_rate REAL NOT NULL DEFAULT 0,
+          standard_work_days INTEGER NOT NULL DEFAULT 26,
+          social_insurance_amount REAL NOT NULL DEFAULT 0,
+          tax_rate_pct REAL NOT NULL DEFAULT 0,
+          phone TEXT,
+          hire_date TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS hr_attendance_summaries (
+          id TEXT PRIMARY KEY,
+          staff_id TEXT NOT NULL,
+          payroll_month TEXT NOT NULL,
+          days_worked REAL NOT NULL DEFAULT 26,
+          absent_days REAL NOT NULL DEFAULT 0,
+          overtime_hours REAL NOT NULL DEFAULT 0,
+          late_minutes INTEGER NOT NULL DEFAULT 0,
+          bonus_amount REAL NOT NULL DEFAULT 0,
+          penalty_amount REAL NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          UNIQUE(staff_id, payroll_month)
+        );
+        CREATE TABLE IF NOT EXISTS hr_employee_loans (
+          id TEXT PRIMARY KEY,
+          staff_id TEXT NOT NULL,
+          loan_type TEXT NOT NULL DEFAULT 'installment_loan' CHECK (loan_type IN ('salary_advance', 'installment_loan')),
+          principal_amount REAL NOT NULL,
+          monthly_installment REAL NOT NULL,
+          remaining_balance REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'settled')),
+          reason TEXT,
+          issued_at TEXT NOT NULL,
+          approved_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS hr_payroll_runs (
+          id TEXT PRIMARY KEY,
+          payroll_month TEXT NOT NULL,
+          staff_id TEXT NOT NULL,
+          base_salary REAL NOT NULL,
+          attendance_deduction REAL NOT NULL DEFAULT 0,
+          overtime_pay REAL NOT NULL DEFAULT 0,
+          bonus_amount REAL NOT NULL DEFAULT 0,
+          penalty_amount REAL NOT NULL DEFAULT 0,
+          tax_and_insurance REAL NOT NULL DEFAULT 0,
+          loan_installment_deducted REAL NOT NULL DEFAULT 0,
+          net_payable REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'paid')),
+          paid_at TEXT,
+          paid_by TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_hr_attendance_staff_month ON hr_attendance_summaries(staff_id, payroll_month);
+        CREATE INDEX IF NOT EXISTS idx_hr_payroll_month ON hr_payroll_runs(payroll_month);
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {

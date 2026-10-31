@@ -122,6 +122,13 @@ export const PERMISSION_CAPABILITIES = [
   { id: 'databaseTools', area: 'system', labelKey: 'databaseTools', allowedRoles: ROLE_ACCESS.owner },
   { id: 'serverApp', area: 'orders', labelKey: 'serverApp', allowedRoles: ROLE_ACCESS.serverApp },
   { id: 'support', area: 'support', labelKey: 'support', allowedRoles: ROLE_ACCESS.allStaff },
+  { id: 'financeExpenses', area: 'reports', labelKey: 'financeExpenses', allowedRoles: ROLE_ACCESS.ownerManager },
+  { id: 'purchasingOrders', area: 'menu', labelKey: 'purchasingOrders', allowedRoles: ROLE_ACCESS.ownerManager },
+  { id: 'stocktakeManage', area: 'menu', labelKey: 'stocktakeManage', allowedRoles: ROLE_ACCESS.ownerManager },
+  { id: 'bomCosting', area: 'menu', labelKey: 'bomCosting', allowedRoles: ROLE_ACCESS.ownerManager },
+  { id: 'haccpLogs', area: 'kitchen', labelKey: 'haccpLogs', allowedRoles: ROLE_ACCESS.ownerManagerCashier },
+  { id: 'hrmPayroll', area: 'staff', labelKey: 'hrmPayroll', allowedRoles: ROLE_ACCESS.owner },
+  { id: 'ownerAssist', area: 'reports', labelKey: 'ownerAssist', allowedRoles: ROLE_ACCESS.ownerManager },
 ] as const satisfies readonly PermissionCapability[];
 
 export type PermissionCapabilityId = typeof PERMISSION_CAPABILITIES[number]['id'];

@@ -127,6 +127,18 @@ export const PERMISSION_DEFINITIONS = [
 
   { id: 'database.manage', area: 'system', defaultRoles: OWNER, configurable: true, risk: 'destructive' },
   { id: 'mobile-access.manage', area: 'system', defaultRoles: OWNER, configurable: true, risk: 'sensitive' },
+  { id: 'finance.expenses.view', area: 'reports', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'standard' },
+  { id: 'finance.expenses.manage', area: 'cash', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'sensitive' },
+  { id: 'purchasing.orders.view', area: 'inventory', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'standard' },
+  { id: 'purchasing.orders.manage', area: 'inventory', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'sensitive' },
+  { id: 'inventory.stocktake.manage', area: 'inventory', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'sensitive' },
+  { id: 'bom.costing.manage', area: 'menu', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'standard' },
+  { id: 'haccp.logs.view', area: 'kitchen', defaultRoles: OWNER_MANAGER_CASHIER, configurable: true, risk: 'standard' },
+  { id: 'haccp.logs.manage', area: 'kitchen', defaultRoles: OWNER_MANAGER_CASHIER, configurable: true, risk: 'standard' },
+  { id: 'hrm.payroll.view', area: 'staff', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'sensitive' },
+  { id: 'hrm.payroll.manage', area: 'staff', defaultRoles: OWNER, configurable: false, risk: 'destructive' },
+  { id: 'owner.assist.view', area: 'reports', defaultRoles: OWNER_MANAGER, configurable: true, risk: 'standard' },
+
   { id: 'server-app.use', area: 'apps', defaultRoles: ROLE_ACCESS.serverApp, configurable: true, risk: 'standard' },
   { id: 'support.use', area: 'support', defaultRoles: ALL_STAFF, configurable: true, risk: 'standard' },
 ] as const satisfies readonly PermissionDefinitionShape[];

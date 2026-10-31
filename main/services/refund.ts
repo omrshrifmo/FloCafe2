@@ -206,6 +206,38 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
     }
     db.prepare("UPDATE order_items SET status = 'refunded', voided_at = ?, updated_at = ? WHERE id = ?")
       .run(timestamp, timestamp, item.id);
+
+    // If item was deducted, restore stock when waste flag is false (default)
+    const isWaste = (req as any).waste === true || (req as any).waste === 1;
+    if (!isWaste) {
+      if (item.recipe_snapshot) {
+        try {
+          const { parseRecipeSnapshot, applyRecipeSnapshot } = require('./recipes');
+          const snapshot = parseRecipeSnapshot(item.recipe_snapshot);
+          if (snapshot) {
+            applyRecipeSnapshot(db, snapshot, {
+              direction: 'restore',
+              actorUserId: req.createdByUserId,
+              referenceId: item.id,
+              createdAt: timestamp,
+            });
+          }
+        } catch {}
+      } else if (item.inventory_deducted_quantity && Number(item.inventory_deducted_quantity) > 0 && item.inventory_product_id) {
+        try {
+          const { adjustProductStock } = require('../routes/products');
+          adjustProductStock(db, {
+            productId: item.inventory_product_id,
+            quantityDelta: Number(item.inventory_deducted_quantity),
+            movementType: 'cancel_restore',
+            referenceType: 'order_item',
+            referenceId: String(item.id),
+            actorUserId: req.createdByUserId,
+            createdAt: timestamp,
+          });
+        } catch {}
+      }
+    }
   }
 
   const cashSessionId = getOpenSession(db)?.id ?? NO_CASH_SESSION_ID;

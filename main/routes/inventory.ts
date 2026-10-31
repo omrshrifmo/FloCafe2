@@ -58,4 +58,67 @@ router.get('/movements', requirePermission('inventory.view'), (req: Request, res
   }
 });
 
+router.get('/warnings', requirePermission('inventory.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const invItems = db.prepare(`
+      SELECT id, name, sku, category, unit, quantity, cost_per_unit, reorder_level, critical_level, 'inventory' as target_type
+      FROM inventory_items WHERE is_active = 1
+    `).all() as any[];
+
+    const supItems = db.prepare(`
+      SELECT id, name, null as sku, 'supply' as category, base_unit as unit,
+        COALESCE(stock_quantity, quantity, 0) as quantity,
+        (COALESCE(cost_cents, 0) / 100.0) as cost_per_unit,
+        COALESCE(low_stock_threshold, 0) as reorder_level,
+        COALESCE(critical_level, 0) as critical_level,
+        'supply' as target_type
+      FROM supplies WHERE is_active = 1 AND deleted_at IS NULL
+    `).all() as any[];
+
+    const allItems = [...invItems, ...supItems];
+    const warnings: any[] = [];
+    for (const item of allItems) {
+      const qty = Number(item.quantity) || 0;
+      const reorder = Number(item.reorder_level) || 0;
+      const crit = Number(item.critical_level) || (reorder * 0.5);
+      if (reorder <= 0 && qty > 0) continue;
+
+      let severity: 'out_of_stock' | 'critical' | 'low_warning' | null = null;
+      if (qty <= 0) severity = 'out_of_stock';
+      else if (qty <= crit) severity = 'critical';
+      else if (qty <= reorder) severity = 'low_warning';
+
+      if (severity) {
+        const suggestedOrderQty = Math.max(1, (reorder > 0 ? reorder * 2 : 10) - qty);
+        warnings.push({ ...item, severity, suggested_order_qty: suggestedOrderQty });
+      }
+    }
+    res.json({ warnings, total_warnings: warnings.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch inventory warnings' });
+  }
+});
+
+router.get('/items', requirePermission('inventory.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const inventory = db.prepare('SELECT * FROM inventory_items WHERE is_active = 1 ORDER BY name ASC').all();
+    const supplies = db.prepare('SELECT * FROM supplies WHERE is_active = 1 AND deleted_at IS NULL ORDER BY name ASC').all();
+    res.json({ inventory_items: inventory, supplies });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch inventory items' });
+  }
+});
+
+router.get('/stock-logs', requirePermission('inventory.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const logs = db.prepare('SELECT * FROM stock_logs ORDER BY created_at DESC LIMIT 100').all();
+    res.json({ logs });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch stock logs' });
+  }
+});
+
 export const inventoryRoutes = router;

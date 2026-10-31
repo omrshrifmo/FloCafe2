@@ -25,6 +25,7 @@ import { getCurrencyFractionDigits, getCurrencyMinorUnitFactor } from '../countr
 import { getTenantCurrency, syncUnpaidBillsForOrder, getOrCreateBillForOrder } from './bills';
 import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
+import { depleteBomForOrderItem, restoreBomForOrderItem } from '../services/bom-depletion';
 
 const router = Router();
 const orderReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
@@ -697,6 +698,15 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
             createdAt: itemCreatedAt,
           });
         }
+
+        depleteBomForOrderItem(db, {
+          productId: product.id,
+          quantity,
+          orderId: String(orderId),
+          orderNumber,
+          actorUserId: authenticatedUserId,
+          createdAt: itemCreatedAt,
+        });
       }
 
       const chargeTaxes = calculateConfiguredChargeTaxes(tenantInfo, chargeContext, customer);
@@ -932,6 +942,15 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
             createdAt: itemCreatedAt,
           });
         }
+
+        depleteBomForOrderItem(db, {
+          productId: product.id,
+          quantity: item.quantity,
+          orderId: String(req.params.id),
+          orderNumber: currentOrder.order_number,
+          actorUserId: idempotencyUserId,
+          createdAt: itemCreatedAt,
+        });
       }
 
       // BUG #3 FIX: Filter out terminal items from total recalculation.
@@ -1813,6 +1832,13 @@ router.patch('/:orderId/items/:itemId/cancel', orderItemCancelRateLimit, (req: R
             referenceId: `${currentItem.id}:${currentItem.updated_at}`,
           });
         }
+        restoreBomForOrderItem(db, {
+          productId: currentItem.product_id,
+          quantity: currentItem.quantity,
+          orderId,
+          actorUserId: actorId,
+          waste: false,
+        });
       }
 
       // Recalculate order totals excluding terminal items.

@@ -22,6 +22,11 @@ import {
   Moon,
   Monitor,
   Boxes,
+  Layers,
+  DollarSign,
+  ShieldCheck,
+  UserCheck,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslations, type AppConfig } from 'use-intl';
@@ -60,7 +65,8 @@ type NavKey = keyof AppConfig['Messages']['nav'];
 
 interface NavItem {
   href: string;
-  labelKey: NavKey;
+  labelKey?: NavKey;
+  label?: string;
   icon: LucideIcon;
   permission: PermissionId;
   businessTypes: string[] | null;
@@ -73,11 +79,16 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/orders', labelKey: 'orders', icon: ClipboardList, permission: 'orders.read', businessTypes: null },
   { href: '/whatsapp', labelKey: 'whatsapp', icon: MessageCircle, permission: 'whatsapp.use', businessTypes: null },
   { href: '/products', labelKey: 'products', icon: Package, permission: 'catalog.manage', businessTypes: null },
+  { href: '/bom', label: 'BOM Costing', icon: Layers, permission: 'bom.costing.manage', businessTypes: null },
   { href: '/inventory', labelKey: 'inventory', icon: Boxes, permission: 'inventory.view', businessTypes: null },
+  { href: '/finance', label: 'Finance & P&L', icon: DollarSign, permission: 'finance.expenses.view', businessTypes: null },
+  { href: '/haccp', label: 'HACCP Safety', icon: ShieldCheck, permission: 'haccp.logs.view', businessTypes: null },
   { href: '/tables', labelKey: 'tables', icon: Grid3X3, permission: 'tables.manage', businessTypes: ['restaurant'] },
   { href: '/settings?tab=kds', labelKey: 'kds', icon: ChefHat, permission: 'kitchen.stations.manage', businessTypes: ['restaurant'] },
   { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers.view', businessTypes: null },
   { href: '/staff', labelKey: 'staff', icon: UserCog, permission: 'staff.view', businessTypes: null },
+  { href: '/hrm', label: 'HRM & Payroll', icon: UserCheck, permission: 'hrm.payroll.view', businessTypes: null },
+  { href: '/owner-assist', label: 'Owner Assist', icon: Sparkles, permission: 'owner.assist.view', businessTypes: null },
   { href: '/settings', labelKey: 'settings', icon: Settings, permission: 'settings.view', businessTypes: null },
 ];
 
@@ -193,9 +204,10 @@ export default function AppSidebar() {
               {navItems.map((item) => {
                 const [hrefPath, hrefQuery] = item.href.split('?');
                 const isActive = !hrefQuery && (pathname === hrefPath || pathname?.startsWith(hrefPath + '/'));
+                const itemLabel = item.label || (item.labelKey ? t(item.labelKey) : '');
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={t(item.labelKey)}>
+                    <SidebarMenuButton asChild isActive={isActive} tooltip={itemLabel}>
                       <Link href={item.href} onClick={closeMobile}>
                         <span className="relative flex size-4 shrink-0 items-center justify-center">
                           <item.icon className="size-4 shrink-0" />
@@ -203,7 +215,7 @@ export default function AppSidebar() {
                             <span aria-label="Email verification required" className="absolute -end-1 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-sidebar" />
                           )}
                         </span>
-                        <span>{t(item.labelKey)}</span>
+                        <span>{itemLabel}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

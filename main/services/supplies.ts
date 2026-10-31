@@ -245,8 +245,8 @@ export function applySupplyStockChange(
   const stockAfter = roundQuantity(stockBefore + deltaInBase);
   const timestamp = options.createdAt || now();
 
-  db.prepare('UPDATE supplies SET stock_quantity = ?, updated_at = ? WHERE id = ?')
-    .run(stockAfter, timestamp, options.supplyId);
+  db.prepare('UPDATE supplies SET stock_quantity = ?, quantity = ?, updated_at = ? WHERE id = ?')
+    .run(stockAfter, stockAfter, timestamp, options.supplyId);
 
   const movement = db.prepare(`
     INSERT INTO supply_movements (
@@ -265,6 +265,27 @@ export function applySupplyStockChange(
     options.referenceId === null || options.referenceId === undefined ? null : String(options.referenceId),
     timestamp,
   );
+
+  try {
+    db.prepare(`
+      INSERT INTO stock_logs (
+        target_type, target_id, quantity_delta, stock_after, unit,
+        reason, actor_user_id, reference_type, reference_id, created_at
+      ) VALUES ('supply', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      options.supplyId,
+      deltaInBase,
+      stockAfter,
+      supply.base_unit,
+      options.reason ?? options.movementType,
+      options.actorUserId || 'system',
+      options.referenceType ?? null,
+      options.referenceId === null || options.referenceId === undefined ? null : String(options.referenceId),
+      timestamp,
+    );
+  } catch (err: any) {
+    // Non-fatal if table doesn't exist in older test contexts
+  }
 
   return { stockBefore, stockAfter, movementId: Number(movement.lastInsertRowid) };
 }

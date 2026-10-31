@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TAG="${1:-checkpoint-4.0.2}"
+TAG="${1:-checkpoint-4.0.5}"
 CHECKPOINT_DIR="${REPO_ROOT}/backups/checkpoints/${TAG}"
 CHECKPOINT_DB="${CHECKPOINT_DIR}/flo.db"
 TARGET_DB="${REPO_ROOT}/flo.db"
