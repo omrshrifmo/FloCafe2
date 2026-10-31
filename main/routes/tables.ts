@@ -17,7 +17,20 @@ function activeOrderForTable(db: ReturnType<typeof getDatabase>, tableId: string
     WHERE table_id = ? AND ${ACTIVE_ORDER_STATUS_SQL}${whereOrder}
     ORDER BY created_at DESC LIMIT 1
   `).get(...params) as any);
-  if (!order?.customer_id) return order;
+  if (!order) return null;
+
+  try {
+    const items = db.prepare(`
+      SELECT * FROM order_items
+      WHERE order_id = ? AND status != 'cancelled'
+      ORDER BY id ASC
+    `).all(order.id).map(parseRowJson);
+    order.items = items;
+  } catch {
+    order.items = [];
+  }
+
+  if (!order.customer_id) return order;
 
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(order.customer_id);
   return { ...order, customer: customer || null };

@@ -722,9 +722,25 @@ export default function POSPage() {
           console.error('Failed to clear held order after placing order', heldOrderError);
         }
       }
+      const placedTableId = cart.tableId;
       cart.clearCart();
       setMobileCartOpen(false);
       await refreshTables();
+
+      if (fastTouchMode && placedTableId) {
+        cart.setTableId(placedTableId);
+        cart.setOrderType('dine_in');
+        try {
+          const { data } = await api.get(`/tables/${placedTableId}`);
+          const freshTable = data.table;
+          const freshActiveOrder = freshTable?.activeOrder || freshTable?.current_order;
+          if (freshActiveOrder) {
+            setPendingOrder(freshActiveOrder);
+          }
+        } catch (err) {
+          console.error('Error syncing table after placing order in fast touch:', err);
+        }
+      }
 
       await printKotIfEnabled(orderForKot);
     } catch (error) {
@@ -987,6 +1003,15 @@ export default function POSPage() {
     }
 
     setShowTablePicker(false);
+    if (fastTouchMode) {
+      if (activeOrder) {
+        handleAddItemsToOrder(table, activeOrder);
+      } else {
+        cart.setTableId(table.id);
+        cart.setOrderType('dine_in');
+      }
+      return;
+    }
     setCheckoutTable(table);
   };
 
@@ -1235,6 +1260,7 @@ export default function POSPage() {
               setShowTablePicker(true);
             }
           }}
+          pendingOrder={pendingOrder}
           onEditItem={setEditingCartItem}
           onCheckout={() => setShowPrepaidCheckout(true)}
         />
