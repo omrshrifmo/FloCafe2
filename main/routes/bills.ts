@@ -1369,10 +1369,9 @@ export function syncUnpaidBillsForOrder(
     Number(bill.paid_amount || 0) > 0
     || (bill.payment_status === 'paid' && Number(bill.total || 0) > 0)
     || (bill.payment_status !== 'unpaid' && bill.payment_status !== 'paid');
-  if (splitBills && bills.some(settledSplitBill)) {
-    throw Object.assign(new Error('Cannot modify an order after a split check is paid'), { statusCode: 409 });
-  }
-  const unpaidBills = bills.filter((bill) => bill.payment_status !== 'paid' || Number(bill.paid_amount || 0) === 0);
+
+  const paidBills = splitBills ? bills.filter(settledSplitBill) : [];
+  const unpaidBills = bills.filter((bill) => !paidBills.some((pb) => pb.id === bill.id));
   if (unpaidBills.length === 0) return;
 
   const tenantCurrency = getTenantCurrency();
@@ -1392,6 +1391,69 @@ export function syncUnpaidBillsForOrder(
         source.packagingCharge, source.serviceCharge, billRoundOff, now(), bill.id,
       );
     }
+    return;
+  }
+
+  if (paidBills.length > 0) {
+    const paidSubtotal = paidBills.reduce((s, b) => s + Number(b.subtotal || 0), 0);
+    const paidTaxAmount = paidBills.reduce((s, b) => s + Number(b.tax_amount || 0), 0);
+    const paidTotal = paidBills.reduce((s, b) => s + Number(b.total || 0), 0);
+    const paidDiscount = paidBills.reduce((s, b) => s + Number(b.discount_amount || 0), 0);
+    const paidDelivery = paidBills.reduce((s, b) => s + Number(b.delivery_charge || 0), 0);
+    const paidPackaging = paidBills.reduce((s, b) => s + Number(b.packaging_charge || 0), 0);
+    const paidService = paidBills.reduce((s, b) => s + Number(b.service_charge || 0), 0);
+    const paidRoundOff = paidBills.reduce((s, b) => s + Number(b.round_off || 0), 0);
+
+    const remSubtotal = Math.max(0, source.subtotal - paidSubtotal);
+    const remTaxAmount = Math.max(0, source.taxAmount - paidTaxAmount);
+    const remDiscountAmount = Math.max(0, source.discountAmount - paidDiscount);
+    const remDeliveryCharge = Math.max(0, source.deliveryCharge - paidDelivery);
+    const remPackagingCharge = Math.max(0, source.packagingCharge - paidPackaging);
+    const remServiceCharge = Math.max(0, source.serviceCharge - paidService);
+    const remRoundOff = billRoundOff - paidRoundOff;
+    const remTotal = Math.max(0, billTotal - paidTotal);
+
+    if (unpaidBills.length === 1) {
+      const targetBill = unpaidBills[0];
+      const update = db.prepare(`
+        UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?,
+          discount_amount = ?, delivery_charge = ?, packaging_charge = ?, service_charge = ?, round_off = ?, updated_at = ?
+        WHERE id = ?
+      `);
+      update.run(
+        remSubtotal, remTotal, Math.max(0, remTotal - Number(targetBill.paid_amount || 0)), remTaxAmount,
+        source.taxBreakdown, source.taxSnapshot, remDiscountAmount, remDeliveryCharge,
+        remPackagingCharge, remServiceCharge, remRoundOff, now(), targetBill.id,
+      );
+      return;
+    }
+
+    const unpaidWeights = unpaidBills.map((b) => Math.max(1, Number(b.total || b.subtotal || 1)));
+    const minorFactor = getCurrencyMinorUnitFactor(tenantCurrency);
+    const remSubtotalMinors = allocateMinorUnits(Math.round(remSubtotal * minorFactor), unpaidWeights);
+    const remTaxMinors = allocateMinorUnits(Math.round(remTaxAmount * minorFactor), unpaidWeights);
+    const remDiscountMinors = allocateMinorUnits(Math.round(remDiscountAmount * minorFactor), unpaidWeights);
+    const remDeliveryMinors = allocateMinorUnits(Math.round(remDeliveryCharge * minorFactor), unpaidWeights);
+    const remPackagingMinors = allocateMinorUnits(Math.round(remPackagingCharge * minorFactor), unpaidWeights);
+    const remServiceMinors = allocateMinorUnits(Math.round(remServiceCharge * minorFactor), unpaidWeights);
+    const remRoundOffMinors = allocateSignedMinorUnits(Math.round(remRoundOff * minorFactor), unpaidWeights);
+    const remTotalMinors = allocateMinorUnits(Math.round(remTotal * minorFactor), unpaidWeights);
+
+    const update = db.prepare(`
+      UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?,
+        discount_amount = ?, delivery_charge = ?, packaging_charge = ?, service_charge = ?, round_off = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    unpaidBills.forEach((b, idx) => {
+      const tot = remTotalMinors[idx] / minorFactor;
+      const bal = Math.max(0, tot - Number(b.paid_amount || 0));
+      update.run(
+        remSubtotalMinors[idx] / minorFactor, tot, bal, remTaxMinors[idx] / minorFactor,
+        source.taxBreakdown, source.taxSnapshot, remDiscountMinors[idx] / minorFactor,
+        remDeliveryMinors[idx] / minorFactor, remPackagingMinors[idx] / minorFactor,
+        remServiceMinors[idx] / minorFactor, remRoundOffMinors[idx] / minorFactor, now(), b.id,
+      );
+    });
     return;
   }
 
@@ -1502,10 +1564,32 @@ router.post('/:id/split-check', requirePermission('bills.generate'), (req: Reque
       if (txnSource.payment_status !== 'unpaid' || Number(txnSource.paid_amount || 0) !== 0 || txnSource.payment_details) {
         throw Object.assign(new Error('A check can only be split before any payment is recorded'), { statusCode: 409 });
       }
-      if (txnSource.split_group_id || Number((db.prepare('SELECT COUNT(*) AS n FROM bills WHERE order_id = ?').get(txnSource.order_id) as any).n) > 1) {
-        throw Object.assign(new Error('This check has already been split'), { statusCode: 409 });
+      const sourceBillItems = db.prepare('SELECT order_item_id, quantity FROM bill_items WHERE bill_id = ?').all(txnSource.id) as { order_item_id: number; quantity: number }[];
+      let txnActiveItems: any[];
+      if (sourceBillItems.length > 0) {
+        txnActiveItems = sourceBillItems.map((bi) => {
+          const item = db.prepare('SELECT * FROM order_items WHERE id = ?').get(bi.order_item_id) as any;
+          return item && !['cancelled', 'voided', 'void_adjustment', 'refunded'].includes(item.status)
+            ? { ...item, quantity: bi.quantity }
+            : null;
+        }).filter(Boolean) as any[];
+      } else {
+        const settledItemRows = db.prepare(`
+          SELECT bi.order_item_id, SUM(bi.quantity) AS qty
+          FROM bill_items bi
+          JOIN bills b ON b.id = bi.bill_id
+          WHERE b.order_id = ? AND b.id != ? AND (b.payment_status = 'paid' OR CAST(COALESCE(b.paid_amount, 0) AS REAL) > 0)
+          GROUP BY bi.order_item_id
+        `).all(txnSource.order_id, txnSource.id) as { order_item_id: number; qty: number }[];
+        const settledItemQtyMap = new Map<number, number>(settledItemRows.map((r) => [Number(r.order_item_id), Number(r.qty)]));
+
+        const allActiveItems = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded') ORDER BY id").all(txnSource.order_id) as any[];
+        txnActiveItems = allActiveItems.map((item) => {
+          const settledQty = settledItemQtyMap.get(Number(item.id)) || 0;
+          const remQty = Math.max(0, Number(item.quantity) - settledQty);
+          return remQty > 0 ? { ...item, quantity: remQty } : null;
+        }).filter(Boolean) as any[];
       }
-      const txnActiveItems = db.prepare("SELECT * FROM order_items WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded') ORDER BY id").all(txnSource.order_id) as any[];
       const txnItemById = new Map(txnActiveItems.map((item) => [Number(item.id), item]));
       const txnAssigned = new Map<number, number>();
 
@@ -1532,7 +1616,8 @@ router.post('/:id/split-check', requirePermission('bills.generate'), (req: Reque
         }
       }
 
-      const groupId = randomUUID();
+      db.prepare('DELETE FROM bill_items WHERE bill_id = ?').run(txnSource.id);
+      const groupId = txnSource.split_group_id || randomUUID();
       const weights = txnNormalized.map((check: { items: { item: any; quantity: number }[] }) =>
         check.items.reduce((sum: number, entry: { item: any; quantity: number }) => sum + Number(entry.item.total || entry.item.subtotal || 0) * entry.quantity / Number(entry.item.quantity), 0)
       );
@@ -1638,6 +1723,7 @@ router.post('/:id/split-check', requirePermission('bills.generate'), (req: Reque
     notifyOrderUpdated();
     res.status(201).json({ bills: result });
   } catch (error: any) {
+    console.error('[split-check error]', error);
     res.status(error.statusCode || 500).json({ error: error.message || 'Unable to split check' });
   }
 });
@@ -1786,7 +1872,7 @@ function preparePaymentBatch(
   payments.forEach((payment, index) => validatePaymentFields(payment, index, currency));
   const resolvedPayments = payments.map((payment, index) => {
     if (PAYMENT_METHODS.has(payment.method)) return payment;
-    const configured = payment.method === 'custom'
+    const configured = (payment.method === 'custom' || payment.payment_method_id !== undefined)
       ? db.prepare('SELECT id, name FROM payment_methods WHERE id = ? AND is_active = 1').get(payment.payment_method_id) as any
       : db.prepare('SELECT id, name FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1').get(payment.method) as any;
     if (!configured) throw Object.assign(new Error(`Unsupported or inactive custom payment method at line ${index + 1}`), { statusCode: 400 });

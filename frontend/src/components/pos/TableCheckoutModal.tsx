@@ -320,6 +320,58 @@ export default function TableCheckoutModal({
                 </div>
               ))}
             </div>
+            {splitBills.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-border">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 font-semibold flex items-center justify-between">
+                  <span>Guest Checks</span>
+                  <span className="text-[11px] font-normal lowercase">({splitBills.length} checks)</span>
+                </p>
+                <div className="space-y-2">
+                  {splitBills.map((bill, index) => {
+                    const isPaid = bill.payment_status === 'paid';
+                    const label = bill.split_label || `Guest ${index + 1}`;
+                    const bal = Number(bill.balance ?? bill.total ?? 0);
+                    return (
+                      <div
+                        key={bill.id}
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
+                          isPaid
+                            ? 'bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800/40 text-muted-foreground'
+                            : 'bg-card border-border hover:border-brand/50 shadow-sm'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-foreground">{label}</span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                isPaid
+                                  ? 'bg-green-100 dark:bg-green-900/60 text-green-700 dark:text-green-300'
+                                  : 'bg-orange-100 dark:bg-orange-900/60 text-orange-700 dark:text-orange-300'
+                              }`}
+                            >
+                              {isPaid ? t('paid') : t('unpaid')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {fmt(Number(bill.total || 0))} {isPaid ? '' : `• ${t('balanceDue')}: ${fmt(bal)}`}
+                          </p>
+                        </div>
+                        {!isPaid && (
+                          <Button
+                            size="sm"
+                            className="bg-brand hover:bg-brand/90 text-white font-bold shrink-0"
+                            onClick={() => onPayment({ ...bill, order })}
+                          >
+                            {t('pay') || 'Pay'}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -465,7 +517,27 @@ export default function TableCheckoutModal({
                     {generating ? t('generating') : t('checkoutInstead')}
                   </Button>
                 </div>
-              ) : splitBills.length === 0 ? (
+              ) : splitBills.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="outline" onClick={() => onAddItems(table, order)}>
+                    {t('addItems')}
+                  </Button>
+                  {splitBills.some((b) => b.payment_status !== 'paid') ? (
+                    <Button
+                      onClick={() => {
+                        const firstUnpaid = splitBills.find((b) => b.payment_status !== 'paid');
+                        if (firstUnpaid) onPayment({ ...firstUnpaid, order });
+                      }}
+                    >
+                      {t('checkout')}
+                    </Button>
+                  ) : (
+                    <Button variant="outline" onClick={onClose}>
+                      {t('close')}
+                    </Button>
+                  )}
+                </div>
+              ) : (
                 // Cart empty - show both options
                 <div className="grid grid-cols-2 gap-3">
                   <Button variant="outline" onClick={() => onAddItems(table, order)}>
@@ -475,7 +547,7 @@ export default function TableCheckoutModal({
                     {generating ? t('generating') : t('checkout')}
                   </Button>
                 </div>
-              ) : null}
+              )}
             </>
           )}
         </div>

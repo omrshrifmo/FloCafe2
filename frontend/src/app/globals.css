@@ -537,7 +537,11 @@ html.dark::-webkit-scrollbar-thumb:hover,
   transform: scaleX(-1);
 }
 
-.app-region-no-drag {
+.app-region-no-drag,
+.app-region-no-drag *,
+.app-no-drag,
+.app-no-drag * {
   -webkit-app-region: no-drag !important;
   app-region: no-drag !important;
+  pointer-events: auto;
 }

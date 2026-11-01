@@ -254,7 +254,45 @@ export default function TablesPage() {
     };
     load();
     const interval = setInterval(load, 10000);
-    return () => clearInterval(interval);
+
+    let ws: globalThis.WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    const connectWS = () => {
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/kds`;
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          const token = localStorage.getItem('token');
+          if (token) ws?.send(JSON.stringify({ type: 'auth', token }));
+        };
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (['tables_updated', 'orders_updated', 'order_updated', 'orders', 'initial_data'].includes(data.type)) {
+              load();
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+        ws.onclose = () => {
+          reconnectTimeout = setTimeout(connectWS, 3000);
+        };
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {
+        // WS not supported
+      }
+    };
+    connectWS();
+
+    return () => {
+      clearInterval(interval);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutMode]);
 

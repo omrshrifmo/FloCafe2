@@ -16,7 +16,7 @@ import { calculateOrderTotals, recomputeOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
 import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot, roundQuantity } from '../services/recipes';
 import { requireConfirmedIdentity, requireOpenSessionForOrder } from '../services/shift-session-gate';
-import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
+import { notifyKdsUpdate, notifyOrderUpdated, broadcastWsEvent } from '../services/kds';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
 import { hasPermission, requirePermission } from '../services/authorization';
@@ -36,6 +36,7 @@ const orderWriteRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 60, s
 const orderItemCancelRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
 const MAX_ORDER_IDEMPOTENCY_KEY_LENGTH = 128;
 const MAX_ORDER_ITEMS = 200;
+const ACTIVE_ORDER_STATUS_SQL = "(status IN ('open', 'pending', 'preparing', 'ready', 'served', 'in_progress') OR (status NOT IN ('completed', 'cancelled')) OR (status = 'completed' AND EXISTS (SELECT 1 FROM bills b WHERE b.order_id = orders.id AND b.payment_status NOT IN ('paid', 'refunded') AND COALESCE(b.balance, b.total, 0) > 0)))";
 
 function reportOrderCreateFailure(status: number, itemCount: number, stage: 'inventory_validation' | 'order_insert'): void {
   try {
@@ -558,7 +559,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         }
       }
       // Generate order number inside transaction to prevent race conditions
-      const orderNumber = generateOrderNumber();
+      let orderNumber = generateOrderNumber();
 
       // Get settings for tax calculation
       const settings: Record<string, string> = {};
@@ -588,18 +589,27 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         : null;
       const orderCustomerId = customer_id || reservedCustomerId || null;
 
-      const orderResult = db.prepare(`
-        INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
-          packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
-          service_charge, service_charge_tax_category_id, online_platform, external_order_id, internal_label, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-      `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
-        special_instructions || null, pkgCharge, delCharge,
-        chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
-        serviceCharge, chargeContext.service_charge_tax_category_id,
-        onlinePlatform || null, externalOrderId || null, internalLabel, now(), now());
+      const existingActiveOrder = type === 'dine_in' && table_id
+        ? (db.prepare(`SELECT * FROM orders WHERE table_id = ? AND ${ACTIVE_ORDER_STATUS_SQL} LIMIT 1`).get(table_id) as any)
+        : null;
 
-      const orderId = orderResult.lastInsertRowid;
+      let orderId: number | string;
+      if (existingActiveOrder) {
+        orderId = existingActiveOrder.id;
+        orderNumber = existingActiveOrder.order_number;
+      } else {
+        const orderResult = db.prepare(`
+          INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
+            packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
+            service_charge, service_charge_tax_category_id, online_platform, external_order_id, internal_label, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
+          special_instructions || null, pkgCharge, delCharge,
+          chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
+          serviceCharge, chargeContext.service_charge_tax_category_id,
+          onlinePlatform || null, externalOrderId || null, internalLabel, now(), now());
+        orderId = Number(orderResult.lastInsertRowid);
+      }
 
       let subtotal = 0;
       let totalTax = 0;
@@ -727,13 +737,17 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
-      db.prepare(`
-        UPDATE orders SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, total = ?,
-          round_off = ?, updated_at = ? WHERE id = ?
-      `).run(
-        subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns),
-        taxRollup.snapshotJson, total, roundOff, now(), orderId,
-      );
+      if (existingActiveOrder) {
+        recalculateAndPersistOrder(db, orderId);
+      } else {
+        db.prepare(`
+          UPDATE orders SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, total = ?,
+            round_off = ?, updated_at = ? WHERE id = ?
+        `).run(
+          subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns),
+          taxRollup.snapshotJson, total, roundOff, now(), orderId,
+        );
+      }
 
       if (table_id && type === 'dine_in') {
         db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(now(), table_id);
@@ -751,6 +765,11 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
 
     if (!result.idempotentReplay) {
       notifyKdsUpdate();
+      notifyOrderUpdated();
+      broadcastWsEvent('orders_updated', { order: result.order });
+      if (result.order.table_id) {
+        broadcastWsEvent('tables_updated', { table_id: result.order.table_id });
+      }
       cloudSync.recordOrderChanged(result.order.id, 'order.created');
 
       if (result.order.customer_id) {
@@ -2579,10 +2598,31 @@ router.post('/:id/transfer-items', orderWriteRateLimit, requirePermission('table
         details: { source_order_id: sourceOrderId, items: itemsToTransfer },
       });
 
-      return { source_order: updatedSource, target_order: updatedTarget };
+      const sourceTable = sourceOrder.table_id ? db.prepare('SELECT * FROM tables WHERE id = ?').get(sourceOrder.table_id) as any : null;
+      const targetTable = updatedTarget?.table_id ? db.prepare('SELECT * FROM tables WHERE id = ?').get(updatedTarget.table_id) as any : null;
+
+      return {
+        source_order: updatedSource,
+        target_order: updatedTarget,
+        sourceOrder: updatedSource,
+        targetOrder: updatedTarget,
+        sourceTable,
+        targetTable,
+      };
     });
 
     notifyKdsUpdate();
+    notifyOrderUpdated();
+    broadcastWsEvent('tables_updated', {
+      sourceTable: transferResult.sourceTable,
+      targetTable: transferResult.targetTable,
+    });
+    broadcastWsEvent('orders_updated', {
+      source_order: transferResult.source_order,
+      target_order: transferResult.target_order,
+      sourceOrder: transferResult.sourceOrder,
+      targetOrder: transferResult.targetOrder,
+    });
     res.json(transferResult);
   } catch (error: any) {
     console.error('[Orders] transfer-items failed:', error);

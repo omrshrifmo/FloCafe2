@@ -588,6 +588,47 @@ export default function POSPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRestaurant, setBillingType, setTablesRequired, setKotPrintingEnabled]);
 
+  useEffect(() => {
+    let ws: globalThis.WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    const connectWS = () => {
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/kds`;
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          const token = localStorage.getItem('token');
+          if (token) ws?.send(JSON.stringify({ type: 'auth', token }));
+        };
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (['tables_updated', 'orders_updated', 'order_updated', 'orders', 'initial_data'].includes(data.type)) {
+              void refreshTables();
+              void heldOrders.fetchHeldOrders();
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+        ws.onclose = () => {
+          reconnectTimeout = setTimeout(connectWS, 3000);
+        };
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {
+        // WS not supported
+      }
+    };
+    connectWS();
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRestaurant, tablesRequired]);
+
   const handleProductClick = (product: Product) => {
     if (!shift.session) {
       toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');

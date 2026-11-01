@@ -1,8 +1,9 @@
 /** PrintDocument v1 classic thermal receipt renderer; maps print blocks to ESC/POS token lines. */
 
-import { parseDbTimestamp } from '../db';
+import { getDatabase, parseDbTimestamp } from '../db';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveTenantCurrency } from '../countries';
 import { resolveTaxComponents } from '../services/tax-components';
+import { getActiveCountryPack } from '../services/tax';
 import {
   printLabel,
   isGeneratedPrintLanguage,
@@ -72,6 +73,36 @@ export function detectPrintLanguageDirection(lang: string): TextDirection {
 
 // PrintData / PrintContext normalization (caller-side, main-process layer).
 
+function resolvePaymentMethodDetails(methodRaw: unknown, methodIdRaw?: unknown): { method: string; methodName: string; methodId?: string } {
+  const methodStr = String(methodRaw ?? '').trim();
+  const numId = Number(methodIdRaw);
+  try {
+    const db = getDatabase();
+    if (db) {
+      if (Number.isSafeInteger(numId) && numId > 0) {
+        const row = db.prepare('SELECT id, name FROM payment_methods WHERE id = ?').get(numId) as any;
+        if (row?.name) return { method: methodStr || 'custom', methodName: row.name, methodId: String(row.id) };
+      }
+      if (methodStr.startsWith('custom:')) {
+        const idFromPrefix = Number(methodStr.slice(7));
+        if (Number.isSafeInteger(idFromPrefix) && idFromPrefix > 0) {
+          const row = db.prepare('SELECT id, name FROM payment_methods WHERE id = ?').get(idFromPrefix) as any;
+          if (row?.name) return { method: 'custom', methodName: row.name, methodId: String(row.id) };
+        }
+      }
+      const row = db.prepare('SELECT id, name FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1').get(methodStr) as any;
+      if (row?.name) return { method: methodStr, methodName: row.name, methodId: String(row.id) };
+    }
+  } catch {}
+  if (methodStr.toLowerCase() === 'cash') return { method: 'cash', methodName: 'Cash' };
+  if (methodStr.toLowerCase() === 'card') return { method: 'card', methodName: 'Card' };
+  if (methodStr.toLowerCase() === 'wallet') return { method: 'wallet', methodName: 'Wallet' };
+  return {
+    method: methodStr,
+    methodName: methodStr ? (methodStr.charAt(0).toUpperCase() + methodStr.slice(1)) : 'Payment',
+  };
+}
+
 function parsePaymentDetails(raw: unknown): PaymentSnapshot[] {
   let value: unknown = raw;
   if (typeof value === 'string') {
@@ -85,10 +116,14 @@ function parsePaymentDetails(raw: unknown): PaymentSnapshot[] {
   return value
     .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
     .map((entry) => {
+      const resolved = resolvePaymentMethodDetails(entry.method, entry.payment_method_id);
       const tendered = optionalPaymentAmount(entry.tendered_amount);
       const change = optionalPaymentAmount(entry.change_amount);
+      const hasCustomName = Boolean(resolved.methodId || (resolved.methodName && resolved.methodName.toLowerCase() !== resolved.method.toLowerCase()));
       return {
-        method: String(entry.method ?? ''),
+        method: resolved.method,
+        ...(hasCustomName ? { methodName: resolved.methodName, method_name: resolved.methodName } : {}),
+        ...(resolved.methodId ? { methodId: resolved.methodId, method_id: resolved.methodId } : {}),
         amount: Number(entry.amount) || 0,
         ...(tendered !== undefined ? { tendered } : {}),
         ...(change !== undefined ? { change } : {}),
@@ -106,6 +141,40 @@ export function buildBillPrintData(
   source?: CustomerDocumentSource,
 ): PrintData {
   const items = Array.isArray(order?.items) ? order.items : [];
+  const paymentsList: PaymentSnapshot[] = (() => {
+    const parsed = parsePaymentDetails(bill?.payment_details);
+    if (parsed.length > 0) return parsed;
+    if (bill?.payment_method) {
+      const resolved = resolvePaymentMethodDetails(bill.payment_method, bill.payment_method_id);
+      const tendered = optionalPaymentAmount(bill?.tendered_amount);
+      const change = optionalPaymentAmount(bill?.change_amount);
+      const hasCustomName = Boolean(resolved.methodId || (resolved.methodName && resolved.methodName.toLowerCase() !== resolved.method.toLowerCase()));
+      return [{
+        method: resolved.method,
+        ...(hasCustomName ? { methodName: resolved.methodName, method_name: resolved.methodName } : {}),
+        ...(resolved.methodId ? { methodId: resolved.methodId, method_id: resolved.methodId } : {}),
+        amount: Number(bill.paid_amount ?? bill.total) || 0,
+        ...(tendered !== undefined ? { tendered } : {}),
+        ...(change !== undefined ? { change } : {}),
+      }];
+    }
+    return [];
+  })();
+
+  const resolvedTaxLabel = (() => {
+    if (bill?.tax_label) return String(bill.tax_label);
+    if (bill?.taxLabel) return String(bill.taxLabel);
+    try {
+      const country = String(business?.country || '');
+      const pack = getActiveCountryPack(country);
+      if (pack?.rules && Array.isArray(pack.rules) && pack.rules.length > 0) {
+        const ruleWithLabel = pack.rules.find((r: any) => r.label && r.label.trim());
+        if (ruleWithLabel) return ruleWithLabel.label;
+      }
+    } catch {}
+    return undefined;
+  })();
+
   return {
     isReprint,
     ...(documentVariant !== undefined ? { documentVariant } : (bill?.documentVariant ? { documentVariant: bill.documentVariant } : {})),
@@ -139,27 +208,17 @@ export function buildBillPrintData(
       discountAmount: Number(bill?.discount_amount) || 0,
       taxAmount: Number(bill?.tax_amount) || 0,
       total: Number(bill?.total) || 0,
+      taxLabel: resolvedTaxLabel,
+      tax_label: resolvedTaxLabel,
+      paymentMethodLabel: paymentsList[0]?.methodName,
+      payment_method_label: paymentsList[0]?.methodName,
       ...(Object.prototype.hasOwnProperty.call(bill || {}, 'service_charge')
         ? { serviceCharge: Number(bill?.service_charge) || 0 }
         : {}),
       deliveryCharge: Number(bill?.delivery_charge) || 0,
       packagingCharge: Number(bill?.packaging_charge) || 0,
       taxComponents: resolveTaxComponents({ ...bill, items }),
-      payments: (() => {
-        const parsed = parsePaymentDetails(bill?.payment_details);
-        if (parsed.length > 0) return parsed;
-        if (bill?.payment_method) {
-          const tendered = optionalPaymentAmount(bill?.tendered_amount);
-          const change = optionalPaymentAmount(bill?.change_amount);
-          return [{
-            method: String(bill.payment_method),
-            amount: Number(bill.paid_amount ?? bill.total) || 0,
-            ...(tendered !== undefined ? { tendered } : {}),
-            ...(change !== undefined ? { change } : {}),
-          }];
-        }
-        return [];
-      })(),
+      payments: paymentsList,
       pointsEarned: Number(business?.points_earned) || 0,
       pointsRedeemed: Number(business?.points_redeemed) || 0,
       pointsBalance: business?.points_balance === null || business?.points_balance === undefined

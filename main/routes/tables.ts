@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import { getDatabase, now, parseRowJson, withTxn } from '../db';
 import { randomUUID } from 'crypto';
 import { hasPermission, requirePermission } from '../services/authorization';
-import { notifyKdsUpdate } from '../services/kds';
+import { notifyKdsUpdate, notifyOrderUpdated, broadcastWsEvent } from '../services/kds';
 import { cloudSync } from '../services/cloud-sync';
+import { recalculateAndPersistOrder } from './orders';
 
 const router = Router();
 
@@ -478,13 +479,61 @@ router.post('/:id/move-order', requirePermission('tables.orders.move'), (req: Re
       }
 
       const targetActiveOrder = activeOrderForTable(db, target_table_id) as any;
+      const nowStr = now();
+
       if (targetActiveOrder) {
-        const error: any = new Error('Target table already has an active order');
-        error.status = 409;
-        throw error;
+        if (!req.body?.merge) {
+          const error: any = new Error('Target table already has an active order');
+          error.status = 409;
+          throw error;
+        }
+        // Target table is already occupied: merge source order items into target active order
+        const sourceActiveItems = db.prepare("SELECT id FROM order_items WHERE order_id = ? AND status != 'cancelled'").all(order.id) as { id: number }[];
+        if (sourceActiveItems.length > 0) {
+          db.prepare("UPDATE order_items SET order_id = ?, updated_at = ? WHERE order_id = ? AND status != 'cancelled'")
+            .run(targetActiveOrder.id, nowStr, order.id);
+        }
+        db.prepare("UPDATE orders SET status = 'cancelled', cancellation_reason = ?, updated_at = ? WHERE id = ?")
+          .run(`Merged into table ${targetTable.number}`, nowStr, order.id);
+
+        const updatedTargetOrder = recalculateAndPersistOrder(db, targetActiveOrder.id);
+
+        const remainingSourceOrder = db.prepare(`
+          SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND ${ACTIVE_ORDER_STATUS_SQL} LIMIT 1
+        `).get(sourceTableId, order.id);
+        if (!remainingSourceOrder) {
+          db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(nowStr, sourceTableId);
+        }
+        db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(nowStr, target_table_id);
+
+        const actorUserId = String((req as any).user?.userId || '');
+        if (actorUserId) {
+          db.prepare(`
+            INSERT INTO order_audit_log (order_id, actor_user_id, action, details_json, created_at)
+            VALUES (?, ?, 'order.table_merged', ?, ?)
+          `).run(order.id, actorUserId, JSON.stringify({
+            source_table_id: sourceTableId,
+            source_table_number: sourceTable.number,
+            target_table_id,
+            target_table_number: targetTable.number,
+            target_order_id: targetActiveOrder.id,
+          }), nowStr);
+        }
+
+        const updatedSource = db.prepare('SELECT * FROM tables WHERE id = ?').get(sourceTableId) as any;
+        const updatedTarget = db.prepare('SELECT * FROM tables WHERE id = ?').get(target_table_id) as any;
+        const finalSourceTable = tableShape(db, updatedSource, activeOrderForTable(db, sourceTableId));
+        const finalTargetTable = tableShape(db, updatedTarget, activeOrderForTable(db, target_table_id));
+
+        return {
+          order: updatedTargetOrder,
+          sourceOrder: { ...order, status: 'cancelled', cancellation_reason: `Merged into table ${targetTable.number}` },
+          targetOrder: updatedTargetOrder,
+          sourceTable: finalSourceTable,
+          targetTable: finalTargetTable,
+        };
       }
 
-      const nowStr = now();
       db.prepare('UPDATE orders SET table_id = ?, type = ?, updated_at = ? WHERE id = ?')
         .run(target_table_id, order.type, nowStr, order.id);
 
@@ -518,22 +567,39 @@ router.post('/:id/move-order', requirePermission('tables.orders.move'), (req: Re
       const updatedSource = db.prepare('SELECT * FROM tables WHERE id = ?').get(sourceTableId) as any;
       const updatedTarget = db.prepare('SELECT * FROM tables WHERE id = ?').get(target_table_id) as any;
 
+      const finalSourceTable = tableShape(db, updatedSource, activeOrderForTable(db, sourceTableId));
+      const finalTargetTable = tableShape(db, updatedTarget, activeOrderForTable(db, target_table_id));
+
       return {
         order: {
           ...updatedOrder,
           items,
           table: { ...updatedTarget, name: updatedTarget.number },
         },
-        sourceTable: tableShape(db, updatedSource, activeOrderForTable(db, sourceTableId)),
-        targetTable: tableShape(db, updatedTarget, activeOrderForTable(db, target_table_id)),
+        sourceOrder: updatedOrder,
+        targetOrder: updatedOrder,
+        sourceTable: finalSourceTable,
+        targetTable: finalTargetTable,
       };
     });
 
     cloudSync.recordOrderChanged(moved.order.id, 'order.table_moved');
     notifyKdsUpdate();
+    notifyOrderUpdated();
+    broadcastWsEvent('tables_updated', {
+      sourceTable: moved.sourceTable,
+      targetTable: moved.targetTable,
+    });
+    broadcastWsEvent('orders_updated', {
+      order: moved.order,
+      sourceOrder: moved.sourceOrder,
+      targetOrder: moved.targetOrder,
+    });
 
     res.json({
       order: moved.order,
+      sourceOrder: moved.sourceOrder,
+      targetOrder: moved.targetOrder,
       sourceTable: moved.sourceTable,
       targetTable: moved.targetTable,
     });

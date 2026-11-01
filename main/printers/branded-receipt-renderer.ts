@@ -518,7 +518,8 @@ export function buildBrandedReceiptRequest(options: {
     totals.push({ label: 'Discount / الخصم', value: `-${formatAmt(Number(bill.discount_amount))}` });
   }
   if (bill.tax_amount && Number(bill.tax_amount) > 0) {
-    totals.push({ label: 'Tax / الضريبة', value: formatAmt(Number(bill.tax_amount)) });
+    const taxLabel = bill.tax_label || bill.taxLabel || 'Tax / الضريبة';
+    totals.push({ label: taxLabel, value: formatAmt(Number(bill.tax_amount)) });
   }
   if (bill.service_charge && Number(bill.service_charge) > 0) {
     totals.push({ label: 'Service / خدمة', value: formatAmt(Number(bill.service_charge)) });
@@ -543,8 +544,16 @@ export function buildBrandedReceiptRequest(options: {
       : Math.max(0, Number(rawDocTotal) - Number(bill.paid_amount || 0));
     totals.push({ label: 'Balance Due / المتبقي', value: formatAmt(balanceRemaining) });
   } else {
-    if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
-      totals.push({ label: 'Paid / المدفوع', value: formatAmt(Number(bill.paid_amount)) });
+    if (bill.payments && Array.isArray(bill.payments) && bill.payments.length > 0) {
+      for (const p of bill.payments) {
+        if (Number(p.amount) > 0) {
+          const mName = p.method_name || p.methodName || p.method || 'Payment';
+          totals.push({ label: mName, value: formatAmt(Number(p.amount)) });
+        }
+      }
+    } else if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {
+      const mLabel = bill.payment_method_label || bill.payment_method || 'Paid / المدفوع';
+      totals.push({ label: mLabel, value: formatAmt(Number(bill.paid_amount)) });
     }
     if (bill.balance !== undefined && Number(bill.balance) > 0) {
       totals.push({ label: 'Balance / المتبقي', value: formatAmt(Number(bill.balance)) });

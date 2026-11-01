@@ -338,11 +338,24 @@ export function FastTouchMode({
           if (!isCancelled) setLoadingServedItems(false);
         }
       });
+    } else {
+      Promise.resolve().then(() => {
+        if (!isCancelled) {
+          setFetchedActiveOrder(null);
+          setLoadingServedItems(false);
+        }
+      });
     }
     return () => {
       isCancelled = true;
     };
-  }, [cart.tableId, cart.orderType, pendingOrder]);
+  }, [cart.tableId, cart.orderType, pendingOrder, tables]);
+
+  useEffect(() => {
+    if (cart.items.length === 0 && tableDraftsRef.current[currentScopeKey]) {
+      delete tableDraftsRef.current[currentScopeKey];
+    }
+  }, [cart.items.length, currentScopeKey]);
 
   const servedItems: OrderItem[] = useMemo(() => {
     if (!activeTableOrder?.items) return [];
@@ -481,7 +494,7 @@ export function FastTouchMode({
   };
 
   // Serve Order
-  const handleServeOrder = () => {
+  const handleServeOrder = async () => {
     if (hasOpenShift === false) {
       toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
       onOpenShift?.();
@@ -496,6 +509,34 @@ export function FastTouchMode({
       onShowTablePicker?.();
       return;
     }
+
+    if (activeTableOrder?.id && cart.orderType === 'dine_in') {
+      try {
+        const itemsPayload = cart.items.map((item) => ({
+          product_id: Number(item.product.id),
+          quantity: Number(item.quantity),
+          unit_price: Number(item.product.price),
+          notes: item.special_instructions || null,
+          addons: item.addons?.map((addon) => ({
+            addon_id: Number(addon.id),
+            addon_name: addon.name,
+            price: Number(addon.price),
+            quantity: typeof addon.quantity === 'number' ? addon.quantity : 1,
+          })) || [],
+        }));
+        await api.post(`/orders/${activeTableOrder.id}/items`, { items: itemsPayload });
+        cart.clearCart();
+        if (currentScopeKey) delete tableDraftsRef.current[currentScopeKey];
+        toast.success(isArabic ? 'تمت إضافة الأصناف إلى الطلب القائم بنجاح' : 'Items added to active order');
+        const orderRes = await api.get(`/orders/${activeTableOrder.id}`);
+        setFetchedActiveOrder(orderRes.data.order);
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Failed to add items to order';
+        toast.error(msg);
+      }
+      return;
+    }
+
     onPlaceOrder?.();
   };
 
@@ -594,7 +635,10 @@ export function FastTouchMode({
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-background flex flex-col overflow-hidden select-none">
+    <div
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      className="fixed inset-x-0 bottom-0 top-[var(--flo-titlebar-height,40px)] z-40 bg-background flex flex-col overflow-hidden select-none app-region-no-drag"
+    >
       {/* =========================================================================
           TOP BAR:
           Physical Left: Bulletproof Exit Button & App Title

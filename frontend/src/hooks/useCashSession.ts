@@ -152,7 +152,10 @@ export function useCashSession() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const res = await api.post(`/cash-sessions/${session.id}/close`, { counted_cash_cents: countedCents });
+      const res = await api.post(`/cash-sessions/${session.id}/close`, {
+        counted_cash_cents: countedCents,
+        skip_unpaid_block: true,
+      });
       setClosedResult(res.data);
       setCountedInput('');
       toast.success(t('shiftClosed'));

@@ -178,6 +178,11 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
                   <span className="font-mono text-muted-foreground tracking-widest text-xs select-none">••••••••</span>
                 )}
               </div>
+
+              <div className="p-3 rounded-xl bg-muted/30 border border-border/80 text-xs text-muted-foreground flex items-center gap-2">
+                <span className="text-base shrink-0">ℹ️</span>
+                <span>Open dine-in table orders remain active and will carry over to the next shift seamlessly.</span>
+              </div>
             </>
           )}
           {closedResult && (

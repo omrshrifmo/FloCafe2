@@ -27,7 +27,7 @@ const mockSafeStorage = {
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
     return {
-      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.7' },
+      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.8' },
       safeStorage: mockSafeStorage,
     };
   }
@@ -43,7 +43,7 @@ const { registerRoutes } = require('../main/routes/index');
 const { randomUUID } = require('crypto');
 
 async function main() {
-  console.log('FloCafe 4.0.7 Enterprise Suite Integration Test');
+  console.log('FloCafe 4.0.8 Enterprise Suite Integration Test');
   console.log('='.repeat(70));
   resetCounters();
 
@@ -608,6 +608,239 @@ async function main() {
       },
     });
     assertEqualOrThrow(closeShiftBRes.status, 200, 'Shift B closed successfully');
+
+    // ── Test 12 (Test A): Multi-Customer Split Order & Sequential Checkout without 409 ──
+    console.log('\n[12] Verifying Multi-Customer Split Order & Sequential Checkout without 409...');
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('split_checks_enabled', 'true')").run();
+
+    const shiftSplitRes = await api(baseUrl, '/api/cash-sessions/open', {
+      method: 'POST',
+      headers: authHeader,
+      body: { opening_float_cents: 10000, notes: 'Shift for Split Tests' },
+    });
+    assertEqualOrThrow(shiftSplitRes.status, 200, 'Shift for Split Tests opened');
+
+    const tableSplitId = 'tbl-test-split';
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table Split', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableSplitId);
+
+    const splitOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableSplitId,
+        type: 'dine_in',
+        customer_count: 2,
+        items: [
+          { product_id: 'prod-espresso', quantity: 2, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(splitOrderRes.status, 201, 'Split order created with 2 espressos');
+    const splitOrderId = splitOrderRes.data.order.id;
+
+    const splitBillGenRes = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: splitOrderId },
+    });
+    assertEqualOrThrow(splitBillGenRes.status, 201, 'Bill generated for split order');
+    const initialBillId = splitBillGenRes.data.bill.id;
+
+    const activeItemRows = db.prepare('SELECT id, quantity FROM order_items WHERE order_id = ?').all(splitOrderId) as any[];
+    const itemToSplitId = activeItemRows[0].id;
+
+    const splitCheckRes = await api(baseUrl, `/api/bills/${initialBillId}/split-check`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        checks: [
+          { label: 'Guest 1', items: [{ order_item_id: itemToSplitId, quantity: 1 }] },
+          { label: 'Guest 2', items: [{ order_item_id: itemToSplitId, quantity: 1 }] },
+        ],
+      },
+    });
+    assertEqualOrThrow(splitCheckRes.status, 201, 'Split checks created');
+    assertEqualOrThrow(splitCheckRes.data.bills.length, 2, '2 split bills created');
+    const [bill1, bill2] = splitCheckRes.data.bills;
+
+    const pay1Res = await api(baseUrl, `/api/bills/${bill1.id}/payment`, {
+      method: 'POST',
+      headers: authHeader,
+      body: { amount: Number(bill1.balance || bill1.total), method: 'cash' },
+    });
+    assertEqualOrThrow(pay1Res.status, 200, 'Guest 1 check paid with 200 OK');
+    assertEqualOrThrow(pay1Res.data.bill.payment_status, 'paid', 'Guest 1 check status is paid');
+
+    const pay2Res = await api(baseUrl, `/api/bills/${bill2.id}/payment`, {
+      method: 'POST',
+      headers: authHeader,
+      body: { amount: Number(bill2.balance || bill2.total), method: 'cash' },
+    });
+    assertEqualOrThrow(pay2Res.status, 200, 'Guest 2 check paid with 200 OK without 409');
+    assertEqualOrThrow(pay2Res.data.bill.payment_status, 'paid', 'Guest 2 check status is paid');
+
+    const orderFinal = db.prepare('SELECT status FROM orders WHERE id = ?').get(splitOrderId) as any;
+    assertEqualOrThrow(orderFinal.status, 'completed', 'Order status is completed after both split checks paid');
+    const tableFinal = db.prepare('SELECT status FROM tables WHERE id = ?').get(tableSplitId) as any;
+    assertEqualOrThrow(tableFinal.status, 'available', 'Table is available after all split checks paid');
+
+    // ── Test 13 (Test B): Exact Payment Method Name & Custom Tax Name on Receipt ──
+    console.log('\n[13] Verifying Exact Payment Method Name & Custom Tax Name on Receipt...');
+    db.prepare(`
+      INSERT OR REPLACE INTO payment_methods (id, name, is_active, sort_order, created_at, updated_at)
+      VALUES (991, 'InstaPay App', 1, 10, datetime('now'), datetime('now'))
+    `).run();
+
+    const orderCustomRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: null,
+        type: 'takeaway',
+        customer_count: 1,
+        items: [{ product_id: 'prod-espresso', quantity: 1, unit_price: 120 }],
+      },
+    });
+    const customOrderId = orderCustomRes.data.order.id;
+
+    const customBillGenRes = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: customOrderId },
+    });
+    const customBillId = customBillGenRes.data.bill.id;
+
+    const customPayRes = await api(baseUrl, `/api/bills/${customBillId}/payment`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        amount: Number(customBillGenRes.data.bill.total),
+        method: 'instapay',
+        payment_method_id: 991,
+      },
+    });
+    assertEqualOrThrow(customPayRes.status, 200, 'Paid with InstaPay');
+
+    const { buildBillPrintData, buildBillPrintContext } = require('../main/printers/document-classic');
+    const { buildBillDocument } = require('../shared/print/document');
+    const billRow = db.prepare('SELECT * FROM bills WHERE id = ?').get(customBillId) as any;
+    const orderRow = db.prepare('SELECT * FROM orders WHERE id = ?').get(billRow.order_id) as any;
+    const businessRow = { name: 'FloCafe', country: 'EG', currency: 'EGP' };
+    const printData = buildBillPrintData(orderRow, billRow, businessRow, false);
+    assertOrThrow(Boolean(printData), 'buildBillPrintData returned printData');
+    assertOrThrow(
+      printData.bill.payments.some((p: any) => p.methodName === 'InstaPay App' || p.method_name === 'InstaPay App'),
+      'printData carries exact payment method name InstaPay App',
+    );
+
+    const printContext = buildBillPrintContext({
+      columns: 48,
+      language: 'en',
+      business: businessRow,
+    });
+    const doc = buildBillDocument(printData, printContext);
+    const paymentsBlock = doc.blocks.find((b: any) => b.kind === 'payments') as any;
+    assertOrThrow(Boolean(paymentsBlock), 'Document has payments block');
+    assertOrThrow(
+      paymentsBlock.lines.some((l: any) => l.label?.primary === 'InstaPay App' || l.label?.text === 'InstaPay App'),
+      'Payments line label text matches exact payment method name',
+    );
+
+    // ── Test 14 (Test C): Real-Time Table Move & Item Move (including occupied table merge) ──
+    console.log('\n[14] Verifying Real-Time Table Move & Occupied Table Merge...');
+    const tableM1 = 'tbl-move-1';
+    const tableM2 = 'tbl-move-2';
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table M1', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableM1);
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table M2', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableM2);
+
+    const orderM1Res = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableM1,
+        type: 'dine_in',
+        customer_count: 1,
+        items: [{ product_id: 'prod-espresso', quantity: 1, unit_price: 120 }],
+      },
+    });
+    const orderM1Id = orderM1Res.data.order.id;
+
+    const orderM2Res = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableM2,
+        type: 'dine_in',
+        customer_count: 1,
+        items: [{ product_id: 'prod-espresso', quantity: 2, unit_price: 120 }],
+      },
+    });
+    const orderM2Id = orderM2Res.data.order.id;
+
+    const moveRes = await api(baseUrl, `/api/tables/${tableM1}/move-order`, {
+      method: 'POST',
+      headers: authHeader,
+      body: { target_table_id: tableM2, merge: true },
+    });
+    assertEqualOrThrow(moveRes.status, 200, 'Table move into occupied table succeeded with 200 OK');
+    assertEqualOrThrow(moveRes.data.sourceTable.status, 'available', 'Source table becomes available after merge');
+    assertEqualOrThrow(moveRes.data.targetTable.status, 'occupied', 'Target table remains occupied');
+
+    const orderM1Db = db.prepare('SELECT status, cancellation_reason FROM orders WHERE id = ?').get(orderM1Id) as any;
+    assertEqualOrThrow(orderM1Db.status, 'cancelled', 'Source order cancelled on merge');
+    assertOrThrow(orderM1Db.cancellation_reason?.includes('Merged into table'), 'Cancellation reason records merge');
+
+    const orderM2Items = db.prepare("SELECT SUM(quantity) as total_qty FROM order_items WHERE order_id = ? AND status != 'cancelled'").get(orderM2Id) as any;
+    assertEqualOrThrow(Number(orderM2Items.total_qty), 3, 'Target order has all 3 items (1 from M1 + 2 from M2)');
+
+    // ── Test 15 (Test D): Occupied Table Serve Merge (No duplicate orders) ──
+    console.log('\n[15] Verifying Occupied Table Serve Merge (No duplicate orders)...');
+    const tableD1 = 'tbl-dup-test';
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table DupTest', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableD1);
+
+    const initialServeRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableD1,
+        type: 'dine_in',
+        customer_count: 2,
+        items: [{ product_id: 'prod-espresso', quantity: 1, unit_price: 120 }],
+      },
+    });
+    assertEqualOrThrow(initialServeRes.status, 201, 'Initial dine-in order created');
+    const activeOrderId = initialServeRes.data.order.id;
+
+    const secondServeRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableD1,
+        type: 'dine_in',
+        customer_count: 2,
+        items: [{ product_id: 'prod-espresso', quantity: 2, unit_price: 120 }],
+      },
+    });
+    assertEqualOrThrow(secondServeRes.status, 201, 'Second serve succeeded with 201');
+    assertEqualOrThrow(secondServeRes.data.order.id, activeOrderId, 'Reused existing active order ID instead of creating duplicate');
+
+    const countActiveOnTable = db.prepare(`SELECT count(*) as count FROM orders WHERE table_id = ? AND status != 'cancelled'`).get(tableD1) as any;
+    assertEqualOrThrow(Number(countActiveOnTable.count), 1, 'Exactly 1 active order exists on table');
+
+    const totalItemsOnOrder = db.prepare("SELECT SUM(quantity) as total_qty FROM order_items WHERE order_id = ? AND status != 'cancelled'").get(activeOrderId) as any;
+    assertEqualOrThrow(Number(totalItemsOnOrder.total_qty), 3, 'Total items merged atomically to 3 (1 initial + 2 second)');
 
     // ── Test 11: Clear Orders with Master PIN ────────────────────────────────
     console.log('\n[11] Verifying Clear All Past Orders with Master PIN...');

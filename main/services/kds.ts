@@ -667,3 +667,16 @@ export function notifyKdsUpdate(): void {
 export function notifyOrderUpdated(): void {
   notifyKdsUpdate();
 }
+
+export function broadcastWsEvent(event: string, payload: any = {}): void {
+  const msg = JSON.stringify({ type: event, ...payload });
+  clients.forEach((client) => {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try {
+        client.ws.send(msg);
+      } catch (err) {
+        console.error('[KDS] Broadcast ws event error:', err);
+      }
+    }
+  });
+}

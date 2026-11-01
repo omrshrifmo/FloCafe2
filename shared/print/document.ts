@@ -128,6 +128,10 @@ export interface OrderSnapshot {
 /** One captured payment line. */
 export interface PaymentSnapshot {
   readonly method: string;
+  readonly methodId?: string;
+  readonly method_id?: string;
+  readonly methodName?: string;
+  readonly method_name?: string;
   readonly amount: number;
   /** Cash handed over, when the persisted payment carries it (cash tenders only). */
   readonly tendered?: number;
@@ -149,6 +153,10 @@ export interface BillSnapshot {
   readonly discountAmount: number;
   readonly taxAmount: number;
   readonly total: number;
+  readonly taxLabel?: string;
+  readonly tax_label?: string;
+  readonly paymentMethodLabel?: string;
+  readonly payment_method_label?: string;
   /** Flat service charge, when the server-persisted bill carries one. */
   readonly serviceCharge?: number;
   /** Flat delivery charge, when the bill carries one (frontend bills). */
@@ -533,9 +541,14 @@ function literalLabel(primary: string): SemanticLabel {
   return Object.freeze({ primary });
 }
 
-function paymentLabel(labels: LabelContext, method: string): SemanticLabel {
-  const conceptId = PAYMENT_METHOD_CONCEPTS[method.toLowerCase()];
-  return conceptId !== undefined ? resolveSemanticLabel(labels, conceptId) : literalLabel(method);
+function paymentLabel(labels: LabelContext, method: string, displayName?: string): SemanticLabel {
+  const normMethod = (method || '').toLowerCase().trim();
+  const conceptId = PAYMENT_METHOD_CONCEPTS[normMethod];
+  if (conceptId !== undefined) {
+    return resolveSemanticLabel(labels, conceptId);
+  }
+  const name = displayName?.trim() || method;
+  return literalLabel(name);
 }
 
 function isGenericTaxTitle(title: string): boolean {
@@ -788,7 +801,7 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       : null,
     tax: !showBreakdown && toFiniteNumber(bill.taxAmount) !== 0
       ? Object.freeze({
-        label: resolveTaxLabel(taxComponents, labels),
+        label: (bill.taxLabel || bill.tax_label) ? literalLabel(bill.taxLabel || bill.tax_label!) : resolveTaxLabel(taxComponents, labels),
         amount: bill.taxAmount,
       })
       : null,
@@ -851,11 +864,12 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
     direction: base,
     heading: resolveSemanticLabel(labels, 'receipt.payments'),
     lines: Object.freeze(bill.payments
-      .filter((payment) => payment.method.length > 0)
+      .filter((payment) => (payment.method && payment.method.length > 0) || Boolean(payment.methodName || payment.method_name))
       .map((payment): PaymentsBlock['lines'][number] => {
+        const displayName = (payment.methodName || payment.method_name || '').trim();
         const line = {
-          method: payment.method,
-          label: paymentLabel(labels, payment.method),
+          method: payment.method || displayName,
+          label: paymentLabel(labels, payment.method, displayName),
           amount: payment.amount,
         };
         const tender = projectCashTender(payment);
