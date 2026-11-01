@@ -5,7 +5,8 @@ import { authorizeMasterPin } from '../services/master-pin';
 export function requireMasterPin(req: Request, res: Response, next: NextFunction): void {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const routeKey = req.baseUrl + req.path;
-  const result = authorizeMasterPin(req.body?.master_pin, `http:${ip}:${routeKey}`);
+  const pin = (typeof req.body?.master_pin === 'string' ? req.body.master_pin : (req.headers['x-master-pin'] as string | undefined))?.trim();
+  const result = authorizeMasterPin(pin, `http:${ip}:${routeKey}`);
   if (!result.ok) {
     res.status(result.status).json({ error: result.error });
     return;

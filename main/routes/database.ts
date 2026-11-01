@@ -633,4 +633,90 @@ router.get('/tables', requirePermission('database.manage'), (req: Request, res: 
   }
 });
 
+router.post('/clear-orders', requirePermission('database.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const signal = getHttpRequestSignal(req);
+    let backupPath: string | null = null;
+    try {
+      const backup = await createBackup(undefined, signal);
+      backupPath = backup.path;
+    } catch (err: unknown) {
+      console.warn('[DB Clear Orders] Pre-wipe backup failed, proceeding with safety lock:', err);
+    }
+
+    const db = getDatabase();
+    const initialOrdersCount = (db.prepare('SELECT COUNT(*) AS c FROM orders').get() as { c: number }).c;
+    
+    // Disable foreign keys outside transaction or per statement
+    const previousForeignKeys = Number(db.pragma('foreign_keys', { simple: true })) === 1;
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const tablesToWipe = [
+          'order_item_addons',
+          'order_items',
+          'held_order_items',
+          'held_orders',
+          'bill_items',
+          'payment_transaction_refs',
+          'payment_idempotency',
+          'payments',
+          'refund_items',
+          'refunds',
+          'order_history',
+          'order_idempotency',
+          'loyalty_ledger',
+          'bills',
+          'orders',
+        ];
+        for (const t of tablesToWipe) {
+          const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(t);
+          if (exists) {
+            db.prepare(`DELETE FROM ${t}`).run();
+          }
+        }
+
+        // Reset all tables to 'available' and clear current_order_id if column exists
+        const tableCols = (db.prepare("PRAGMA table_info(tables)").all() as { name: string }[]).map((c) => c.name);
+        if (tableCols.includes('current_order_id')) {
+          db.prepare("UPDATE tables SET status = 'available', current_order_id = NULL, updated_at = ?").run(now());
+        } else {
+          db.prepare("UPDATE tables SET status = 'available', updated_at = ?").run(now());
+        }
+
+        // Reset sqlite_sequence counters for wiped tables
+        db.prepare(`
+          DELETE FROM sqlite_sequence
+          WHERE name IN ('orders', 'bills', 'payments', 'refunds', 'order_items', 'held_orders', 'held_order_items', 'bill_items', 'order_item_addons')
+        `).run();
+
+        // Reset order counter keys in settings
+        db.prepare(`
+          DELETE FROM settings
+          WHERE key IN ('last_order_number', 'order_counter', 'last_bill_number', 'bill_counter')
+        `).run();
+        db.exec('COMMIT');
+      } catch (innerErr) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw innerErr;
+      }
+    } finally {
+      db.pragma(`foreign_keys = ${previousForeignKeys ? 'ON' : 'OFF'}`);
+    }
+
+    const countRow = db.prepare('SELECT COUNT(*) AS c FROM orders').get() as { c: number };
+    res.json({
+      status: 'ok',
+      success: true,
+      ordersRemaining: countRow.c,
+      clearedOrdersCount: initialOrdersCount,
+      backupPath,
+    });
+  } catch (error: any) {
+    console.error('[DB Clear Orders] Error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to clear orders' });
+  }
+}));
+
 export const databaseRoutes = router;

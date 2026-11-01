@@ -536,3 +536,8 @@ html.dark::-webkit-scrollbar-thumb:hover,
 [dir="rtl"] .rtl-flip {
   transform: scaleX(-1);
 }
+
+.app-region-no-drag {
+  -webkit-app-region: no-drag !important;
+  app-region: no-drag !important;
+}

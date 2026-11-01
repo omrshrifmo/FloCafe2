@@ -54,7 +54,8 @@ import {
 import { Toggle } from '@/components/settings/Toggle';
 import { SettingsTabShell } from '@/components/settings/SettingsTabShell';
 import type { HealthCheckReport } from '@/types/electron';
-import { useTranslations } from 'use-intl';
+import { useTranslations, useLocale } from 'use-intl';
+import { useCartStore } from '@/store/cart';
 import { Ltr } from '@/components/layout/Ltr';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useUpdateStatus } from '@/hooks/useUpdateStatus';
@@ -263,6 +264,8 @@ export default function SettingsPage() {
   const tCommon = useTranslations('common');
   const tRestore = useTranslations('restore');
   const tWhatsappSettings = useTranslations('whatsapp.settings');
+  const locale = useLocale();
+  const isArabic = locale.startsWith('ar');
   const { formatDate, formatTime, formatDateTime } = useFormatDate();
   const isAdmin = tenantCan(currentTenant, 'settings.manage');
   const isOwner = tenantCan(currentTenant, 'cloud.account.manage');
@@ -628,6 +631,30 @@ export default function SettingsPage() {
         return { success: true };
       } catch {
         return { success: false, error: t('cloudDeletionCancelFailed') };
+      }
+    }
+
+    if (pinGate.mode === 'clear-orders') {
+      try {
+        const response = await api.post('/database/clear-orders', { master_pin: pin });
+        toast.success(
+          isArabic
+            ? `تم تصفير وحذف جميع الطلبات السابقة بنجاح (${response.data?.clearedOrdersCount || 0} طلب)`
+            : `All past orders cleared successfully (${response.data?.clearedOrdersCount || 0} orders removed)`,
+          { duration: 5000 }
+        );
+        useCartStore.getState().clearCart();
+        setPinGate(null);
+        fetchBackups();
+        return { success: true };
+      } catch (err: unknown) {
+        const errorMsg =
+          axios.isAxiosError(err) && err.response?.data?.error
+            ? err.response.data.error
+            : isArabic
+              ? 'فشل في حذف وتصفير الطلبات'
+              : 'Failed to clear past orders';
+        return { success: false, error: errorMsg };
       }
     }
 
@@ -4595,6 +4622,8 @@ export default function SettingsPage() {
           : pinGate?.mode === 'restore-google-drive' ? t('googleDriveRestoreTitle')
           : pinGate?.mode === 'delete-cloud' ? t('cloudConfirmDeletion')
           : pinGate?.mode === 'cancel-cloud-deletion' ? t('cloudCancelDeletionTitle')
+          : pinGate?.mode === 'clear-orders'
+          ? (isArabic ? 'تأكيد تصفير وحذف جميع الطلبات السابقة' : 'Confirm Remove All Past Orders')
           : undefined
         }
         onCancel={() => setPinGate(null)}

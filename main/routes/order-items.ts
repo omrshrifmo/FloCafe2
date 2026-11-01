@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isKdsStationItemAllowed, now, parseItemJson, attachEffectiveAddons, isVoidedItemKdsVisible, projectKdsItem, projectKdsOrder, withTxn } from '../db';
+import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isKdsStationItemAllowed, now, parseItemJson, attachEffectiveAddons, isVoidedItemKdsVisible, projectKdsItem, projectKdsOrder, syncOrderStatusAfterItemUpdate, withTxn } from '../db';
 import { notifyKdsUpdate } from '../services/kds';
 import { parseCategoryIds } from './auth';
 import { requireKdsEnabled, isTokenRevoked, isTokenStale } from '../middleware/security';
@@ -14,6 +14,8 @@ interface OrderItemRow {
   status: string;
   category_id?: string | null;
 }
+
+export { syncOrderStatusAfterItemUpdate };
 
 // PATCH /api/order-items/:id/status — update a single item's kitchen status
 router.patch('/:id/status', requirePermission('kitchen.status.update'), requireKdsEnabled, (req: Request, res: Response) => {
@@ -118,6 +120,8 @@ router.patch('/:id/status', requirePermission('kitchen.status.update'), requireK
         ? db.prepare("UPDATE order_items SET status = ?, updated_at = ? WHERE id = ? AND status NOT IN ('voided', 'void_adjustment', 'completed', 'cancelled', 'refunded')").run(status, now(), itemId)
         : db.prepare('UPDATE order_items SET status = ?, updated_at = ? WHERE id = ? AND status = ?').run(status, now(), itemId, expectedStatus);
       if (updateResult.changes !== 1) throw new Error('STATUS_CONFLICT');
+
+      syncOrderStatusAfterItemUpdate(db, item.order_id);
 
       const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(item.order_id) as any;
 

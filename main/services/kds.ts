@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isDatabaseMaintenanceActive, isKdsStationItemAllowed, now, parseItemJson, attachEffectiveAddons, isKdsEnabled, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder, registerDatabaseMaintenanceStartListener, withTxn } from '../db';
+import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isDatabaseMaintenanceActive, isKdsStationItemAllowed, now, parseItemJson, attachEffectiveAddons, isKdsEnabled, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder, registerDatabaseMaintenanceStartListener, syncOrderStatusAfterItemUpdate, withTxn } from '../db';
 import * as jwt from 'jsonwebtoken';
 import { getJWTSecret } from '../security/jwt-secret';
 import { parseCategoryIds } from '../routes/auth';
@@ -447,6 +447,8 @@ function handleStatusUpdate(client: KdsClient, message: any): void {
       if (updateResult.changes !== 1) {
         return { error: 'Item status changed; refresh and try again' };
       }
+
+      syncOrderStatusAfterItemUpdate(db, existingItem.order_id);
 
       return { success: true };
     });

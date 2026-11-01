@@ -7,7 +7,7 @@ import { cloudSync } from '../services/cloud-sync';
 
 const router = Router();
 
-const ACTIVE_ORDER_STATUS_SQL = "status NOT IN ('completed', 'cancelled')";
+const ACTIVE_ORDER_STATUS_SQL = "(status IN ('open', 'pending', 'preparing', 'ready', 'served', 'in_progress') OR (status NOT IN ('completed', 'cancelled')) OR (status = 'completed' AND EXISTS (SELECT 1 FROM bills b WHERE b.order_id = orders.id AND b.payment_status NOT IN ('paid', 'refunded') AND COALESCE(b.balance, b.total, 0) > 0)))";
 
 function activeOrderForTable(db: ReturnType<typeof getDatabase>, tableId: string, orderId?: number | string) {
   const whereOrder = orderId ? ' AND id = ?' : '';

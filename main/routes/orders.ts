@@ -990,6 +990,13 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
         `).run(subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newDiscountAmount, total, roundOff, now(), req.params.id);
       }
 
+      if (currentOrder.status === 'served') {
+        db.prepare("UPDATE orders SET status = 'pending', updated_at = ? WHERE id = ?").run(now(), req.params.id);
+        if (currentOrder.table_id) {
+          db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(now(), currentOrder.table_id);
+        }
+      }
+
       // BUG #4 FIX: Sync bill if it exists (add-items didn't update the bill)
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
       if (existingBill) {
@@ -1067,10 +1074,11 @@ router.patch('/:id/status', orderWriteRateLimit, requirePermission('orders.statu
       }
 
       const VALID_TRANSITIONS: Record<string, string[]> = {
+        open: ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'],
         pending: ['preparing', 'ready', 'served', 'completed', 'cancelled'],
         preparing: ['ready', 'served', 'completed', 'cancelled'],
         ready: ['served', 'completed', 'cancelled'],
-        served: ['completed', 'cancelled'],
+        served: ['completed', 'cancelled', 'pending', 'preparing', 'ready'],
         completed: [],
         cancelled: [],
       };
@@ -1114,33 +1122,75 @@ router.patch('/:id/status', orderWriteRateLimit, requirePermission('orders.statu
       }
 
       switch (status) {
+        case 'pending':
+          db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
+            .run(status, nowStr, req.params.id);
+          if (currentOrder.table_id) {
+            db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
+              .run(nowStr, currentOrder.table_id);
+          }
+          break;
+
         case 'preparing':
           db.prepare('UPDATE orders SET status = ?, cooking_started_at = ?, updated_at = ? WHERE id = ?')
             .run(status, nowStr, nowStr, req.params.id);
+          if (currentOrder.table_id) {
+            db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
+              .run(nowStr, currentOrder.table_id);
+          }
           break;
 
         case 'ready':
           db.prepare('UPDATE orders SET status = ?, ready_at = ?, updated_at = ? WHERE id = ?')
             .run(status, nowStr, nowStr, req.params.id);
+          if (currentOrder.table_id) {
+            db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
+              .run(nowStr, currentOrder.table_id);
+          }
           break;
 
         case 'served':
-          db.prepare('UPDATE orders SET status = ?, served_at = ?, updated_at = ? WHERE id = ?')
-            .run(status, nowStr, nowStr, req.params.id);
-          break;
-
-        case 'completed':
-          db.prepare('UPDATE orders SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?')
+          db.prepare('UPDATE orders SET status = ?, served_at = COALESCE(served_at, ?), updated_at = ? WHERE id = ?')
             .run(status, nowStr, nowStr, req.params.id);
           db.prepare(`
             UPDATE order_items SET status = 'served', updated_at = ?
             WHERE order_id = ? AND status IN ('pending', 'preparing', 'ready')
           `).run(nowStr, req.params.id);
           if (currentOrder.table_id) {
-            db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
+            db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
               .run(nowStr, currentOrder.table_id);
           }
           break;
+
+        case 'completed': {
+          const bill = db.prepare("SELECT payment_status, balance, total FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1").get(req.params.id) as any;
+          const isPaid = bill && (bill.payment_status === 'paid' || (Number(bill.balance) <= 0 && Number(bill.total) > 0));
+          if (!isPaid) {
+            // Unpaid orders must NOT be marked completed! Transition to 'served' and keep table occupied.
+            db.prepare('UPDATE orders SET status = ?, served_at = COALESCE(served_at, ?), updated_at = ? WHERE id = ?')
+              .run('served', nowStr, nowStr, req.params.id);
+            db.prepare(`
+              UPDATE order_items SET status = 'served', updated_at = ?
+              WHERE order_id = ? AND status IN ('pending', 'preparing', 'ready')
+            `).run(nowStr, req.params.id);
+            if (currentOrder.table_id) {
+              db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?")
+                .run(nowStr, currentOrder.table_id);
+            }
+          } else {
+            db.prepare('UPDATE orders SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?')
+              .run('completed', nowStr, nowStr, req.params.id);
+            db.prepare(`
+              UPDATE order_items SET status = 'served', updated_at = ?
+              WHERE order_id = ? AND status IN ('pending', 'preparing', 'ready')
+            `).run(nowStr, req.params.id);
+            if (currentOrder.table_id) {
+              db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
+                .run(nowStr, currentOrder.table_id);
+            }
+          }
+          break;
+        }
 
         case 'cancelled': {
           // Select only items eligible for restocking (exclude already cancelled, voided, or accounting adjustments)

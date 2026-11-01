@@ -18,9 +18,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-enterprise-test-'));
+const mockSafeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: (s: string) => Buffer.from(s, 'utf8'),
+  decryptString: (b: Buffer) => b.toString('utf8'),
+};
+
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
-    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.6' } };
+    return {
+      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.7' },
+      safeStorage: mockSafeStorage,
+    };
   }
   return originalLoad.apply(this, arguments as any);
 };
@@ -34,7 +43,7 @@ const { registerRoutes } = require('../main/routes/index');
 const { randomUUID } = require('crypto');
 
 async function main() {
-  console.log('FloCafe 4.0.6 Enterprise Suite Integration Test');
+  console.log('FloCafe 4.0.7 Enterprise Suite Integration Test');
   console.log('='.repeat(70));
   resetCounters();
 
@@ -48,10 +57,10 @@ async function main() {
   const { baseUrl, server } = await startServer(app);
 
   try {
-    // ── Test 1: Non-destructive SQLite migration v106 schema verification ──────
-    console.log('\n[1] Verifying Release 4.0.6 Schema Migration (v106)...');
+    // ── Test 1: Non-destructive SQLite migration v107 schema verification ──────
+    console.log('\n[1] Verifying Release 4.0.7 Schema Migration (v107)...');
     const userVersion = db.pragma('user_version', { simple: true });
-    assertOrThrow(userVersion >= 106, `Schema user_version is ${userVersion} (expected >= 106)`);
+    assertOrThrow(userVersion >= 107, `Schema user_version is ${userVersion} (expected >= 107)`);
 
     const tables = [
       'stock_logs', 'cash_movements', 'operating_expenses', 'suppliers',
@@ -419,6 +428,228 @@ async function main() {
       });
       assertEqualOrThrow(res.status, 200, `Endpoint ${ep} returned 200 OK`);
     }
+
+    // ── Test 9: Table Order Served Lifecycle & Active Status ─────────────────
+    console.log('\n[9] Verifying Table Order Served Lifecycle & Active Table Status...');
+    const tableId = 'tbl-test-lifecycle';
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table Lifecycle', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableId);
+
+    const tableOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableId,
+        type: 'dine_in',
+        customer_count: 2,
+        items: [
+          { product_id: 'prod-espresso', quantity: 2, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(tableOrderRes.status, 201, 'Table order created');
+    const tableOrderId = tableOrderRes.data.order.id;
+
+    const tableAfterOrder = db.prepare('SELECT status FROM tables WHERE id = ?').get(tableId) as any;
+    assertEqualOrThrow(tableAfterOrder.status, 'occupied', 'Table status is occupied after order creation');
+
+    const tableOrderItems = db.prepare('SELECT id FROM order_items WHERE order_id = ?').all(tableOrderId) as any[];
+    assertOrThrow(tableOrderItems.length > 0, 'Order has items');
+
+    for (const item of tableOrderItems) {
+      const itemUpdateRes = await api(baseUrl, `/api/order-items/${item.id}/status`, {
+        method: 'PATCH',
+        headers: authHeader,
+        body: { status: 'served' },
+      });
+      assertEqualOrThrow(itemUpdateRes.status, 200, 'Order item updated to served');
+    }
+
+    const orderAfterServed = db.prepare('SELECT status FROM orders WHERE id = ?').get(tableOrderId) as any;
+    assertEqualOrThrow(orderAfterServed.status, 'served', 'Unpaid order with all items served has status=served, NOT completed');
+
+    const tableAfterServed = db.prepare('SELECT status FROM tables WHERE id = ?').get(tableId) as any;
+    assertEqualOrThrow(tableAfterServed.status, 'occupied', 'Table remains occupied when order is served but unpaid');
+
+    const tablesListRes = await api(baseUrl, '/api/tables', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(tablesListRes.status, 200, 'GET /api/tables 200 OK');
+    const tableData = tablesListRes.data.tables.find((t: any) => t.id === tableId);
+    assertOrThrow(Boolean(tableData), 'Table found in tables list');
+    assertEqualOrThrow(tableData.status, 'occupied', 'Table in list is occupied');
+    assertOrThrow(Boolean(tableData.activeOrder || tableData.current_order), 'Table has activeOrder attached');
+
+    const appendRes = await api(baseUrl, `/api/orders/${tableOrderId}/items`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        items: [
+          { product_id: 'prod-espresso', quantity: 1, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(appendRes.status, 200, 'Item appended to served order');
+    const orderAfterAppend = db.prepare('SELECT status FROM orders WHERE id = ?').get(tableOrderId) as any;
+    assertEqualOrThrow(orderAfterAppend.status, 'pending', 'Order transitions back to pending when new item is added to served order');
+
+    // Generate bill for table order
+    const billGenRes = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: tableOrderId },
+    });
+    assertOrThrow(billGenRes.status === 200 || billGenRes.status === 201, 'Bill generated for table order');
+    const bill = billGenRes.data.bill;
+    assertOrThrow(Boolean(bill), 'Bill exists for table order');
+
+    const payRes = await api(baseUrl, `/api/bills/${bill.id}/payment`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        amount: Number(bill.balance || bill.total),
+        method: 'cash',
+      },
+    });
+    assertEqualOrThrow(payRes.status, 200, 'Bill paid successfully');
+
+    const orderAfterPay = db.prepare('SELECT status FROM orders WHERE id = ?').get(tableOrderId) as any;
+    assertEqualOrThrow(orderAfterPay.status, 'completed', 'Order status becomes completed after bill is paid');
+    const tableAfterPay = db.prepare('SELECT status FROM tables WHERE id = ?').get(tableId) as any;
+    assertEqualOrThrow(tableAfterPay.status, 'available', 'Table becomes available after bill is paid');
+
+    // ── Test 10: Shift Close with Open Tables & Shift B Carry-Over Settlement ──
+    console.log('\n[10] Verifying Shift Close with Open Tables & Shift B Carry-Over...');
+    const tableYId = 'tbl-test-carryover';
+    db.prepare(`
+      INSERT OR REPLACE INTO tables (id, number, capacity, status, is_active, created_at, updated_at)
+      VALUES (?, 'Table CarryOver', 4, 'available', 1, datetime('now'), datetime('now'))
+    `).run(tableYId);
+
+    // Shift A is sessionId (already open from Test 6)
+    const shiftAId = sessionId;
+
+    const orderYRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: tableYId,
+        type: 'dine_in',
+        customer_count: 2,
+        items: [
+          { product_id: 'prod-espresso', quantity: 3, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(orderYRes.status, 201, 'Order Y created');
+    const orderYId = orderYRes.data.order.id;
+
+    const closeShiftARes = await api(baseUrl, `/api/cash-sessions/${shiftAId}/close`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        counted_cash_cents: 20000,
+        notes: 'Closing Shift A with open tables',
+        skip_unpaid_block: true,
+      },
+    });
+    assertEqualOrThrow(closeShiftARes.status, 200, 'Shift A closed successfully with open tables');
+    assertOrThrow(Number(closeShiftARes.data.carried_over_orders_count) >= 1, 'carried_over_orders_count >= 1 reported');
+    assertOrThrow(Number(closeShiftARes.data.carried_over_total) > 0, 'carried_over_total > 0 reported');
+
+    const orderYAfterClose = db.prepare('SELECT status FROM orders WHERE id = ?').get(orderYId) as any;
+    assertOrThrow(orderYAfterClose.status !== 'completed' && orderYAfterClose.status !== 'cancelled', 'Order Y remained active');
+    const tableYAfterClose = db.prepare('SELECT status FROM tables WHERE id = ?').get(tableYId) as any;
+    assertEqualOrThrow(tableYAfterClose.status, 'occupied', 'Table Y remained occupied');
+
+    const shiftBRes = await api(baseUrl, '/api/cash-sessions/open', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        opening_float_cents: 30000,
+        notes: 'Shift B for carryover test',
+      },
+    });
+    assertEqualOrThrow(shiftBRes.status, 200, 'Shift B opened');
+    const shiftBId = shiftBRes.data.id || shiftBRes.data.session?.id;
+
+    // Generate bill for Order Y in Shift B
+    const billYGenRes = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: orderYId },
+    });
+    assertOrThrow(billYGenRes.status === 200 || billYGenRes.status === 201, 'Bill generated for order Y');
+    const billY = billYGenRes.data.bill;
+
+    const payYRes = await api(baseUrl, `/api/bills/${billY.id}/payment`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        amount: Number(billY.balance || billY.total),
+        method: 'cash',
+      },
+    });
+    assertEqualOrThrow(payYRes.status, 200, 'Order Y paid during Shift B');
+
+    const billRecord = db.prepare('SELECT payment_details FROM bills WHERE id = ?').get(billY.id) as any;
+    const paymentsList = JSON.parse(billRecord.payment_details || '[]');
+    assertEqualOrThrow(paymentsList[0]?.cash_session_id, shiftBId, 'Payment is correctly tagged with Shift B cash_session_id');
+
+    const closeShiftBRes = await api(baseUrl, `/api/cash-sessions/${shiftBId}/close`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        counted_cash_cents: 30000 + Math.round(Number(billY.balance || billY.total) * 100),
+        notes: 'Closing Shift B',
+      },
+    });
+    assertEqualOrThrow(closeShiftBRes.status, 200, 'Shift B closed successfully');
+
+    // ── Test 11: Clear Orders with Master PIN ────────────────────────────────
+    console.log('\n[11] Verifying Clear All Past Orders with Master PIN...');
+    const { setMasterPin } = require('../main/services/master-pin');
+    setMasterPin('1234');
+
+    const dummyOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        table_id: null,
+        type: 'takeaway',
+        customer_count: 1,
+        items: [
+          { product_id: 'prod-espresso', quantity: 1, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(dummyOrderRes.status, 201, 'Dummy order created for clear test');
+
+    const orderCountBefore = db.prepare('SELECT count(*) as count FROM orders').get().count;
+    assertOrThrow(orderCountBefore > 0, 'Orders exist before clear');
+
+    const clearRes = await api(baseUrl, '/api/database/clear-orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        master_pin: '1234',
+      },
+    });
+    assertEqualOrThrow(clearRes.status, 200, 'POST /api/database/clear-orders succeeded with 200 OK');
+    assertEqualOrThrow(clearRes.data.success, true, 'Clear orders returned success: true');
+    assertOrThrow(clearRes.data.clearedOrdersCount >= 1, 'Reported cleared orders count >= 1');
+
+    const orderCountAfter = db.prepare('SELECT count(*) as count FROM orders').get().count;
+    assertEqualOrThrow(orderCountAfter, 0, 'Orders table has 0 rows after clear-orders');
+
+    const billsCountAfter = db.prepare('SELECT count(*) as count FROM bills').get().count;
+    assertEqualOrThrow(billsCountAfter, 0, 'Bills table has 0 rows after clear-orders');
+
+    const occupiedTablesCount = db.prepare("SELECT count(*) as count FROM tables WHERE status = 'occupied'").get().count;
+    assertEqualOrThrow(occupiedTablesCount, 0, 'Zero occupied tables remaining after clear-orders');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

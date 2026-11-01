@@ -1279,6 +1279,7 @@ export default function POSPage() {
               setShowTablePicker(true);
             }
           }}
+          onTableCheckout={(table) => setCheckoutTable(table)}
           pendingOrder={pendingOrder}
           onEditItem={setEditingCartItem}
           onCheckout={() => setShowPrepaidCheckout(true)}

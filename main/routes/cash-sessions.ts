@@ -81,24 +81,24 @@ function closeSessionTxn(
   countedCashCents: number,
   closerId: string,
   notes: string | null,
-  skipUnpaidBlock = false,
-): { closure_id: number; variance_cents: number; expected_cash_cents: number; counted_cash_cents: number } {
+  skipUnpaidBlock = true,
+): { closure_id: number; variance_cents: number; expected_cash_cents: number; counted_cash_cents: number; carried_over_orders_count: number; carried_over_total: number } {
   const closedAt = now();
-  if (!skipUnpaidBlock) {
-    // 'partial' counts: a short tender leaves an outstanding balance
-    // (bills.ts settles to 'paid' only at zero balance).
-    const unpaid = db.prepare(`
-      SELECT COUNT(*) AS c
-      FROM bills b
-      JOIN orders o ON o.id = b.order_id
-      WHERE b.payment_status NOT IN ('paid', 'refunded', 'partially_refunded')
-        AND o.status != 'cancelled'
-        AND COALESCE(b.balance, b.total, 0) > 0
-        AND b.created_at >= ? AND b.created_at < ?
-    `).get(session.opened_at, closedAt) as { c: number };
-    if (Number(unpaid.c) > 0) {
-      throw httpError(`Cannot close: ${unpaid.c} unpaid bill(s) in this shift`, 409);
-    }
+  const unpaid = db.prepare(`
+    SELECT COUNT(DISTINCT o.id) AS c, COALESCE(SUM(COALESCE(b.balance, b.total, o.total, 0)), 0) AS total_balance
+    FROM orders o
+    LEFT JOIN bills b ON b.order_id = o.id
+    WHERE o.status != 'cancelled'
+      AND (
+        o.status != 'completed'
+        OR (b.id IS NOT NULL AND b.payment_status NOT IN ('paid', 'refunded', 'partially_refunded') AND COALESCE(b.balance, b.total, 0) > 0)
+      )
+  `).get() as { c: number; total_balance: number };
+  const carriedOverOrdersCount = Number(unpaid?.c || 0);
+  const carriedOverTotal = Number(unpaid?.total_balance || 0);
+
+  if (!skipUnpaidBlock && carriedOverOrdersCount > 0) {
+    throw httpError(`Cannot close: ${carriedOverOrdersCount} unpaid bill(s) in this shift`, 409);
   }
   const sessionMovements = listCashDrawerMovementsForSession(db, session.id, session.opened_at, closedAt, false);
   const aggregates = {
@@ -149,7 +149,14 @@ function closeSessionTxn(
   const closureId = Number(insert.lastInsertRowid);
   db.prepare(`UPDATE cash_sessions SET status = 'closed', closed_at = ?, closed_by = ?, closure_id = ? WHERE id = ?`)
     .run(closedAt, closerId, closureId, session.id);
-  return { closure_id: closureId, variance_cents: varianceCents, expected_cash_cents: expectedCashCents, counted_cash_cents: countedCashCents };
+  return {
+    closure_id: closureId,
+    variance_cents: varianceCents,
+    expected_cash_cents: expectedCashCents,
+    counted_cash_cents: countedCashCents,
+    carried_over_orders_count: carriedOverOrdersCount,
+    carried_over_total: carriedOverTotal,
+  };
 }
 
 router.post('/open', requirePermission('cash.shifts.open'), (req: Request, res: Response) => {
@@ -272,7 +279,8 @@ router.post('/:id/close', requirePermission('cash.shifts.close'), (req: Request,
       if (role === 'cashier' && session.opened_by !== closer) {
         throw httpError('Cashiers can only close their own shift', 403);
       }
-      return closeSessionTxn(db, session, countedCashCents, closer, notes);
+      const skipUnpaid = (req.body || {}).skip_unpaid_block !== false;
+      return closeSessionTxn(db, session, countedCashCents, closer, notes, skipUnpaid);
     });
     res.json(result);
   } catch (error: unknown) {

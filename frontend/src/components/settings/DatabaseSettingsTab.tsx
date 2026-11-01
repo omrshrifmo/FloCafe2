@@ -21,7 +21,7 @@ import {
   RotateCcw,
   Check,
 } from 'lucide-react';
-import { useTranslations } from 'use-intl';
+import { useTranslations, useLocale } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { Button } from '@/components/ui/button';
 import { SettingsTabShell } from '@/components/settings/SettingsTabShell';
@@ -106,6 +106,7 @@ export type PinGate =
   | { mode: 'delete-backup'; payload: { fileName: string } }
   | { mode: 'delete-cloud' }
   | { mode: 'cancel-cloud-deletion' }
+  | { mode: 'clear-orders' }
   | null;
 
 export interface DatabaseSettingsTabProps {
@@ -213,6 +214,8 @@ export function DatabaseSettingsTab({
 }: DatabaseSettingsTabProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
+  const locale = useLocale();
+  const isArabic = locale.startsWith('ar');
   const { formatDateTime } = useFormatDate();
   const googleDriveJobActive = ['queued', 'snapshot_created', 'uploading', 'restoring'].includes(googleDriveStatus.job?.state || '');
   const googleDriveRevokePending = googleDriveStatus.revoke_status === 'unconfirmed';
@@ -841,6 +844,29 @@ export function DatabaseSettingsTab({
               </button>
             </div>
           )}
+        </div>
+
+        {/* Danger Zone: Remove All Orders (Reset System to Zero Orders) */}
+        <div className="bg-card rounded-xl border border-rose-300 dark:border-rose-900/60 p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Trash2 size={20} className="text-rose-600 dark:text-rose-400" />
+            <h2 className="font-semibold text-rose-600 dark:text-rose-400">
+              {isArabic ? 'تصفير وحذف جميع الطلبات السابقة' : 'Remove All Past Orders (Reset System to Zero Orders)'}
+            </h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            {isArabic
+              ? 'حذف وتصفير جميع الطلبات والفواتير والمبيعات السابقة بالكامل وإعادة ترقيم الطلبات من 1 مع أخذ نسخة احتياطية تلقائية أولاً واستعادة الطاولات كشاغرة ومتاحة. يتطلب الرمز السري الرئيسي (Master PIN).'
+              : 'Permanently remove and reset all past orders, bills, and sales data to zero, resetting order sequence to 1. Automatically creates a backup snapshot first and resets all tables to available. Requires Master PIN.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => onRequestPinGate({ mode: 'clear-orders' })}
+            className="px-5 py-2.5 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold transition-all shadow-sm active:scale-95 cursor-pointer flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            <span>{isArabic ? 'حذف وتصفير جميع الطلبات بالكامل' : 'Remove All Orders & Reset to Zero'}</span>
+          </button>
         </div>
 
         {/* Danger Zone: Initialize Database */}

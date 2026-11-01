@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isKdsStationItemAllowed, now, attachEffectiveAddons, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder, projectKdsStation, withTxn } from '../db';
+import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isKdsStationItemAllowed, now, attachEffectiveAddons, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder, projectKdsStation, syncOrderStatusAfterItemUpdate, withTxn } from '../db';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
 import { requireKdsEnabled, requireKdsEnabledOr404, isTokenRevoked, isTokenStale } from '../middleware/security';
@@ -437,6 +437,8 @@ router.patch('/items/:id/status', requirePermission('kitchen.status.update'), re
         ? db.prepare("UPDATE order_items SET status = ?, updated_at = ? WHERE id = ? AND status NOT IN ('voided', 'void_adjustment', 'completed', 'cancelled', 'refunded')").run(status, now(), req.params.id)
         : db.prepare('UPDATE order_items SET status = ?, updated_at = ? WHERE id = ? AND status = ?').run(status, now(), req.params.id, expectedStatus);
       if (updateResult.changes !== 1) throw new Error('STATUS_CONFLICT');
+
+      syncOrderStatusAfterItemUpdate(db, item.order_id);
 
       return db.prepare('SELECT * FROM order_items WHERE id = ?').get(req.params.id);
     });

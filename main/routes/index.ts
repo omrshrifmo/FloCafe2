@@ -109,6 +109,7 @@ export function registerRoutes(app: Express): void {
   app.use('/api/more-apps', moreAppsRoutes);
   app.use('/api/printers', printerRoutes);
   app.use('/api/db', databaseRoutes);
+  app.use('/api/database', databaseRoutes);
   app.use('/api/db-tools', databaseToolsRoutes);
   app.use('/api/menu-csv', menuCsvRoutes);
   app.use('/api/tax-packs', taxPackRoutes);

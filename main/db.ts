@@ -6114,6 +6114,39 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 107,
+    name: 'flocafe_4_0_7_table_served_lifecycle_and_shift_carryover',
+    up: () => {
+      // 1. Repair stuck unpaid orders: if an order was marked 'completed' while its bill is unpaid/has balance > 0,
+      // revert it to 'served' so it remains visible, payable, and attached to the table.
+      db.exec(`
+        UPDATE orders
+        SET status = 'served',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'completed'
+          AND id IN (
+            SELECT b.order_id
+            FROM bills b
+            WHERE b.payment_status NOT IN ('paid', 'refunded')
+              AND COALESCE(b.balance, b.total, 0) > 0
+          );
+      `);
+
+      // 2. Ensure tables with active or served unpaid orders are marked 'occupied'
+      db.exec(`
+        UPDATE tables
+        SET status = 'occupied',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id IN (
+          SELECT o.table_id
+          FROM orders o
+          WHERE o.table_id IS NOT NULL
+            AND o.status NOT IN ('completed', 'cancelled')
+        ) AND status != 'occupied';
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -7292,3 +7325,35 @@ export function parseRowJson(row: any): any {
     payment_details: tryParse(row.payment_details),
   };
 }
+
+export function syncOrderStatusAfterItemUpdate(targetDb: any, orderId: number | string): void {
+  const activeDb = targetDb || db;
+  const order = activeDb.prepare('SELECT id, status, table_id FROM orders WHERE id = ?').get(orderId) as any;
+  if (!order || ['completed', 'cancelled'].includes(order.status)) return;
+
+  const items = activeDb.prepare(`
+    SELECT status FROM order_items
+    WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded')
+  `).all(orderId) as { status: string }[];
+
+  if (items.length === 0) return;
+
+  const allServed = items.every((i) => i.status === 'served');
+  if (allServed) {
+    const bill = activeDb.prepare("SELECT payment_status, balance, total FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1").get(orderId) as any;
+    const isPaid = bill && (bill.payment_status === 'paid' || (Number(bill.balance) <= 0 && Number(bill.total) > 0));
+    const nowStr = now();
+    if (isPaid) {
+      activeDb.prepare("UPDATE orders SET status = 'completed', completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE id = ?").run(nowStr, nowStr, orderId);
+      if (order.table_id) {
+        activeDb.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(nowStr, order.table_id);
+      }
+    } else {
+      activeDb.prepare("UPDATE orders SET status = 'served', served_at = COALESCE(served_at, ?), updated_at = ? WHERE id = ?").run(nowStr, nowStr, orderId);
+      if (order.table_id) {
+        activeDb.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(nowStr, order.table_id);
+      }
+    }
+  }
+}
+

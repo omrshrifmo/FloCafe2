@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useCartStore, buildActiveCartPayload } from '@/store/cart';
 import { useHeldOrdersStore, type HeldOrder } from '@/store/held-orders';
 import { usePrinterStore } from '@/hooks/usePrinter';
@@ -9,6 +9,7 @@ import { nameToColor } from '@/lib/image-utils';
 import { Button } from '@/components/ui/button';
 import { useTranslations, useLocale } from 'use-intl';
 import api from '@/lib/api';
+import axios from 'axios';
 import { parseDbTimestamp } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import type { Category, Product, Table, CartItem, Order, OrderItem } from '@/lib/types';
@@ -50,6 +51,7 @@ interface FastTouchModeProps {
   onShowSplitMove?: (table?: Table) => void;
   onEditItem?: (item: CartItem) => void;
   onCheckout?: () => void;
+  onTableCheckout?: (table: Table) => void;
   onQuickCheckout?: (method: 'cash' | 'card', tenderAmount?: number) => void;
   hasOpenShift?: boolean;
   onOpenShift?: () => void;
@@ -233,6 +235,7 @@ export function FastTouchMode({
   onShowSplitMove,
   onEditItem,
   onCheckout,
+  onTableCheckout,
   onQuickCheckout,
   hasOpenShift = true,
   onOpenShift,
@@ -250,6 +253,7 @@ export function FastTouchMode({
   const [searchQuery, setSearchQuery] = useState('');
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
   const [showHeldModal, setShowHeldModal] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
 
   // Quick item note inline editing state
@@ -259,6 +263,34 @@ export function FastTouchMode({
   // Served items state loaded from table's active order
   const [fetchedActiveOrder, setFetchedActiveOrder] = useState<Order | null>(null);
   const [loadingServedItems, setLoadingServedItems] = useState(false);
+
+  // Table draft isolation across tables and order types
+  const tableDraftsRef = useRef<Record<string, { items: CartItem[]; guestCount: number; orderNotes: string }>>({});
+  const currentScopeKey = cart.orderType === 'dine_in' ? `table:${cart.tableId || 'none'}` : 'takeaway';
+  const previousScopeKeyRef = useRef<string>(currentScopeKey);
+
+  useEffect(() => {
+    const prevKey = previousScopeKeyRef.current;
+    if (prevKey !== currentScopeKey) {
+      // Save items from previous scope
+      const currentCartState = useCartStore.getState();
+      tableDraftsRef.current[prevKey] = {
+        items: currentCartState.items,
+        guestCount: currentCartState.guestCount,
+        orderNotes: currentCartState.orderNotes,
+      };
+
+      // Restore items for new scope
+      const targetDraft = tableDraftsRef.current[currentScopeKey];
+      if (targetDraft) {
+        cart.loadItems(targetDraft.items, cart.tableId, cart.customerId, targetDraft.guestCount, targetDraft.orderNotes);
+      } else {
+        cart.loadItems([], cart.tableId, cart.customerId, cart.guestCount, '');
+      }
+
+      previousScopeKeyRef.current = currentScopeKey;
+    }
+  }, [currentScopeKey, cart.tableId, cart.customerId]);
 
   // Derive active order: pendingOrder takes precedence, followed by fetched table order
   const activeTableOrder = (cart.orderType === 'dine_in' && cart.tableId)
@@ -468,7 +500,7 @@ export function FastTouchMode({
   };
 
   // Handle direct checkout
-  const handleCheckoutClick = () => {
+  const handleCheckoutClick = async () => {
     if (hasOpenShift === false) {
       toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
       onOpenShift?.();
@@ -478,6 +510,53 @@ export function FastTouchMode({
       toast.error(t('cartEmpty'));
       return;
     }
+
+    if (activeTableOrder && currentTable) {
+      // If there are unsubmitted cart items for this table, append them first so the order is unified
+      if (cart.items.length > 0) {
+        setCheckingOut(true);
+        try {
+          const itemsPayload = cart.items.map((item) => ({
+            product_id: Number(item.product.id),
+            quantity: Number(item.quantity),
+            unit_price: Number(item.product.price),
+            notes: item.special_instructions || null,
+            addons: item.addons?.map((addon) => ({
+              addon_id: Number(addon.id),
+              addon_name: addon.name,
+              price: Number(addon.price),
+              quantity: typeof addon.quantity === 'number' ? addon.quantity : 1,
+            })) || [],
+          }));
+
+          await api.post(`/orders/${activeTableOrder.id}/items`, { items: itemsPayload });
+          cart.clearCart();
+          delete tableDraftsRef.current[currentScopeKey];
+          // Refresh order and table state
+          const { data } = await api.get(`/orders/${activeTableOrder.id}`);
+          if (data?.order) setFetchedActiveOrder(data.order);
+        } catch (err: unknown) {
+          const msg = axios.isAxiosError(err) && err.response?.data?.error
+            ? err.response.data.error
+            : (isArabic ? 'فشل إضافة العناصر إلى الطلب' : 'Failed to add items to table order');
+          toast.error(msg);
+          setCheckingOut(false);
+          return;
+        } finally {
+          setCheckingOut(false);
+        }
+      }
+
+      if (onTableCheckout) {
+        onTableCheckout(currentTable);
+        return;
+      }
+      if (onShowSplitMove) {
+        onShowSplitMove(currentTable);
+        return;
+      }
+    }
+
     if (onCheckout) {
       onCheckout();
     } else if (onQuickCheckout) {
@@ -522,7 +601,11 @@ export function FastTouchMode({
           Center: Order Type Switcher (Dine In / Takeaway) + Table Picker & Guest Count
           Physical Right: Held Orders, Repeat Last Item, Clear Cart
          ========================================================================= */}
-      <div className="h-16 px-4 bg-card border-b border-border flex items-center justify-between shrink-0 gap-3" dir="ltr">
+      <div
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="h-16 px-4 bg-card border-b border-border flex items-center justify-between shrink-0 gap-3 app-region-no-drag relative z-50 pointer-events-auto select-none"
+        dir="ltr"
+      >
         {/* 1. PHYSICAL LEFT: Exit button & Title */}
         <div className="flex items-center gap-3 shrink-0">
           <button
@@ -532,7 +615,7 @@ export function FastTouchMode({
               e.stopPropagation();
               onExit();
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/50 text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 transition-all text-xs font-black shadow-2xs cursor-pointer z-50 shrink-0"
+            className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl border border-rose-500/50 text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 active:scale-[0.98] transition-all text-sm font-black shadow-sm cursor-pointer z-50 shrink-0 touch-manipulation select-none"
             title="Exit Fast-Touch POS (Esc)"
           >
             <X className="h-4 w-4 stroke-[2.5]" />
@@ -540,7 +623,7 @@ export function FastTouchMode({
           </button>
 
           <div className="hidden sm:flex items-center gap-2">
-            <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg">
+            <div className="p-2 bg-amber-500/10 text-amber-500 rounded-lg">
               <Zap className="h-4 w-4" />
             </div>
             <span className="font-extrabold text-sm text-foreground">
@@ -552,30 +635,30 @@ export function FastTouchMode({
         {/* 2. TOP CENTER: Order Type (Dine In / Takeaway) + Table Selection & Guests */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center" dir={isArabic ? 'rtl' : 'ltr'}>
           {/* Order Type Switcher */}
-          <div className="flex items-center bg-muted/60 p-1 rounded-xl border border-border shrink-0">
+          <div className="flex items-center bg-muted/60 p-1 rounded-xl border border-border shrink-0 h-11">
             <button
               type="button"
               onClick={() => cart.setOrderType('dine_in')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 h-9 min-h-[36px] px-3.5 rounded-lg text-sm font-extrabold transition-all cursor-pointer touch-manipulation select-none ${
                 cart.orderType === 'dine_in'
-                  ? 'bg-brand text-white shadow-2xs'
+                  ? 'bg-brand text-white shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <UtensilsCrossed className="h-3.5 w-3.5" />
+              <UtensilsCrossed className="h-4 w-4" />
               <span>{t('orderTypeDineIn')}</span>
             </button>
 
             <button
               type="button"
               onClick={() => cart.setOrderType('takeaway')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 h-9 min-h-[36px] px-3.5 rounded-lg text-sm font-extrabold transition-all cursor-pointer touch-manipulation select-none ${
                 cart.orderType === 'takeaway'
-                  ? 'bg-brand text-white shadow-2xs'
+                  ? 'bg-brand text-white shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Package className="h-3.5 w-3.5" />
+              <Package className="h-4 w-4" />
               <span>{t('orderTypeTakeaway')}</span>
             </button>
           </div>
@@ -587,13 +670,13 @@ export function FastTouchMode({
               <button
                 type="button"
                 onClick={onShowTablePicker}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer shadow-2xs ${
+                className={`flex items-center gap-2.5 h-11 min-h-[44px] px-4 rounded-xl border text-sm font-extrabold transition-all cursor-pointer shadow-sm touch-manipulation select-none active:scale-[0.98] ${
                   currentTable
                     ? 'bg-card border-brand/50 text-foreground hover:bg-muted'
                     : 'bg-amber-500/15 border-amber-500/50 text-amber-900 dark:text-amber-200 animate-pulse'
                 }`}
               >
-                <UtensilsCrossed className="h-3.5 w-3.5 text-brand" />
+                <UtensilsCrossed className="h-4 w-4 text-brand" />
                 <span>
                   {currentTable
                     ? `${t('tableLabel')}: ${currentTable.name}`
@@ -601,34 +684,34 @@ export function FastTouchMode({
                 </span>
 
                 {currentTable?.status === 'occupied' && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-orange-500/20 text-orange-600 dark:text-orange-300">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black bg-orange-500/20 text-orange-600 dark:text-orange-300">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                     {isArabic ? 'مشغولة' : 'Occupied'}
                   </span>
                 )}
 
-                <span className="text-[10px] text-brand underline font-bold ms-0.5">
+                <span className="text-xs text-brand underline font-bold ms-0.5">
                   {isArabic ? 'تغيير' : 'Change'}
                 </span>
               </button>
 
               {/* Guest Count Stepper */}
-              <div className="flex items-center gap-1 bg-muted/60 px-2 py-1 rounded-xl border border-border">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              <div className="flex items-center gap-1.5 bg-muted/60 px-2 py-0.5 rounded-xl border border-border h-11">
+                <Users className="h-4 w-4 text-muted-foreground" />
                 <button
                   type="button"
                   onClick={() => cart.setGuestCount(Math.max(1, cart.guestCount - 1))}
-                  className="h-5 w-5 rounded-md bg-card border border-border flex items-center justify-center text-xs font-bold hover:bg-muted active:scale-95 cursor-pointer"
+                  className="h-9 w-9 rounded-lg bg-card border border-border flex items-center justify-center text-sm font-bold hover:bg-muted active:scale-95 cursor-pointer touch-manipulation"
                 >
-                  <Minus className="h-3 w-3" />
+                  <Minus className="h-4 w-4" />
                 </button>
-                <span className="text-xs font-extrabold w-4 text-center font-mono">{cart.guestCount}</span>
+                <span className="text-sm font-black w-6 text-center font-mono">{cart.guestCount}</span>
                 <button
                   type="button"
                   onClick={() => cart.setGuestCount(Math.min(99, cart.guestCount + 1))}
-                  className="h-5 w-5 rounded-md bg-card border border-border flex items-center justify-center text-xs font-bold hover:bg-muted active:scale-95 cursor-pointer"
+                  className="h-9 w-9 rounded-lg bg-card border border-border flex items-center justify-center text-sm font-bold hover:bg-muted active:scale-95 cursor-pointer touch-manipulation"
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -641,46 +724,46 @@ export function FastTouchMode({
             <button
               type="button"
               onClick={onOpenShift}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-extrabold text-xs animate-pulse cursor-pointer hover:bg-amber-500/20"
+              className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-extrabold text-sm animate-pulse cursor-pointer hover:bg-amber-500/20 active:scale-[0.98] transition-all touch-manipulation"
             >
-              <Lock className="h-3.5 w-3.5" />
+              <Lock className="h-4 w-4" />
               <span>{isArabic ? 'الوردية مغلقة - افتح الوردية' : 'Shift Closed - Open Shift'}</span>
             </button>
           )}
 
           {allHeldOrdersList.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => setShowHeldModal(true)}
-              className="gap-1.5 text-xs bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20 font-bold"
+              className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl text-sm bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
             >
-              <Clock className="h-3.5 w-3.5" />
+              <Clock className="h-4 w-4" />
               <span>{isArabic ? `الطلبات المعلقة (${allHeldOrdersList.length})` : `Held Orders (${allHeldOrdersList.length})`}</span>
-            </Button>
+            </button>
           )}
 
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={handleRepeatLast}
             disabled={cart.items.length === 0}
-            className="gap-1.5 text-xs text-brand border-brand/30 hover:bg-brand/10 font-bold"
+            className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl text-sm text-brand border border-brand/30 hover:bg-brand/10 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
           >
-            <Repeat className="h-3.5 w-3.5" />
+            <Repeat className="h-4 w-4" />
             <span className="hidden sm:inline">{isArabic ? 'تكرار آخر صنف' : 'Repeat Last'}</span>
-          </Button>
+          </button>
 
           {cart.items.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={cart.clearCart}
-              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-semibold"
+            <button
+              type="button"
+              onClick={() => {
+                cart.clearCart();
+                delete tableDraftsRef.current[currentScopeKey];
+              }}
+              className="flex items-center gap-2 h-11 min-h-[44px] px-3.5 rounded-xl text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
               <span className="hidden sm:inline ms-1">{isArabic ? 'إفراغ' : 'Clear'}</span>
-            </Button>
+            </button>
           )}
         </div>
 
@@ -1061,12 +1144,16 @@ export function FastTouchMode({
               {/* 5. Single Direct Checkout Button */}
               <Button
                 size="lg"
-                disabled={cart.items.length === 0 && servedItems.length === 0}
+                disabled={(cart.items.length === 0 && servedItems.length === 0) || checkingOut}
                 onClick={handleCheckoutClick}
                 className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm gap-2 rounded-xl shadow-md transition-all active:scale-[0.99] cursor-pointer"
               >
                 <CreditCard className="h-5 w-5" />
-                <span>{isArabic ? 'الدفع وإنهاء الحساب' : t('checkout')} · {fmtCurrency(grandTotal)}</span>
+                <span>
+                  {checkingOut
+                    ? (isArabic ? 'جاري تجهيز الحساب...' : 'Preparing Checkout...')
+                    : (isArabic ? 'الدفع وإنهاء الحساب' : t('checkout'))} · {fmtCurrency(grandTotal)}
+                </span>
               </Button>
             </div>
           </div>
