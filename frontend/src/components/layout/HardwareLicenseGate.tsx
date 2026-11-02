@@ -9,6 +9,7 @@ export default function HardwareLicenseGate({ children }: { children: React.Reac
   const { status, loading, fetchStatus, setStatus } = useLicenseStore();
   const [tierKeyContent, setTierKeyContent] = useState<string>('');
   const [tierKeyFileName, setTierKeyFileName] = useState<string>('');
+  const [tierKeyFilePath, setTierKeyFilePath] = useState<string | undefined>(undefined);
   const [tierKeyInfo, setTierKeyInfo] = useState<{ tier?: string; label?: string; usage_count?: number } | null>(null);
 
   const [ownerMasterContent, setOwnerMasterContent] = useState<string>('');
@@ -74,6 +75,8 @@ export default function HardwareLicenseGate({ children }: { children: React.Reac
     const file = e.target.files?.[0];
     if (!file) return;
     setTierKeyFileName(file.name);
+    const filePath = (file as unknown as { path?: string })?.path;
+    setTierKeyFilePath(filePath || undefined);
     setErrorMsg(null);
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -123,6 +126,7 @@ export default function HardwareLicenseGate({ children }: { children: React.Reac
     try {
       const res = await api.post('/license/activate', {
         tierKeyContent,
+        tierKeyFilePath,
         ownerMasterKeyContent: ownerMasterContent.trim() ? ownerMasterContent : undefined,
         reactivationPassword: reactivationPassword.trim() ? reactivationPassword : undefined,
       });
@@ -134,6 +138,7 @@ export default function HardwareLicenseGate({ children }: { children: React.Reac
           // Clear inputs on success
           setTierKeyContent('');
           setTierKeyFileName('');
+          setTierKeyFilePath(undefined);
           setTierKeyInfo(null);
           setOwnerMasterContent('');
           setOwnerMasterFileName('');

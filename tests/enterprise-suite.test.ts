@@ -990,9 +990,18 @@ async function main() {
     assertEqualOrThrow(TIER_DURATIONS_MS['6m'], 15_552_000_000, '6m duration is 15,552,000,000 ms');
     assertEqualOrThrow(TIER_DURATIONS_MS['1y'], 31_536_000_000, '1y duration is 31,536,000,000 ms');
 
-    // 12.4 Verify Hardware Fingerprint Generation
+    // 12.4 Verify Hardware Fingerprint Generation & Compiled Dist Self-Containment
     const hwid = getHardwareFingerprint();
     assertOrThrow(Boolean(hwid && hwid.startsWith('FLOHW-')), `Hardware Fingerprint generated: ${hwid}`);
+
+    // Verify that compiled dist/main/services/hardware-license.js resolves self-contained without missing module errors
+    const distLicensePath = path.resolve(__dirname, '../dist/main/services/hardware-license.js');
+    if (fs.existsSync(distLicensePath)) {
+      delete require.cache[require.resolve(distLicensePath)];
+      const distLicense = require(distLicensePath);
+      const distHwid = distLicense.getHardwareFingerprint();
+      assertEqualOrThrow(distHwid, hwid, 'Compiled dist hardware-license.js generates identical HWID without missing modules');
+    }
 
     // 12.5 Verify License Status Endpoint
     const licStatusRes = await api(baseUrl, '/api/license/status', { method: 'GET' });

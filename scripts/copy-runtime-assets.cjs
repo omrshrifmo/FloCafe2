@@ -19,6 +19,17 @@ fs.copyFileSync(
   path.join(workerDestDir, 'canvas-worker.cjs'),
 );
 
+const servicesDestDir = path.join(__dirname, '../dist/main/services');
+if (!fs.existsSync(servicesDestDir)) {
+  fs.mkdirSync(servicesDestDir, { recursive: true });
+}
+if (fs.existsSync(path.join(__dirname, '../main/services/hardware-fingerprint.cjs'))) {
+  fs.copyFileSync(
+    path.join(__dirname, '../main/services/hardware-fingerprint.cjs'),
+    path.join(servicesDestDir, 'hardware-fingerprint.cjs'),
+  );
+}
+
 // Runtime modules resolve the app version from this sibling package manifest.
 fs.copyFileSync(
   path.join(__dirname, '../package.json'),

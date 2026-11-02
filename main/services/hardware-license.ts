@@ -2,9 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import { execSync } from 'child_process';
 import { getDatabase } from '../db';
-
-const { getHardwareFingerprint: getRawHwid, clearCachedHwidForTest } = require('./hardware-fingerprint.cjs');
 
 export type LicenseTier =
   | 'forever'
@@ -112,6 +111,103 @@ MCowBQYDK2VwAyEAd+X3rKeF50DeQinSd1BgCng+cAnJ2C/vqLZu7c2avHc=
 export const REACTIVATION_PASSWORD_SALT = '2e213237f422524e1ddbe09c8682cc04';
 export const REACTIVATION_PASSWORD_HASH = 'ce531f792c2a3a6eda85dd7660e776d73282c4d24a8fca442aef36903f1184761878ed9d6041a86556d4f2f224463ed203953c4a2fa0be787bb6c239a334bdbd';
 
+let cachedHwid: string | null = null;
+
+export function clearCachedHwidForTest(): void {
+  cachedHwid = null;
+}
+
+export function computeHardwareFingerprint(): string {
+  if (cachedHwid) return cachedHwid;
+
+  const parts: string[] = [];
+  const platform = os.platform();
+
+  // 1. Machine ID
+  let machineId = '';
+  if (platform === 'win32') {
+    try {
+      const regOut = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', {
+        encoding: 'utf8',
+        timeout: 1500,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const match = regOut.match(/MachineGuid\s+REG_SZ\s+([^\r\n]+)/i);
+      if (match && match[1]) {
+        machineId = match[1].trim();
+      }
+    } catch {}
+  } else if (platform === 'darwin') {
+    try {
+      const ioregOut = execSync('ioreg -rd1 -c IOPlatformExpertDevice', {
+        encoding: 'utf8',
+        timeout: 1500,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const match = ioregOut.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/i);
+      if (match && match[1]) {
+        machineId = match[1].trim();
+      }
+    } catch {}
+  } else {
+    // Linux / BSD
+    for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+      if (fs.existsSync(p)) {
+        try {
+          const content = fs.readFileSync(p, 'utf8').trim();
+          if (content.length > 0) {
+            machineId = content;
+            break;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  if (machineId) parts.push(`mid:${machineId}`);
+
+  // 2. CPU Architecture & Model
+  const cpus = os.cpus() || [];
+  const cpuModel = cpus[0]?.model || os.arch();
+  const cpuCores = cpus.length;
+  parts.push(`cpu:${cpuModel}:${cpuCores}`);
+
+  // 3. Total Memory (bucketed to 512MB to avoid dynamic memory shifts in VMs)
+  const totalMem = Math.round(os.totalmem() / (512 * 1024 * 1024));
+  parts.push(`mem:${totalMem}`);
+
+  // 4. Primary Network MAC (filter out loopback, virtual/docker interfaces)
+  let primaryMac = '';
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces).sort()) {
+      if (/veth|docker|br-|tun|tap/i.test(name)) continue;
+      const list = interfaces[name];
+      if (Array.isArray(list)) {
+        for (const iface of list) {
+          if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+            primaryMac = iface.mac.toLowerCase();
+            break;
+          }
+        }
+      }
+      if (primaryMac) break;
+    }
+  } catch {}
+  if (primaryMac) parts.push(`mac:${primaryMac}`);
+
+  // 5. Hostname / System identifier
+  const hostname = (os.hostname() || 'flocafe-node').toLowerCase();
+  parts.push(`host:${hostname}`);
+
+  const combined = parts.join('|');
+  const fullHash = crypto.createHash('sha256').update(combined).digest('hex').toUpperCase();
+  const formatted = `FLOHW-${fullHash.slice(0, 4)}-${fullHash.slice(4, 8)}-${fullHash.slice(8, 12)}-${fullHash.slice(12, 16)}`;
+
+  cachedHwid = formatted;
+  return formatted;
+}
+
 // Testing hooks
 let testMockHwid: string | null = null;
 let testForceStatus: HardwareLicenseStatus | null = null;
@@ -127,7 +223,7 @@ export function setTestForceStatus(status: HardwareLicenseStatus | null): void {
 
 export function getHardwareFingerprint(): string {
   if (testMockHwid) return testMockHwid;
-  return getRawHwid();
+  return computeHardwareFingerprint();
 }
 
 function getUserDataAnchorPath(): string {
