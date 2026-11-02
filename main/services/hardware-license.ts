@@ -50,6 +50,7 @@ export interface ActivateKeyParams {
   tierKeyFilePath?: string;
   ownerMasterKeyContent?: string | Record<string, unknown>;
   reactivationPassword?: string;
+  forceReplaceActive?: boolean;
 }
 
 export interface ActivateResult {
@@ -358,9 +359,9 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     } catch {}
   }
 
-  // If SQLite is empty, check user-data anchor or OS tombstone file for recovery
+  // If SQLite is empty, check user-data anchor file for recovery
   if (!record) {
-    const anchor = readAnchorFromFile(getUserDataAnchorPath()) || readAnchorFromFile(getOsTombstonePath());
+    const anchor = readAnchorFromFile(getUserDataAnchorPath());
     if (anchor) {
       record = anchor;
       if (db) {
@@ -380,15 +381,6 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
         } catch {}
       }
     }
-  }
-
-  if (!record && process.env.NODE_ENV === 'test') {
-    try {
-      autoSeedDevOrTestLicense(db);
-      if (db) {
-        record = db.prepare('SELECT * FROM _flo_hardware_license WHERE id = 1').get() as StoredLicenseRecord | undefined || null;
-      }
-    } catch {}
   }
 
   if (!record) {
@@ -552,14 +544,14 @@ export function activateWithKeyFile(db: any, params: ActivateKeyParams): Activat
 
   const hasPriorMachineHistory = checkHardwareTombstoneExists(db, currentHwid);
 
-  if (isKeyAlreadyUsed || hasPriorMachineHistory) {
+  if (isKeyAlreadyUsed || hasPriorMachineHistory || params.forceReplaceActive) {
     // Both Password and Owner Master Key are required for re-activation/override
     if (!params.reactivationPassword || !params.ownerMasterKeyContent) {
       return {
         success: false,
         requires_owner_override: true,
         status: 'requires_owner_override',
-        message: 'This key or hardware has been used before. Enter the Owner Re-Activation Password and load the Owner Master Private Key file (owner-reactivate-master.flokey).',
+        message: 'This key or hardware has been used before, or an active license is being replaced. Enter the Owner Re-Activation Password and load the Owner Master Private Key file (owner-reactivate-master.flokey).',
       } as any;
     }
 
@@ -678,57 +670,71 @@ export function activateWithKeyFile(db: any, params: ActivateKeyParams): Activat
   };
 }
 
-export function deactivateLicenseForTest(db: any, params: {
-  masterPin?: string;
+export function revokeLicense(db: any, params: {
   ownerMasterKeyContent?: string | Record<string, unknown>;
   reactivationPassword?: string;
 }): { success: boolean; error?: string } {
-  // Test/Owner helper to clear active machine license
   if (!params.ownerMasterKeyContent || !params.reactivationPassword) {
-    return { success: false, error: 'Owner Master Key and Password required to deactivate license.' };
+    return { success: false, error: 'Owner Master Key and Owner Password are required to lock/revoke this device.' };
   }
 
+  // 1. Password verification
   try {
     const enteredHash = crypto.scryptSync(params.reactivationPassword, REACTIVATION_PASSWORD_SALT, 64);
     const targetHash = Buffer.from(REACTIVATION_PASSWORD_HASH, 'hex');
-    if (!crypto.timingSafeEqual(enteredHash, targetHash)) {
-      return { success: false, error: 'Invalid password.' };
+    if (enteredHash.length !== targetHash.length || !crypto.timingSafeEqual(enteredHash, targetHash)) {
+      return { success: false, error: 'Invalid Owner Re-Activation Password.' };
     }
   } catch {
     return { success: false, error: 'Password verification failed.' };
   }
 
+  // 2. Master Key verification
   let masterJson: any = params.ownerMasterKeyContent;
   if (typeof masterJson === 'string') {
     try {
       masterJson = JSON.parse(masterJson);
     } catch {
-      return { success: false, error: 'Invalid master key JSON.' };
+      return { success: false, error: 'Invalid Owner Master Key file format.' };
     }
+  }
+
+  if (!masterJson?.private_key_pem) {
+    return { success: false, error: 'Owner Master Key does not contain a valid private key.' };
   }
 
   try {
-    const challenge = Buffer.from(`flocafe-deactivate-${Date.now()}`);
+    const challenge = Buffer.from(`flocafe-revoke-${Date.now()}`);
     const sig = crypto.sign(null, challenge, masterJson.private_key_pem);
     if (!crypto.verify(null, challenge, OWNER_MASTER_PUBLIC_KEY, sig)) {
-      return { success: false, error: 'Invalid master key.' };
+      return { success: false, error: 'Cryptographic mismatch: Provided key is not the authentic Owner Master Key.' };
     }
-  } catch {
-    return { success: false, error: 'Master key validation failed.' };
+  } catch (err: any) {
+    return { success: false, error: `Owner Master Key validation failed: ${err.message}` };
   }
 
+  // 3. Clear active license row (preserves history and OS seal)
   if (db) {
     try {
       db.prepare('DELETE FROM _flo_hardware_license WHERE id = 1').run();
     } catch {}
   }
 
+  // 4. Remove local userData anchor (preserves OS seal tombstone)
   try {
     const anchorPath = getUserDataAnchorPath();
     if (fs.existsSync(anchorPath)) fs.unlinkSync(anchorPath);
   } catch {}
 
   return { success: true };
+}
+
+export function deactivateLicenseForTest(db: any, params: {
+  masterPin?: string;
+  ownerMasterKeyContent?: string | Record<string, unknown>;
+  reactivationPassword?: string;
+}): { success: boolean; error?: string } {
+  return revokeLicense(db, params);
 }
 
 export function autoSeedDevOrTestLicense(db: any): void {

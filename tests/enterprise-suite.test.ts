@@ -1085,6 +1085,114 @@ async function main() {
       assertOrThrow(typeof successfulOverride.license?.expires_at === 'number', '24h license has numerical expires_at');
     }
 
+    // 12.9 Verify Active License Replacement (Mid-Cycle Tier Switching with forceReplaceActive)
+    console.log('   Testing Active License Replacement (Mid-Cycle Tier Switching)...');
+    const keyPath1w = path.resolve(__dirname, '../owner-private-keys/1w.flokey');
+    const keyPath3d = path.resolve(__dirname, '../owner-private-keys/3d.flokey');
+
+    if (fs.existsSync(keyPath1w) && fs.existsSync(keyPath3d) && fs.existsSync(masterKeyPath)) {
+      const key1wContent = fs.readFileSync(keyPath1w, 'utf8');
+      const key3dContent = fs.readFileSync(keyPath3d, 'utf8');
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+
+      // First, activate an active 1-week license
+      const activate1w = activateWithKeyFile(db, {
+        tierKeyContent: key1wContent,
+        ownerMasterKeyContent: masterKeyContent,
+        reactivationPassword: 'Fl0220671190',
+      });
+      assertEqualOrThrow(activate1w.success, true, 'Activated 1w license');
+      assertEqualOrThrow(activate1w.license?.tier, '1w', 'Active tier is 1w');
+
+      // Attempting to replace active 1w with 3d via API POST /api/license/activate without owner credentials must fail
+      const unauthReplaceRes = await api(baseUrl, '/api/license/activate', {
+        method: 'POST',
+        body: {
+          tierKeyContent: key3dContent,
+          forceReplaceActive: true,
+        },
+      });
+      assertEqualOrThrow(unauthReplaceRes.status, 403, 'Replacing active license without owner override returns 403');
+      assertEqualOrThrow(unauthReplaceRes.data.requires_owner_override, true, 'requires_owner_override is true');
+
+      // Attempting with wrong owner password must fail
+      const wrongPwReplaceRes = await api(baseUrl, '/api/license/activate', {
+        method: 'POST',
+        body: {
+          tierKeyContent: key3dContent,
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'wrong-owner-password',
+          forceReplaceActive: true,
+        },
+      });
+      assertEqualOrThrow(wrongPwReplaceRes.status, 400, 'Replacing active license with wrong password returns 400');
+
+      // Replacing with correct password (Fl0220671190) and owner master key must succeed!
+      const authReplaceRes = await api(baseUrl, '/api/license/activate', {
+        method: 'POST',
+        body: {
+          tierKeyContent: key3dContent,
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'Fl0220671190',
+          forceReplaceActive: true,
+        },
+      });
+      assertEqualOrThrow(authReplaceRes.status, 200, 'Replacing active license with owner override returns 200');
+      assertEqualOrThrow(authReplaceRes.data.success, true, 'Replaced active license successfully');
+      assertEqualOrThrow(authReplaceRes.data.license.tier, '3d', 'Active tier immediately updated to 3d');
+
+      // Verify GET /api/license/status reports tier 3d
+      const replacedStatusRes = await api(baseUrl, '/api/license/status', { method: 'GET' });
+      assertEqualOrThrow(replacedStatusRes.data.tier, '3d', 'License status reflects switched 3d tier');
+    }
+
+    // 12.10 Verify Device Revocation & Immediate Locking (POST /api/license/revoke)
+    console.log('   Testing Device Revocation and Locking (POST /api/license/revoke)...');
+    if (fs.existsSync(masterKeyPath)) {
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+
+      // Attempting to revoke without credentials must fail
+      const unauthRevokeRes = await api(baseUrl, '/api/license/revoke', {
+        method: 'POST',
+        body: {},
+      });
+      assertEqualOrThrow(unauthRevokeRes.status, 400, 'Revoke without credentials returns 400');
+
+      // Attempting to revoke with wrong password must fail
+      const wrongPwRevokeRes = await api(baseUrl, '/api/license/revoke', {
+        method: 'POST',
+        body: {
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'invalid-password',
+        },
+      });
+      assertEqualOrThrow(wrongPwRevokeRes.status, 400, 'Revoke with wrong password returns 400');
+
+      // Revoking with correct owner credentials must succeed
+      const validRevokeRes = await api(baseUrl, '/api/license/revoke', {
+        method: 'POST',
+        body: {
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'Fl0220671190',
+        },
+      });
+      assertEqualOrThrow(validRevokeRes.status, 200, 'Revoke with valid credentials returns 200');
+      assertEqualOrThrow(validRevokeRes.data.success, true, 'License revoked successfully');
+
+      // Verify license is immediately locked
+      const revokedStatusRes = await api(baseUrl, '/api/license/status', { method: 'GET' });
+      assertEqualOrThrow(revokedStatusRes.data.valid, false, 'License is no longer valid after revocation');
+      assertEqualOrThrow(revokedStatusRes.data.reason, 'not_activated', 'Reason is not_activated');
+      assertEqualOrThrow(revokedStatusRes.data.requires_owner_override, true, 'Requires owner override because machine history was preserved');
+
+      // Verify API requests are blocked with HTTP 402
+      const blockedAfterRevoke = await api(baseUrl, '/api/orders', {
+        method: 'GET',
+        headers: authHeader,
+      });
+      assertEqualOrThrow(blockedAfterRevoke.status, 402, 'API blocked with HTTP 402 after revocation');
+    }
+
     // Restore forever developer license for subsequent operations
     const foreverKeyPath = path.resolve(__dirname, '../owner-private-keys/forever.flokey');
     if (fs.existsSync(foreverKeyPath) && fs.existsSync(masterKeyPath)) {

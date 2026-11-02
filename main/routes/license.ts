@@ -3,6 +3,7 @@ import { getDatabase } from '../db';
 import {
   verifyHardwareLicense,
   activateWithKeyFile,
+  revokeLicense,
   deactivateLicenseForTest,
   getHardwareFingerprint,
 } from '../services/hardware-license';
@@ -33,6 +34,7 @@ licenseRoutes.post('/activate', (req: Request, res: Response) => {
       tierKeyFilePath,
       ownerMasterKeyContent,
       reactivationPassword,
+      forceReplaceActive,
     } = req.body || {};
 
     if (!tierKeyContent) {
@@ -44,6 +46,7 @@ licenseRoutes.post('/activate', (req: Request, res: Response) => {
       tierKeyFilePath,
       ownerMasterKeyContent,
       reactivationPassword,
+      forceReplaceActive: Boolean(forceReplaceActive),
     });
 
     if (result.success) {
@@ -72,6 +75,26 @@ licenseRoutes.post('/activate', (req: Request, res: Response) => {
       error: 'License activation error',
       details: err.message,
     });
+  }
+});
+
+// POST /api/license/revoke
+licenseRoutes.post('/revoke', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { ownerMasterKeyContent, reactivationPassword } = req.body || {};
+
+    const result = revokeLicense(db, {
+      ownerMasterKeyContent,
+      reactivationPassword,
+    });
+
+    if (result.success) {
+      return res.json({ success: true, message: 'License revoked and device locked.' });
+    }
+    return res.status(400).json({ success: false, error: result.error || 'Revocation failed.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
