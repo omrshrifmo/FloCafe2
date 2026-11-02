@@ -827,9 +827,13 @@ export default function POSPage() {
       .map((p) => ({
         method: p.method,
         ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id } : {}),
+        ...(p.method_id !== undefined ? { method_id: p.method_id } : {}),
+        ...(p.method_name ? { method_name: p.method_name } : {}),
         amount: p.amount,
+        ...(p.tendered !== undefined ? { tendered: p.tendered } : {}),
+        ...(p.change !== undefined ? { change: p.change } : {}),
       }));
-    if (walletAmount > 0) paymentLines.push({ method: 'wallet', amount: walletAmount });
+    if (walletAmount > 0) paymentLines.push({ method: 'wallet', method_name: 'wallet', amount: walletAmount });
     const paymentFingerprint = JSON.stringify({ payments: paymentLines, customer_id: cart.customerId });
     const cartFingerprint = JSON.stringify({
       table_id: cart.tableId,

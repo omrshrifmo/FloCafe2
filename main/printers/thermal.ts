@@ -16,6 +16,7 @@ import {
 } from './profiles';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { resolveTaxComponents } from '../services/tax-components';
+import { resolveTaxLabel, isGenericTaxTitle } from '../services/tax';
 import { loadInstalledPrintTemplate, parseBillTemplateSelection } from '../services/print-templates';
 import { renderMerchantReceiptViaDocument } from './document-merchant';
 import { correlationId, type FloErrorCode } from '../errors';
@@ -1940,6 +1941,12 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
         return hasRate && !title.includes(`${tc.rate}%`) && !title.includes(`${tc.rate}`) ? `${title} ${tc.rate}%` : title;
       }).join(' + ');
     }
+    if (!taxName || isGenericTaxTitle(taxName)) {
+      const liveTax = resolveTaxLabel(biz.country);
+      if (liveTax && !isGenericTaxTitle(liveTax)) {
+        taxName = liveTax;
+      }
+    }
     const label = fitTemplateLabel(normalize(taxName || resolveTemplateLabel(payload?.labels, 'tax', lang)), rowLabelWidth);
     pushFinancialLines(financialRows(label, formatCurrency(bill.tax_amount, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
   }
@@ -1960,24 +1967,40 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   const totalLabel = fitTemplateLabel(normalize(String(payload?.totals?.grandTotalLabel || '')), rowLabelWidth) || fitTemplateLabel(normalize(resolveTemplateLabel(payload?.labels, 'total', lang)), rowLabelWidth);
   pushFinancialLines(financialRows(totalLabel, formatCurrency(bill.total, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities).map((line) => `{BOLD}${line}{/BOLD}`));
 
-  const resolvedRawPayments = bill.payment_details
+  let resolvedRawPayments = bill.payment_details
     ? (typeof bill.payment_details === 'string' ? JSON.parse(bill.payment_details) : bill.payment_details)
-    : (bill.payment_method ? [{ method: bill.payment_method, amount: bill.paid_amount || bill.total, tendered_amount: bill.tendered_amount, change_amount: bill.change_amount }] : null);
+    : (Array.isArray(bill.payments) && bill.payments.length > 0 ? bill.payments : (bill.payment_method ? [{ method: bill.payment_method, amount: bill.paid_amount || bill.total, tendered_amount: bill.tendered_amount, change_amount: bill.change_amount }] : null));
+  if (!resolvedRawPayments && bill.id) {
+    try {
+      const rows = getDatabase().prepare('SELECT bp.*, pm.name as pm_name FROM bill_payments bp LEFT JOIN payment_methods pm ON bp.payment_method_id = pm.id WHERE bp.bill_id = ? ORDER BY bp.id ASC').all(bill.id) as any[];
+      if (rows && rows.length > 0) {
+        resolvedRawPayments = rows.map((r) => ({
+          method: r.method,
+          payment_method_id: r.payment_method_id,
+          method_name: r.method_name || r.pm_name || r.method,
+          amount: Number(r.amount || 0),
+          tendered_amount: r.tendered != null ? Number(r.tendered) : Number(r.amount || 0),
+          change_amount: r.change != null ? Number(r.change) : 0,
+        }));
+      }
+    } catch { /* ignore */ }
+  }
   if (resolvedRawPayments) {
     lines.push(dash);
     try {
       const payments = resolvedRawPayments;
       if (payments && Array.isArray(payments)) {
         for (const payment of payments) {
-          if (payment && payment.method) {
+          if (payment && (payment.method || payment.method_name)) {
             const amount = Number(payment.amount) || 0;
-            const methodLabel = truncate(resolvePaymentMethodLabel(String(payment.method), lang), cols - 12, lang, capabilities);
+            const displayName = payment.method_name || payment.methodName;
+            const methodLabel = truncate(resolvePaymentMethodLabel(String(payment.method || displayName), lang, displayName), cols - 12, lang, capabilities);
             pushFinancialLines(financialRows(methodLabel, formatCurrency(amount, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
             const tender = projectCashTender({
-              method: String(payment.method),
+              method: String(payment.method || displayName),
               amount,
-              tendered: optionalPaymentAmount(payment.tendered_amount),
-              change: optionalPaymentAmount(payment.change_amount),
+              tendered: optionalPaymentAmount(payment.tendered_amount ?? payment.tendered),
+              change: optionalPaymentAmount(payment.change_amount ?? payment.change),
             });
             if (tender) {
               const tenderedLabel = truncate(printLabel(lang, 'receipt.cashReceived'), cols - 12, lang, capabilities);
@@ -2207,7 +2230,13 @@ const PAYMENT_METHOD_CONCEPTS: Record<string, PrintConceptId> = {
 };
 
 /** Ported from web-print.ts (#440): known methods localize; unknown keep the capitalize fallback. */
-export function resolvePaymentMethodLabel(method: string, lang: string): string {
+export function resolvePaymentMethodLabel(method: string, lang: string, displayName?: string): string {
+  if (displayName && typeof displayName === 'string' && displayName.trim().length > 0) {
+    const trimmed = displayName.trim();
+    if (!['cash', 'card', 'custom'].includes(trimmed.toLowerCase())) {
+      return trimmed;
+    }
+  }
   const concept = PAYMENT_METHOD_CONCEPTS[String(method || '').toLowerCase()];
   if (concept) return printLabel(lang, concept);
   return capitalize(String(method || ''));
@@ -2290,7 +2319,7 @@ export function buildTestPage(paperWidth: string = '80mm', cutMode: PrinterCutMo
  * to bytes. Returned alongside rendering context so `printZReport` can route
  * to the raster fallback when financial rows contain unsupported characters.
  */
-function buildZReportSections(
+export function buildZReportSections(
   z: any,
   printer?: { columns?: number; capabilities?: ThermalPrinterCapabilities },
 ): { sections: string[]; cols: number; lang: string; capabilities?: ThermalPrinterCapabilities } {
@@ -2355,9 +2384,15 @@ function buildZReportSections(
       orderCount: Number(row?.orderCount ?? row?.orders) || 0,
       revenueCents: Number(row?.revenue_cents ?? row?.revenue) || 0,
     })),
-    expectedCashCents: Number(z?.expected_cash_cents) || 0,
-    countedCashCents: Number(z?.counted_cash_cents) || 0,
-    varianceCents: Number(z?.variance_cents) || 0,
+    expectedCashCents: z?.expected_cash_cents !== undefined && z?.expected_cash_cents !== null
+      ? Number(z.expected_cash_cents)
+      : (z?.expected_balance !== undefined && z?.expected_balance !== null ? Math.round(Number(z.expected_balance) * factor) : 0),
+    countedCashCents: z?.counted_cash_cents !== undefined && z?.counted_cash_cents !== null
+      ? Number(z.counted_cash_cents)
+      : (z?.closing_balance !== undefined && z?.closing_balance !== null ? Math.round(Number(z.closing_balance) * factor) : (z?.actual_balance !== undefined ? Math.round(Number(z.actual_balance) * factor) : 0)),
+    varianceCents: z?.variance_cents !== undefined && z?.variance_cents !== null
+      ? Number(z.variance_cents)
+      : (z?.discrepancy !== undefined && z?.discrepancy !== null ? Math.round(Number(z.discrepancy) * factor) : ((Number(z?.counted_cash_cents) || 0) - (Number(z?.expected_cash_cents) || 0))),
     closedByName: String(z?.closed_by_name || z?.closed_by || ''),
     businessName: String(settings.business_name || ''),
     businessAddress: String(settings.business_address || ''),
@@ -2446,10 +2481,16 @@ function buildZReportSections(
   pushZReportHeading(sections, zDocument.cash.counted.label, zContext, true);
   sections.push('{FINANCIAL}' + rightAlign(formatAmount(zDocument.cash.counted.cents), cols));
   sections.push(bar);
+  const formatVariance = (cents: number): string => {
+    if (cents > 0) return '+' + formatAmount(cents);
+    if (cents < 0) return '-' + formatAmount(Math.abs(cents));
+    return formatAmount(0);
+  };
+  const varianceFormatted = formatVariance(zDocument.cash.variance.cents);
   const varianceLabel: SemanticLabel = {
-    primary: `${zDocument.cash.variance.label.primary}  ${formatAmount(zDocument.cash.variance.cents)}`,
+    primary: `${zDocument.cash.variance.label.primary}  ${varianceFormatted}`,
     ...(zDocument.cash.variance.label.secondary
-      ? { secondary: `${zDocument.cash.variance.label.secondary}  ${formatAmount(zDocument.cash.variance.cents)}` }
+      ? { secondary: `${zDocument.cash.variance.label.secondary}  ${varianceFormatted}` }
       : {}),
   };
   for (const line of zLaidOutLabel(varianceLabel, zContext)) {

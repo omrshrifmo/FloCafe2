@@ -33,7 +33,11 @@ interface LoyaltySettings {
 export interface PrepaidPayment {
   method: string;
   payment_method_id?: number;
+  method_id?: number;
+  method_name?: string;
   amount: number;
+  tendered?: number;
+  change?: number;
 }
 
 export interface PrepaidDiscount {
@@ -386,11 +390,19 @@ export default function PrepaidCheckoutModal({ currency, onClose, onConfirm }: P
 
     setProcessing(true);
     const splitLines: PrepaidPayment[] = payments
-      .map((p) => ({
-        method: p.payment_method_id === undefined ? p.method : 'custom',
-        ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id } : {}),
-        amount: toStoredUnit(parseFloat(p.amount) || 0),
-      }))
+      .map((p) => {
+        const customMethod = customMethods.find((m) => m.id === p.payment_method_id);
+        const methodName = customMethod?.name || (p.payment_method_id === undefined ? p.method : 'custom');
+        const amt = toStoredUnit(parseFloat(p.amount) || 0);
+        return {
+          method: p.payment_method_id === undefined ? p.method : 'custom',
+          ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id, method_id: p.payment_method_id } : {}),
+          method_name: methodName,
+          amount: amt,
+          tendered: p.method === 'cash' ? amt : undefined,
+          change: p.method === 'cash' ? change : 0,
+        };
+      })
       .filter((p) => p.amount > 0 && !isNaN(p.amount));
 
     const finalDiscount: PrepaidDiscount | null = preview.discountAmount > 0

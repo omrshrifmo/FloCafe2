@@ -96,6 +96,50 @@ export function getActiveCountryPack(country: string): CountryPack {
   return getBundledCountryPack(country);
 }
 
+export function isGenericTaxTitle(title: string | null | undefined): boolean {
+  const normalized = (title || '').trim().toLowerCase();
+  return normalized === '' || normalized === 'tax' || normalized === 'taxes' || normalized === 'ضريبة' || normalized === 'ضرائب';
+}
+
+export function resolveTaxLabel(country?: string): string | undefined {
+  try {
+    const db = getDatabase();
+    if (db) {
+      // 1. Settings keys
+      const settingsKeys = ['tax_name', 'tax_label', 'custom_tax_name', 'active_tax_name'];
+      for (const key of settingsKeys) {
+        const val = getSettingValue(key);
+        if (val && val.trim() && !isGenericTaxTitle(val)) {
+          return val.trim();
+        }
+      }
+
+      // 2. Active country_packs joined with tax_rules
+      const ruleRow = db.prepare(`
+        SELECT r.label
+        FROM tax_rules r
+        JOIN country_packs cp ON cp.active_version_id = r.pack_version_id
+        WHERE cp.status = 'active' AND r.label IS NOT NULL AND trim(r.label) != ''
+        ORDER BY r.id ASC
+        LIMIT 1
+      `).get() as { label: string } | undefined;
+      if (ruleRow?.label && !isGenericTaxTitle(ruleRow.label)) {
+        return ruleRow.label.trim();
+      }
+
+      // 3. Bundled or loaded pack rules
+      if (country) {
+        const pack = getActiveCountryPack(country);
+        if (pack?.rules && Array.isArray(pack.rules)) {
+          const customRule = pack.rules.find((r: any) => r.label && !isGenericTaxTitle(r.label));
+          if (customRule) return customRule.label.trim();
+        }
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 // Checks if taxation is enabled and backed by an official active country pack.
 export function isTaxModuleActiveForCountry(country: string): boolean {
   if (getSettingValue('taxes_enabled') !== 'true') return false;

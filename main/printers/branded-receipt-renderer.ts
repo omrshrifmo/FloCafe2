@@ -16,6 +16,7 @@ import {
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { CustomerDocumentSource, CustomerDocumentVariant, ResolvedPrintStyle } from '../../shared/print';
 import { toWesternDigits } from '../../shared/digits';
+import { resolveTaxLabel, isGenericTaxTitle } from '../services/tax';
 
 export type { RenderedThermalDocument, RasterBand, RasterSemanticUnit };
 
@@ -518,7 +519,15 @@ export function buildBrandedReceiptRequest(options: {
     totals.push({ label: 'Discount / الخصم', value: `-${formatAmt(Number(bill.discount_amount))}` });
   }
   if (bill.tax_amount && Number(bill.tax_amount) > 0) {
-    const taxLabel = bill.tax_label || bill.taxLabel || 'Tax / الضريبة';
+    let taxLabel = bill.tax_label || bill.taxLabel;
+    if (!taxLabel || isGenericTaxTitle(taxLabel)) {
+      const resolved = resolveTaxLabel(business.country);
+      if (resolved && !isGenericTaxTitle(resolved)) {
+        taxLabel = resolved;
+      } else {
+        taxLabel = 'Tax / الضريبة';
+      }
+    }
     totals.push({ label: taxLabel, value: formatAmt(Number(bill.tax_amount)) });
   }
   if (bill.service_charge && Number(bill.service_charge) > 0) {
@@ -544,11 +553,23 @@ export function buildBrandedReceiptRequest(options: {
       : Math.max(0, Number(rawDocTotal) - Number(bill.paid_amount || 0));
     totals.push({ label: 'Balance Due / المتبقي', value: formatAmt(balanceRemaining) });
   } else {
-    if (bill.payments && Array.isArray(bill.payments) && bill.payments.length > 0) {
-      for (const p of bill.payments) {
+    const paymentList = (Array.isArray(bill.payments) && bill.payments.length > 0)
+      ? bill.payments
+      : (Array.isArray(bill.payment_details) ? bill.payment_details : (typeof bill.payment_details === 'string' ? (() => { try { return JSON.parse(bill.payment_details); } catch { return []; } })() : []));
+
+    if (paymentList && Array.isArray(paymentList) && paymentList.length > 0) {
+      for (const p of paymentList) {
         if (Number(p.amount) > 0) {
           const mName = p.method_name || p.methodName || p.method || 'Payment';
           totals.push({ label: mName, value: formatAmt(Number(p.amount)) });
+          const tenderedAmt = p.tendered !== undefined ? Number(p.tendered) : (p.tendered_amount !== undefined ? Number(p.tendered_amount) : undefined);
+          const changeAmt = p.change !== undefined ? Number(p.change) : (p.change_amount !== undefined ? Number(p.change_amount) : undefined);
+          if (tenderedAmt !== undefined && tenderedAmt > Number(p.amount)) {
+            totals.push({ label: 'Tendered / المستلم', value: formatAmt(tenderedAmt) });
+            if (changeAmt !== undefined && changeAmt > 0) {
+              totals.push({ label: 'Change / الباقي', value: formatAmt(changeAmt) });
+            }
+          }
         }
       }
     } else if (bill.paid_amount !== undefined && Number(bill.paid_amount) > 0) {

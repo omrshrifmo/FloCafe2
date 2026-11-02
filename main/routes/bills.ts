@@ -55,28 +55,30 @@ type BillLoyaltyRow = {
 };
 
 export function addBillLoyaltyFields(db: ReturnType<typeof getDatabase>, bill: BillLoyaltyRow | null | undefined) {
-  if (!bill?.customer_id) return bill;
+  if (!bill) return bill;
+  const enriched = enrichBillPayments(db, bill);
+  if (!enriched?.customer_id) return enriched;
 
   const earned = db.prepare(
     `SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE bill_id = ? AND type = 'credit'`,
-  ).get(bill.id) as { total: number };
+  ).get(enriched.id) as { total: number };
   const redeemed = db.prepare(
     `SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE bill_id = ? AND type = 'debit'`,
-  ).get(bill.id) as { total: number };
+  ).get(enriched.id) as { total: number };
   const loyaltyEnabled = ['true', '1'].includes(getSettingValue('loyalty_enabled') || '');
   let pointsBalance: number | null = null;
   if (loyaltyEnabled) {
     const credits = db.prepare(
       `SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type = 'credit'`,
-    ).get(bill.customer_id) as { total: number };
+    ).get(enriched.customer_id) as { total: number };
     const debits = db.prepare(
       `SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type = 'debit'`,
-    ).get(bill.customer_id) as { total: number };
+    ).get(enriched.customer_id) as { total: number };
     pointsBalance = Math.max(0, Number(credits.total) - Number(debits.total));
   }
 
   return {
-    ...bill,
+    ...enriched,
     points_earned: Number(earned.total) || 0,
     points_redeemed: Number(redeemed.total) || 0,
     points_balance: pointsBalance,
@@ -1871,12 +1873,69 @@ function preparePaymentBatch(
   const minorFactor = getCurrencyMinorUnitFactor(currency);
   payments.forEach((payment, index) => validatePaymentFields(payment, index, currency));
   const resolvedPayments = payments.map((payment, index) => {
-    if (PAYMENT_METHODS.has(payment.method)) return payment;
-    const configured = (payment.method === 'custom' || payment.payment_method_id !== undefined)
-      ? db.prepare('SELECT id, name FROM payment_methods WHERE id = ? AND is_active = 1').get(payment.payment_method_id) as any
-      : db.prepare('SELECT id, name FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1').get(payment.method) as any;
-    if (!configured) throw Object.assign(new Error(`Unsupported or inactive custom payment method at line ${index + 1}`), { statusCode: 400 });
-    return { ...payment, method: configured.name, payment_method_id: Number(configured.id) };
+    const rawMethod = payment.method || (payment as any).payment_method;
+    const rawMethodId = payment.payment_method_id ?? (payment as any).method_id;
+    const rawMethodName = (payment as any).method_name || (payment as any).methodName;
+
+    if (PAYMENT_METHODS.has(rawMethod)) {
+      return {
+        ...payment,
+        method: rawMethod,
+        ...(rawMethodId !== undefined ? { payment_method_id: Number(rawMethodId), method_id: Number(rawMethodId) } : {}),
+        ...(rawMethodName ? { method_name: String(rawMethodName), methodName: String(rawMethodName) } : {}),
+      };
+    }
+
+    let customId = rawMethodId;
+    if (typeof rawMethod === 'string' && rawMethod.startsWith('custom:')) {
+      const parsedId = Number(rawMethod.slice('custom:'.length));
+      if (!isNaN(parsedId)) customId = parsedId;
+    }
+
+    const configured = (customId !== undefined)
+      ? db.prepare('SELECT id, name FROM payment_methods WHERE id = ? AND is_active = 1').get(customId) as any
+      : db.prepare('SELECT id, name FROM payment_methods WHERE (lower(name) = lower(?) OR id = ?) AND is_active = 1').get(rawMethod, rawMethod) as any;
+
+    if (configured) {
+      const finalName = rawMethodName || configured.name;
+      return {
+        ...payment,
+        method: configured.name,
+        payment_method_id: Number(configured.id),
+        method_id: Number(configured.id),
+        method_name: finalName,
+        methodName: finalName,
+      };
+    }
+
+    if (typeof rawMethod === 'string' && rawMethod.trim().length > 0 && rawMethod !== 'custom') {
+      const existing = db.prepare('SELECT id, name FROM payment_methods WHERE lower(name) = lower(?)').get(rawMethod) as any;
+      if (existing) {
+        return {
+          ...payment,
+          method: existing.name,
+          payment_method_id: Number(existing.id),
+          method_id: Number(existing.id),
+          method_name: rawMethodName || existing.name,
+          methodName: rawMethodName || existing.name,
+        };
+      }
+      try {
+        const ins = db.prepare("INSERT INTO payment_methods (name, is_active, created_at, updated_at) VALUES (?, 1, datetime('now'), datetime('now'))").run(rawMethod);
+        return {
+          ...payment,
+          method: rawMethod,
+          payment_method_id: Number(ins.lastInsertRowid),
+          method_id: Number(ins.lastInsertRowid),
+          method_name: rawMethodName || rawMethod,
+          methodName: rawMethodName || rawMethod,
+        };
+      } catch {
+        // Fall through
+      }
+    }
+
+    throw Object.assign(new Error(`Unsupported or inactive custom payment method at line ${index + 1}`), { statusCode: 400 });
   });
   const requestedCustomerId = bodyCustomerId === undefined || bodyCustomerId === null || bodyCustomerId === ''
     ? null
@@ -1953,9 +2012,13 @@ function preparePaymentBatch(
       ? (supportsOmittedAmount ? remainingCents : undefined)
       : paymentAmountMinorUnits(amountValue, currency);
     if (amount === undefined) throw Object.assign(new Error('Payment amount is required for split payments'), { statusCode: 400 });
+    const methodId = payment.payment_method_id ?? (payment as any).method_id;
+    const methodName = (payment as any).method_name || (payment as any).methodName;
     const normalizedPayment: PaymentInput = {
       method: String(payment.method),
-      ...(payment.payment_method_id !== undefined ? { payment_method_id: payment.payment_method_id } : {}),
+      ...(methodId !== undefined ? { payment_method_id: methodId } : {}),
+      ...(methodId !== undefined ? { method_id: methodId } as any : {}),
+      ...(methodName ? { method_name: methodName, methodName } as any : {}),
     };
     if (payment.transaction_id !== undefined) normalizedPayment.transaction_id = payment.transaction_id;
     if (payment.notes !== undefined) normalizedPayment.notes = payment.notes;
@@ -1972,7 +2035,15 @@ function preparePaymentBatch(
   // needed after non-cash lines; a short tender simply leaves a partial bill.
   let cashLeft = cashRequiredCents;
   const prepared: PreparedPayment[] = raw.map((line) => {
-    if (!isCashTender(db, line.payment)) return { payment: line.payment, amountCents: line.requestedCents, amountOmitted: line.amountOmitted };
+    if (!isCashTender(db, line.payment)) {
+      return {
+        payment: line.payment,
+        amountCents: line.requestedCents,
+        tenderedCents: (line.payment as any).tendered !== undefined ? Math.round(Number((line.payment as any).tendered) * minorFactor) : line.requestedCents,
+        changeCents: (line.payment as any).change !== undefined ? Math.round(Number((line.payment as any).change) * minorFactor) : 0,
+        amountOmitted: line.amountOmitted,
+      };
+    }
     const applied = Math.min(line.requestedCents, cashLeft);
     cashLeft -= applied;
     if (applied === 0 && line.payment.transaction_id) {
@@ -2010,7 +2081,7 @@ function calculateCashback(db: ReturnType<typeof getDatabase>, bill: any, custom
   return Math.floor(fullOrderCashback * splitRatio);
 }
 
-function applyPaymentBatch(
+export function applyPaymentBatch(
   db: ReturnType<typeof getDatabase>,
   billId: string,
   payments: PaymentInput[],
@@ -2060,14 +2131,29 @@ function applyPaymentBatch(
   const paymentStatus = newBalanceCents === 0 ? 'paid' : 'partial';
   const newPayments = prepared.map((line) => {
     const isDrawerTender = isCashTender(db, line.payment);
+    const methodId = line.payment.payment_method_id ?? (line.payment as any).method_id;
+    const methodName = (line.payment as any).method_name || (line.payment as any).methodName || (line.payment.method === 'custom' && methodId ? (db.prepare('SELECT name FROM payment_methods WHERE id = ?').get(methodId) as any)?.name : line.payment.method);
+    const tendered = isDrawerTender
+      ? (line.tenderedCents || 0) / minorFactor
+      : (line.tenderedCents !== undefined ? line.tenderedCents / minorFactor : line.amountCents / minorFactor);
+    const change = isDrawerTender
+      ? (line.changeCents || 0) / minorFactor
+      : (line.changeCents !== undefined ? line.changeCents / minorFactor : 0);
+
     return {
       ...line.payment,
-      cash_session_id: activeSessionId,
+      method: line.payment.method,
+      payment_method_id: methodId,
+      method_id: methodId,
+      method_name: methodName,
       amount: line.amountCents / minorFactor,
+      tendered,
+      change,
+      cash_session_id: activeSessionId,
       requested_amount: (line.tenderedCents || line.amountCents) / minorFactor,
       amount_omitted: Boolean(line.amountOmitted),
       counts_as_cash_drawer_tender: isDrawerTender,
-      ...(isDrawerTender ? { tendered_amount: (line.tenderedCents || 0) / minorFactor, change_amount: (line.changeCents || 0) / minorFactor } : {}),
+      ...(isDrawerTender ? { tendered_amount: tendered, change_amount: change } : {}),
       timestamp: now(),
     };
   });
@@ -2088,7 +2174,71 @@ function applyPaymentBatch(
     }
   }
   if (!bill.customer_id && effectiveCustomerId) db.prepare('UPDATE bills SET customer_id = ?, updated_at = ? WHERE id = ?').run(effectiveCustomerId, changedAt, billId);
-  db.prepare(`UPDATE bills SET paid_amount = ?, balance = ?, payment_status = ?, payment_details = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END, updated_at = ? WHERE id = ?`).run(newPaidCents / minorFactor, newBalanceCents / minorFactor, paymentStatus, JSON.stringify(allPayments), paymentStatus, paymentStatus === 'paid' ? changedAt : null, changedAt, billId);
+
+  let primaryPaymentMethod = 'cash';
+  let primaryPaymentMethodId: number | null = null;
+  if (allPayments.length === 1) {
+    primaryPaymentMethod = allPayments[0].method_name || allPayments[0].method;
+    primaryPaymentMethodId = allPayments[0].payment_method_id ?? allPayments[0].method_id ?? null;
+  } else if (allPayments.length > 1) {
+    primaryPaymentMethod = 'split';
+    primaryPaymentMethodId = null;
+  }
+
+  db.prepare(`
+    UPDATE bills SET
+      paid_amount = ?,
+      balance = ?,
+      payment_status = ?,
+      payment_details = ?,
+      payment_method = ?,
+      payment_method_id = ?,
+      paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END,
+      updated_at = ?
+    WHERE id = ?
+  `).run(
+    newPaidCents / minorFactor,
+    newBalanceCents / minorFactor,
+    paymentStatus,
+    JSON.stringify(allPayments),
+    primaryPaymentMethod,
+    primaryPaymentMethodId,
+    paymentStatus,
+    paymentStatus === 'paid' ? changedAt : null,
+    changedAt,
+    billId
+  );
+
+  const insertBillPayment = db.prepare(`
+    INSERT INTO bill_payments (bill_id, order_id, method, payment_method_id, method_name, amount, tendered, change, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertPayment = db.prepare(`
+    INSERT INTO payments (bill_id, order_id, method, payment_method_id, method_name, amount, tendered, change, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const line of newPayments) {
+    const orderId = bill.order_id || null;
+    const mMethod = line.method || 'cash';
+    const mMethodId = line.payment_method_id ?? line.method_id ?? null;
+    const mMethodName = line.method_name || (mMethodId ? (db.prepare('SELECT name FROM payment_methods WHERE id = ?').get(mMethodId) as any)?.name : mMethod);
+    const mAmount = Number(line.amount || 0);
+    const mTendered = line.tendered !== undefined ? Number(line.tendered) : mAmount;
+    const mChange = line.change !== undefined ? Number(line.change) : 0;
+
+    try {
+      insertBillPayment.run(billId, orderId, mMethod, mMethodId, mMethodName, mAmount, mTendered, mChange, changedAt);
+    } catch (e) {
+      console.warn('[Bills] Could not insert bill_payments row:', e);
+    }
+    try {
+      insertPayment.run(billId, orderId, mMethod, mMethodId, mMethodName, mAmount, mTendered, mChange, changedAt);
+    } catch (e) {
+      console.warn('[Bills] Could not insert payments row:', e);
+    }
+  }
+
   let loyaltyPointsEarned = 0;
   if (paymentStatus === 'paid') {
     const unpaidSibling = db.prepare(`SELECT 1 FROM bills WHERE order_id = ? AND id != ? AND payment_status NOT IN ('paid', 'refunded', 'partially_refunded') LIMIT 1`).get(bill.order_id, bill.id);
@@ -2121,11 +2271,117 @@ function applyPaymentBatch(
   return result;
 }
 
+export function enrichBillPayments(db: ReturnType<typeof getDatabase>, bill: any): any {
+  if (!bill) return bill;
+  let parsedDetails: any[] = [];
+  if (bill.payment_details) {
+    try {
+      const p = typeof bill.payment_details === 'string' ? JSON.parse(bill.payment_details) : bill.payment_details;
+      parsedDetails = Array.isArray(p) ? p : [p];
+    } catch {
+      parsedDetails = [];
+    }
+  }
+
+  if (parsedDetails.length === 0 && bill.id) {
+    try {
+      const rows = db.prepare(`
+        SELECT bp.*, pm.name as pm_name
+        FROM bill_payments bp
+        LEFT JOIN payment_methods pm ON bp.payment_method_id = pm.id
+        WHERE bp.bill_id = ?
+        ORDER BY bp.id ASC
+      `).all(bill.id) as any[];
+      if (rows && rows.length > 0) {
+        parsedDetails = rows.map((r) => ({
+          method: r.method,
+          payment_method_id: r.payment_method_id,
+          method_id: r.payment_method_id,
+          method_name: r.method_name || r.pm_name || r.method,
+          amount: Number(r.amount || 0),
+          tendered: r.tendered != null ? Number(r.tendered) : Number(r.amount || 0),
+          change: r.change != null ? Number(r.change) : 0,
+        }));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (parsedDetails.length > 0) {
+    for (const d of parsedDetails) {
+      if (!d.method_name || d.method_name === 'custom') {
+        const pmId = d.payment_method_id ?? d.method_id;
+        if (pmId) {
+          try {
+            const pm = db.prepare('SELECT name FROM payment_methods WHERE id = ?').get(pmId) as any;
+            if (pm?.name) d.method_name = pm.name;
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+    bill.payment_details = parsedDetails;
+    bill.payments = parsedDetails;
+  }
+  return bill;
+}
+
+router.post('/:id/pay', requirePermission('payments.take'), (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Payment body must be an object' });
+    }
+    const db = getDatabase();
+    let payments: any[];
+    if (Array.isArray(body.payments)) {
+      payments = body.payments.map((p: any) => ({
+        ...p,
+        method: p.method || p.payment_method,
+        payment_method_id: p.payment_method_id ?? p.method_id,
+      }));
+    } else {
+      const single = { ...body };
+      if (!single.method && single.payment_method) {
+        single.method = single.payment_method;
+      }
+      if (single.payment_method_id === undefined && single.method_id !== undefined) {
+        single.payment_method_id = single.method_id;
+      }
+      payments = [single];
+    }
+    const customerId = body.customer_id;
+    const requestHash = paymentRequestHash(req.params.id as string, payments, customerId);
+    const result = withTxn(() => applyPaymentBatch(
+      db, req.params.id as string, payments, customerId, true,
+      paymentIdempotencyKey(req), requestHash, String((req as any).user.userId),
+    ));
+
+    const billStatus = (result.bill as any)?.payment_status;
+    if (billStatus === 'paid') notifyKdsUpdate();
+    else notifyOrderUpdated();
+
+    res.json(result);
+  } catch (error: any) {
+    const statusCode = error.statusCode || 500;
+    console.error('[API] Bill pay failed:', error);
+    res.status(statusCode).json({ error: statusCode >= 500 ? 'Bill payment failed' : error.message });
+  }
+});
+
 router.post('/:id/payment', requirePermission('payments.take'), (req: Request, res: Response) => {
   try {
     const payment = req.body;
     if (!payment || typeof payment !== 'object' || Array.isArray(payment)) {
       return res.status(400).json({ error: 'Payment body must be an object' });
+    }
+    if (!payment.method && payment.payment_method) {
+      payment.method = payment.payment_method;
+    }
+    if (payment.payment_method_id === undefined && payment.method_id !== undefined) {
+      payment.payment_method_id = payment.method_id;
     }
     const db = getDatabase();
     const requestHash = paymentRequestHash(req.params.id as string, [payment], payment.customer_id);
@@ -2153,10 +2409,15 @@ router.post('/:id/payments', requirePermission('payments.take'), (req: Request, 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return res.status(400).json({ error: 'Payment batch body must be an object' });
     }
-    const { payments, customer_id: bodyCustomerId } = body;
-    if (!Array.isArray(payments) || payments.length === 0) {
+    const { payments: rawPayments, customer_id: bodyCustomerId } = body;
+    if (!Array.isArray(rawPayments) || rawPayments.length === 0) {
       return res.status(400).json({ error: 'payments must be a non-empty array' });
     }
+    const payments = rawPayments.map((p) => ({
+      ...p,
+      method: p.method || p.payment_method,
+      payment_method_id: p.payment_method_id ?? p.method_id,
+    }));
 
     const db = getDatabase();
     const requestHash = paymentRequestHash(req.params.id as string, payments, bodyCustomerId);

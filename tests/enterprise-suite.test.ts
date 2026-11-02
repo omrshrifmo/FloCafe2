@@ -27,7 +27,7 @@ const mockSafeStorage = {
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
     return {
-      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.8' },
+      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.9' },
       safeStorage: mockSafeStorage,
     };
   }
@@ -43,7 +43,7 @@ const { registerRoutes } = require('../main/routes/index');
 const { randomUUID } = require('crypto');
 
 async function main() {
-  console.log('FloCafe 4.0.8 Enterprise Suite Integration Test');
+  console.log('FloCafe 4.0.9 Enterprise Suite Integration Test');
   console.log('='.repeat(70));
   resetCounters();
 
@@ -57,16 +57,17 @@ async function main() {
   const { baseUrl, server } = await startServer(app);
 
   try {
-    // ── Test 1: Non-destructive SQLite migration v107 schema verification ──────
-    console.log('\n[1] Verifying Release 4.0.7 Schema Migration (v107)...');
+    // ── Test 1: Non-destructive SQLite migration v108 schema verification ──────
+    console.log('\n[1] Verifying Release 4.0.9 Schema Migration (v108)...');
     const userVersion = db.pragma('user_version', { simple: true });
-    assertOrThrow(userVersion >= 107, `Schema user_version is ${userVersion} (expected >= 107)`);
+    assertOrThrow(userVersion >= 108, `Schema user_version is ${userVersion} (expected >= 108)`);
 
     const tables = [
       'stock_logs', 'cash_movements', 'operating_expenses', 'suppliers',
       'purchase_orders', 'purchase_order_items', 'stocktake_sessions', 'stocktake_lines',
       'bom_headers', 'bom_components', 'haccp_ccp_logs', 'haccp_checklists', 'haccp_batches',
       'hr_employee_profiles', 'hr_attendance_summaries', 'hr_employee_loans', 'hr_payroll_runs',
+      'bill_payments', 'payments',
     ];
     for (const tbl of tables) {
       const exists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(tbl);
@@ -79,6 +80,9 @@ async function main() {
 
     const supCols = db.prepare(`PRAGMA table_info(supplies)`).all().map((c: any) => c.name);
     assertOrThrow(supCols.includes('critical_level') && supCols.includes('last_counted_qty'), 'supplies has critical_level, last_counted_qty');
+
+    const billCols = db.prepare(`PRAGMA table_info(bills)`).all().map((c: any) => c.name);
+    assertOrThrow(billCols.includes('payment_method') && billCols.includes('payment_method_id'), 'bills has payment_method and payment_method_id columns');
 
     // ── Test 2: BOM Gross-Quantity Calculation & Depletion on Orders ──────────
     console.log('\n[2] Verifying BOM Gross-Quantity Depletion & Refund Restoration...');
@@ -749,6 +753,49 @@ async function main() {
       'Payments line label text matches exact payment method name',
     );
 
+    // Verify persistence in bills row, bill_payments and payments tables
+    assertEqualOrThrow(billRow.payment_method_id, 991, 'Bill row has payment_method_id 991');
+    const billPaymentRow = db.prepare('SELECT * FROM bill_payments WHERE bill_id = ?').get(customBillId) as any;
+    assertOrThrow(Boolean(billPaymentRow), 'bill_payments table has row for bill');
+    assertEqualOrThrow(billPaymentRow.method_name, 'InstaPay App', 'bill_payments has exact method_name InstaPay App');
+    const paymentRow = db.prepare('SELECT * FROM payments WHERE bill_id = ?').get(customBillId) as any;
+    assertOrThrow(Boolean(paymentRow), 'payments table has row for bill');
+    assertEqualOrThrow(paymentRow.method_name, 'InstaPay App', 'payments has exact method_name InstaPay App');
+
+    // Verify Custom Tax Name from Taxes Settings
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tax_label', 'VAT 14%')").run();
+    db.prepare("UPDATE bills SET tax_amount = 16.8 WHERE id = ?").run(customBillId);
+    const updatedBillRow = db.prepare('SELECT * FROM bills WHERE id = ?').get(customBillId) as any;
+
+    const printDataWithTax = buildBillPrintData(orderRow, updatedBillRow, businessRow, false);
+    const docWithTax = buildBillDocument(printDataWithTax, printContext);
+    const totalsBlock = docWithTax.blocks.find((b: any) => b.kind === 'totals') as any;
+    assertOrThrow(Boolean(totalsBlock), 'Document has totals block');
+    assertOrThrow(Boolean(totalsBlock.tax), 'Totals block has tax line');
+    assertOrThrow(
+      totalsBlock.tax.label?.primary?.includes('VAT 14%') || totalsBlock.tax.label?.text?.includes('VAT 14%'),
+      'Document totals block includes custom tax name VAT 14%',
+    );
+
+    // Verify thermal receipt rendering contains VAT 14% and InstaPay App
+    const { formatReceipt } = require('../main/printers/thermal');
+    const receiptBuffer = formatReceipt(orderRow, updatedBillRow, businessRow, 48);
+    const receiptText = receiptBuffer.toString('utf8');
+    assertOrThrow(receiptText.includes('VAT 14%'), 'Thermal receipt output contains custom tax label VAT 14%');
+    assertOrThrow(receiptText.includes('InstaPay App'), 'Thermal receipt output contains exact method name InstaPay App');
+
+    // Verify branded receipt request contains VAT 14% and InstaPay App
+    const { buildBrandedReceiptRequest } = require('../main/printers/branded-receipt-renderer');
+    const brandedReq = buildBrandedReceiptRequest({ order: orderRow, bill: updatedBillRow, business: businessRow, transport: 'epson_raster' });
+    assertOrThrow(
+      brandedReq.totals.some((row: any) => row.label.includes('VAT 14%')),
+      'Branded receipt totals include custom tax label VAT 14%',
+    );
+    assertOrThrow(
+      brandedReq.totals.some((row: any) => row.label.includes('InstaPay App')),
+      'Branded receipt totals include exact method name InstaPay App',
+    );
+
     // ── Test 14 (Test C): Real-Time Table Move & Item Move (including occupied table merge) ──
     console.log('\n[14] Verifying Real-Time Table Move & Occupied Table Merge...');
     const tableM1 = 'tbl-move-1';
@@ -841,6 +888,35 @@ async function main() {
 
     const totalItemsOnOrder = db.prepare("SELECT SUM(quantity) as total_qty FROM order_items WHERE order_id = ? AND status != 'cancelled'").get(activeOrderId) as any;
     assertEqualOrThrow(Number(totalItemsOnOrder.total_qty), 3, 'Total items merged atomically to 3 (1 initial + 2 second)');
+
+    // ── Test 16: Shift Close & EOD Z-Report Printed Drawer Difference/Variance ──
+    console.log('\n[16] Verifying Shift Close & EOD Z-Report Printed Drawer Difference/Variance...');
+    const { buildZReportSections } = require('../main/printers/thermal');
+    const zShortagePayload = {
+      z_number: 1,
+      business_date: '2026-11-02',
+      opening_float_cents: 100000,
+      expected_cash_cents: 125000,
+      counted_cash_cents: 120000,
+      variance_cents: -5000,
+      period_start: new Date().toISOString(),
+      period_end: new Date().toISOString(),
+      closed_by_name: 'Owner',
+    };
+    const { sections: shortageSections } = buildZReportSections(zShortagePayload, { columns: 48 });
+    const shortageText = shortageSections.join('\n');
+    assertOrThrow(shortageText.includes('1,250') || shortageText.includes('1250'), 'Z-report includes Expected Drawer Cash 1250');
+    assertOrThrow(shortageText.includes('1,200') || shortageText.includes('1200'), 'Z-report includes Counted Drawer Cash 1200');
+    assertOrThrow(shortageText.includes('-') && (shortageText.includes('50') || shortageText.includes('50.00')), 'Z-report includes negative variance (-50) for cash shortage');
+
+    const zOveragePayload = {
+      ...zShortagePayload,
+      counted_cash_cents: 130000,
+      variance_cents: 5000,
+    };
+    const { sections: overageSections } = buildZReportSections(zOveragePayload, { columns: 48 });
+    const overageText = overageSections.join('\n');
+    assertOrThrow(overageText.includes('+') && (overageText.includes('50') || overageText.includes('50.00')), 'Z-report includes positive variance (+50) for cash overage');
 
     // ── Test 11: Clear Orders with Master PIN ────────────────────────────────
     console.log('\n[11] Verifying Clear All Past Orders with Master PIN...');

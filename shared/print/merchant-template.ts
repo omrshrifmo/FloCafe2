@@ -41,7 +41,7 @@
  * filesystem, network, or transport IO.
  */
 
-import type { PrintDocument, PrintDocumentBlock, SemanticLabel } from './document';
+import { isGenericTaxTitle, type PrintDocument, type PrintDocumentBlock, type SemanticLabel } from './document';
 
 // ---------------------------------------------------------------------------
 // Constants (public-facing contract — stable values)
@@ -490,7 +490,11 @@ function applyLabelOverrides(
           ? { ...block.discount, label: overrideLabel(block.discount.label, labels.discount) }
           : block.discount,
         tax: block.tax && labels.tax !== undefined
-          ? { ...block.tax, label: overrideLabel(block.tax.label, labels.tax) }
+          ? (
+              isGenericTaxTitle(block.tax.label.primary)
+                ? { ...block.tax, label: overrideLabel(block.tax.label, labels.tax) }
+                : block.tax
+            )
           : block.tax,
         grandTotal: labels.grandTotal !== undefined
           ? { ...block.grandTotal, label: overrideLabel(block.grandTotal.label, labels.grandTotal) }
@@ -539,11 +543,32 @@ export function applyMerchantTemplate(
     document.blocks.map((block) => [block.kind, block]),
   );
   const blocks: PrintDocumentBlock[] = [];
+  let paymentsAdded = false;
   for (const spec of payload.blocks) {
     if (spec.visible === false) continue;
     const block = byKind.get(spec.kind);
     if (!block) continue;
     blocks.push(spec.labels !== undefined ? applyLabelOverrides(block, spec.labels) : block);
+    if (spec.kind === 'payments') {
+      paymentsAdded = true;
+    }
+  }
+  // Guarantee payments block is always present right below totals if document has one
+  if (!paymentsAdded) {
+    const paymentsBlock = byKind.get('payments');
+    if (paymentsBlock) {
+      const totalsIndex = blocks.findIndex((b) => b.kind === 'totals');
+      if (totalsIndex >= 0) {
+        blocks.splice(totalsIndex + 1, 0, paymentsBlock);
+      } else {
+        const messageIndex = blocks.findIndex((b) => b.kind === 'message');
+        if (messageIndex >= 0) {
+          blocks.splice(messageIndex, 0, paymentsBlock);
+        } else {
+          blocks.push(paymentsBlock);
+        }
+      }
+    }
   }
   return Object.freeze({
     ...document,

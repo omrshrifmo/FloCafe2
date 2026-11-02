@@ -22,7 +22,7 @@ import { validateOrderNotes, validateItemNotes, validateProductQuantity } from '
 import { hasPermission, requirePermission } from '../services/authorization';
 import { ROLE_ACCESS, hasRole } from '../../shared/role-permissions';
 import { getCurrencyFractionDigits, getCurrencyMinorUnitFactor } from '../countries';
-import { getTenantCurrency, syncUnpaidBillsForOrder, getOrCreateBillForOrder } from './bills';
+import { getTenantCurrency, syncUnpaidBillsForOrder, getOrCreateBillForOrder, applyPaymentBatch } from './bills';
 import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 import { depleteBomForOrderItem, restoreBomForOrderItem } from '../services/bom-depletion';
@@ -754,6 +754,29 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       }
 
       const order = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
+      if (body.payments || body.payment_method) {
+        try {
+          const generated = getOrCreateBillForOrder(db, orderId);
+          if (generated?.id) {
+            let directPayments: any[] = [];
+            if (Array.isArray(body.payments)) {
+              directPayments = body.payments;
+            } else {
+              directPayments = [{
+                method: body.payment_method,
+                payment_method_id: body.payment_method_id ?? body.method_id,
+                method_name: body.payment_method_name ?? body.method_name,
+                amount: body.paid_amount ?? order.total,
+                tendered: body.tendered ?? body.paid_amount ?? order.total,
+                change: body.change ?? 0,
+              }];
+            }
+            applyPaymentBatch(db, String(generated.id), directPayments, customer_id, true);
+          }
+        } catch (payErr) {
+          console.warn('[Orders] Direct checkout payment failed:', payErr);
+        }
+      }
       const orderItems = attachEffectiveAddons(db, db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId).map(parseItemJson) as any[]);
       const response = { order: Object.assign({}, order, { items: orderItems }) };
       if (idempotencyKey && requestHash) {

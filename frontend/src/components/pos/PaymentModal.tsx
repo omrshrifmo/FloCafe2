@@ -390,13 +390,21 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
     setProcessing(true);
     try {
       const splitLines = payments
-        .map((p) => ({
-          method: p.payment_method_id === undefined ? p.method : 'custom',
-          ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id } : {}),
-          amount: toStoredUnit(parseFloat(p.amount) || 0),
-        }))
+        .map((p) => {
+          const customMethod = customMethods.find((m) => m.id === p.payment_method_id);
+          const methodName = customMethod?.name || (p.payment_method_id === undefined ? p.method : 'custom');
+          const amt = toStoredUnit(parseFloat(p.amount) || 0);
+          return {
+            method: p.payment_method_id === undefined ? p.method : 'custom',
+            ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id, method_id: p.payment_method_id } : {}),
+            method_name: methodName,
+            amount: amt,
+            tendered: p.method === 'cash' ? amt : undefined,
+            change: p.method === 'cash' ? change : 0,
+          };
+        })
         .filter((p) => p.amount > 0 && !isNaN(p.amount));
-      if (walletAmt > 0) splitLines.push({ method: 'wallet', amount: walletAmt });
+      if (walletAmt > 0) splitLines.push({ method: 'wallet', method_name: 'wallet', amount: walletAmt, tendered: undefined, change: 0 });
 
       // Atomic call ensures all split payment lines succeed together
       // or fail together without leaving partial payments.

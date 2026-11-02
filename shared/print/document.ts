@@ -542,18 +542,21 @@ function literalLabel(primary: string): SemanticLabel {
 }
 
 function paymentLabel(labels: LabelContext, method: string, displayName?: string): SemanticLabel {
+  const name = displayName?.trim();
+  if (name && !['cash', 'card', 'custom'].includes(name.toLowerCase())) {
+    return literalLabel(name);
+  }
   const normMethod = (method || '').toLowerCase().trim();
   const conceptId = PAYMENT_METHOD_CONCEPTS[normMethod];
   if (conceptId !== undefined) {
     return resolveSemanticLabel(labels, conceptId);
   }
-  const name = displayName?.trim() || method;
-  return literalLabel(name);
+  return literalLabel(name || method);
 }
 
-function isGenericTaxTitle(title: string): boolean {
+export function isGenericTaxTitle(title: string | null | undefined): boolean {
   const normalized = (title || '').trim().toLowerCase();
-  return normalized === '' || normalized === 'tax' || normalized === 'ضريبة' || normalized === 'ضرائب';
+  return normalized === '' || normalized === 'tax' || normalized === 'taxes' || normalized === 'ضريبة' || normalized === 'ضرائب';
 }
 
 function formatTaxComponentLabel(component: TaxComponentSnapshot, labels: LabelContext): SemanticLabel {

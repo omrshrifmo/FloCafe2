@@ -6147,6 +6147,51 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 108,
+    name: 'flocafe_4_0_9_receipt_payments_and_custom_tax_persistence',
+    up: () => {
+      if (!getColumns(db, 'bills').includes('payment_method')) {
+        db.exec('ALTER TABLE bills ADD COLUMN payment_method TEXT DEFAULT NULL');
+      }
+      if (!getColumns(db, 'bills').includes('payment_method_id')) {
+        db.exec('ALTER TABLE bills ADD COLUMN payment_method_id INTEGER DEFAULT NULL');
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS bill_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bill_id INTEGER NOT NULL,
+          order_id INTEGER,
+          method TEXT NOT NULL,
+          payment_method_id INTEGER,
+          method_name TEXT,
+          amount REAL NOT NULL,
+          tendered REAL,
+          change REAL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (bill_id) REFERENCES bills(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bill_payments_bill_id ON bill_payments(bill_id);
+        CREATE INDEX IF NOT EXISTS idx_bill_payments_order_id ON bill_payments(order_id);
+
+        CREATE TABLE IF NOT EXISTS payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bill_id INTEGER NOT NULL,
+          order_id INTEGER,
+          method TEXT NOT NULL,
+          payment_method_id INTEGER,
+          method_name TEXT,
+          amount REAL NOT NULL,
+          tendered REAL,
+          change REAL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (bill_id) REFERENCES bills(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_payments_bill_id ON payments(bill_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6507,6 +6552,8 @@ function createSchema(): void {
       paid_amount REAL DEFAULT 0,
       balance REAL DEFAULT 0,
       payment_status TEXT DEFAULT 'unpaid',
+      payment_method TEXT DEFAULT NULL,
+      payment_method_id INTEGER DEFAULT NULL,
       payment_details TEXT,
       paid_at TEXT,
       printed_at TEXT,
@@ -6514,6 +6561,38 @@ function createSchema(): void {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id)
     );
+
+    CREATE TABLE IF NOT EXISTS bill_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id INTEGER NOT NULL,
+      order_id INTEGER,
+      method TEXT NOT NULL,
+      payment_method_id INTEGER,
+      method_name TEXT,
+      amount REAL NOT NULL,
+      tendered REAL,
+      change REAL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (bill_id) REFERENCES bills(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_bill_payments_bill_id ON bill_payments(bill_id);
+    CREATE INDEX IF NOT EXISTS idx_bill_payments_order_id ON bill_payments(order_id);
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id INTEGER NOT NULL,
+      order_id INTEGER,
+      method TEXT NOT NULL,
+      payment_method_id INTEGER,
+      method_name TEXT,
+      amount REAL NOT NULL,
+      tendered REAL,
+      change REAL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (bill_id) REFERENCES bills(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_payments_bill_id ON payments(bill_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
 
     CREATE TABLE IF NOT EXISTS loyalty_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
