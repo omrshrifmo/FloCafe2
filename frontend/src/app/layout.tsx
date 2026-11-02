@@ -8,6 +8,7 @@ import { ThemeSync } from "@/components/layout/ThemeSync";
 import { NumberInputWheelGuard } from "@/components/layout/NumberInputWheelGuard";
 import { DirectionalToaster } from "@/components/layout/DirectionalToaster";
 import DesktopDragSurface from "@/components/layout/DesktopDragSurface";
+import HardwareLicenseGate from "@/components/layout/HardwareLicenseGate";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 
 const geistSans = Geist({
@@ -80,7 +81,9 @@ export default function RootLayout({
           <HtmlLangSync />
           <ThemeSync />
           <NumberInputWheelGuard />
-          <AuthGuard>{children}</AuthGuard>
+          <HardwareLicenseGate>
+            <AuthGuard>{children}</AuthGuard>
+          </HardwareLicenseGate>
           <DirectionalToaster />
         </I18nProvider>
         <script

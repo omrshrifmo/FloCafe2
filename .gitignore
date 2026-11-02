@@ -45,3 +45,8 @@ code-review/
 # Private shared docs repo — cloned in by hand, never tracked here (see AGENTS.md)
 specs/
 test-results/
+
+# Owner license private keys — NEVER commit
+owner-private-keys/
+*.flokey
+*.private.pem

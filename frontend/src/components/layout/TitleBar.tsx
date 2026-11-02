@@ -9,6 +9,7 @@ import { Ltr } from './Ltr';
 import ApplicationMenuRow from './ApplicationMenuRow';
 import OperationalAlertsBell from './OperationalAlertsBell';
 import UpdateBadge from './UpdateBadge';
+import LicenseBadge from './LicenseBadge';
 
 const subscribeToElectronCapability = () => () => {};
 const getElectronCapability = () => typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
@@ -94,8 +95,9 @@ export default function TitleBar() {
             top-level application menu is restored here (macOS keeps the native one). */}
         <ApplicationMenuRow />
 
-        {/* Trailing edge: Alerts Bell & Update badge */}
+        {/* Trailing edge: Alerts Bell, License Badge & Update badge */}
         <div className="flo-title-bar__interactive pointer-events-auto ms-auto flex items-center gap-1.5">
+          <LicenseBadge />
           <OperationalAlertsBell />
           <UpdateBadge />
         </div>

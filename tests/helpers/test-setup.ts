@@ -151,6 +151,13 @@ function seedTestRegionalDefaults(db: any): void {
   insert('timezone', 'Asia/Kolkata');
 }
 
+function seedTestLicenseDefaults(db: any): void {
+  try {
+    const { autoSeedDevOrTestLicense } = require('../../main/services/hardware-license');
+    autoSeedDevOrTestLicense(db);
+  } catch {}
+}
+
 function initTestDb() {
   try {
     initDatabase();
@@ -163,6 +170,7 @@ function initTestDb() {
   }
   const db = getDatabase();
   seedTestRegionalDefaults(db);
+  seedTestLicenseDefaults(db);
   return db;
 }
 
@@ -183,6 +191,7 @@ function createApp(routeModules: Record<string, any>, options?: { authRole?: str
   app.use((req: any, res: any, next: any) => {
     if (!req.path.startsWith('/api')) { next(); return; }
     if (req.path === '/api/health') { next(); return; }
+    if (req.path === '/api/license' || req.path.startsWith('/api/license/')) { next(); return; }
     if (req.path.startsWith('/api/auth') && !req.path.includes('/api/auth/me')) { next(); return; }
 
     const authHeader = req.headers.authorization;

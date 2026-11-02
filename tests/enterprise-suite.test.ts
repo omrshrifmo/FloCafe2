@@ -960,6 +960,135 @@ async function main() {
     const occupiedTablesCount = db.prepare("SELECT count(*) as count FROM tables WHERE status = 'occupied'").get().count;
     assertEqualOrThrow(occupiedTablesCount, 0, 'Zero occupied tables remaining after clear-orders');
 
+    // ── Test 12: FloCafe 4.0.10 Offline Cryptographic Hardware-Bound Licensing ──
+    console.log('\n[12] Verifying FloCafe 4.0.10 Offline Hardware-Bound Licensing & Anti-Copy Protection...');
+    const { execSync } = require('child_process');
+    const {
+      getHardwareFingerprint,
+      verifyHardwareLicense,
+      activateWithKeyFile,
+      TIER_DURATIONS_MS,
+    } = require('../main/services/hardware-license');
+
+    // 12.1 Verify Schema Migration 109
+    const licTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flo_hardware_license'").get();
+    assertOrThrow(Boolean(licTable), "Table '_flo_hardware_license' exists in database");
+    const licHistTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_flo_hardware_license_history'").get();
+    assertOrThrow(Boolean(licHistTable), "Table '_flo_hardware_license_history' exists in database");
+
+    // 12.2 Verify Git Protection Guard (No private key files tracked in git)
+    const trackedKeys = execSync("git ls-files | grep -E '\\.flokey|\\.private\\.pem|owner-private-keys' || true", { encoding: 'utf8' }).trim();
+    assertEqualOrThrow(trackedKeys, '', 'Zero .flokey or private key files tracked by git');
+
+    // 12.3 Verify Tier Duration Definitions
+    assertEqualOrThrow(TIER_DURATIONS_MS['forever'], null, 'forever duration is null (perpetual)');
+    assertEqualOrThrow(TIER_DURATIONS_MS['24h'], 86_400_000, '24h duration is 86,400,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['3d'], 259_200_000, '3d duration is 259,200,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['1w'], 604_800_000, '1w duration is 604,800,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['1m'], 2_592_000_000, '1m duration is 2,592,000,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['3m'], 7_776_000_000, '3m duration is 7,776,000,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['6m'], 15_552_000_000, '6m duration is 15,552,000,000 ms');
+    assertEqualOrThrow(TIER_DURATIONS_MS['1y'], 31_536_000_000, '1y duration is 31,536,000,000 ms');
+
+    // 12.4 Verify Hardware Fingerprint Generation
+    const hwid = getHardwareFingerprint();
+    assertOrThrow(Boolean(hwid && hwid.startsWith('FLOHW-')), `Hardware Fingerprint generated: ${hwid}`);
+
+    // 12.5 Verify License Status Endpoint
+    const licStatusRes = await api(baseUrl, '/api/license/status', { method: 'GET' });
+    assertEqualOrThrow(licStatusRes.status, 200, 'GET /api/license/status returns 200 OK');
+    assertEqualOrThrow(licStatusRes.data.valid, true, 'Seeded test license is valid');
+    assertEqualOrThrow(licStatusRes.data.hwid, hwid, 'License status reports matching HWID');
+
+    // 12.6 Verify Anti-Copy Protection (Hardware Mismatch Lock & HTTP 402 Gate)
+    console.log('   Testing Anti-Copy Protection: Simulating application copy to another machine...');
+    const { setTestMockHwid } = require('../main/services/hardware-license');
+
+    // Simulate opening database on a different physical computer
+    setTestMockHwid('FLOHW-COPIED-PIRATED-MACHINE-9999');
+
+    const mismatchCheck = verifyHardwareLicense(db);
+    assertEqualOrThrow(mismatchCheck.valid, false, 'Hardware mismatch invalidates license');
+    assertEqualOrThrow(mismatchCheck.reason, 'hardware_mismatch', 'Lock reason is hardware_mismatch');
+
+    // API route must now be blocked with HTTP 402 HARDWARE_LICENSE_LOCKED
+    const blockedApiRes = await api(baseUrl, '/api/orders', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(blockedApiRes.status, 402, 'API access locked with HTTP 402 when hardware mismatched');
+    assertEqualOrThrow(blockedApiRes.data.error, 'HARDWARE_LICENSE_LOCKED', 'Returned error is HARDWARE_LICENSE_LOCKED');
+
+    // Restore real HWID
+    setTestMockHwid(null);
+
+    // 12.7 Verify System Clock Rollback Tamper Detection
+    console.log('   Testing Clock Rollback Detection...');
+    const originalRow = db.prepare('SELECT * FROM _flo_hardware_license WHERE id = 1').get();
+    db.prepare('UPDATE _flo_hardware_license SET max_seen_timestamp = ? WHERE id = 1')
+      .run(Date.now() + 600_000); // 10 minutes in the future
+
+    const clockTamperCheck = verifyHardwareLicense(db);
+    assertEqualOrThrow(clockTamperCheck.valid, false, 'Clock rollback invalidates license');
+    assertEqualOrThrow(clockTamperCheck.reason, 'clock_tamper_detected', 'Lock reason is clock_tamper_detected');
+
+    // Restore original row
+    db.prepare('UPDATE _flo_hardware_license SET max_seen_timestamp = ? WHERE id = 1')
+      .run(originalRow.max_seen_timestamp);
+
+    // 12.8 Verify Activation with Duration Key & Single-Use Enforcement
+    console.log('   Testing Activation with 24h key and Single-Use Enforcement...');
+    const keyPath24h = path.resolve(__dirname, '../owner-private-keys/24h.flokey');
+    const masterKeyPath = path.resolve(__dirname, '../owner-private-keys/owner-reactivate-master.flokey');
+
+    if (fs.existsSync(keyPath24h) && fs.existsSync(masterKeyPath)) {
+      const key24hContent = fs.readFileSync(keyPath24h, 'utf8');
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+
+      // First, simulate using an already-consumed key file (usage_count: 1) without owner override
+      const consumedKeyJson = JSON.parse(key24hContent);
+      consumedKeyJson.usage_count = 1;
+      consumedKeyJson.bound_hwids = ['FLOHW-PRIOR-MACHINE-1111'];
+      const consumedKeyContent = JSON.stringify(consumedKeyJson);
+
+      const rejectedActivation = activateWithKeyFile(db, {
+        tierKeyContent: consumedKeyContent,
+      });
+      assertEqualOrThrow(rejectedActivation.success, false, 'Consumed key without override is rejected');
+      assertEqualOrThrow(rejectedActivation.requires_owner_override, true, 'Requires owner override flag is true');
+
+      // Now provide owner override with wrong password -> must fail
+      const wrongPasswordActivation = activateWithKeyFile(db, {
+        tierKeyContent: consumedKeyContent,
+        ownerMasterKeyContent: masterKeyContent,
+        reactivationPassword: 'wrong-password-999',
+      });
+      assertEqualOrThrow(wrongPasswordActivation.success, false, 'Wrong password override is rejected');
+
+      // Now provide owner override with correct password (Fl0220671190) + owner-reactivate-master.flokey -> must succeed!
+      const successfulOverride = activateWithKeyFile(db, {
+        tierKeyContent: consumedKeyContent,
+        ownerMasterKeyContent: masterKeyContent,
+        reactivationPassword: 'Fl0220671190',
+      });
+      assertEqualOrThrow(successfulOverride.success, true, 'Owner master key + password successfully activates consumed key');
+      assertEqualOrThrow(successfulOverride.license?.tier, '24h', 'Activated tier is 24h');
+      assertOrThrow(typeof successfulOverride.license?.expires_at === 'number', '24h license has numerical expires_at');
+    }
+
+    // Restore forever developer license for subsequent operations
+    const foreverKeyPath = path.resolve(__dirname, '../owner-private-keys/forever.flokey');
+    if (fs.existsSync(foreverKeyPath) && fs.existsSync(masterKeyPath)) {
+      const foreverContent = fs.readFileSync(foreverKeyPath, 'utf8');
+      const masterContent = fs.readFileSync(masterKeyPath, 'utf8');
+      const restoreForever = activateWithKeyFile(db, {
+        tierKeyContent: foreverContent,
+        ownerMasterKeyContent: masterContent,
+        reactivationPassword: 'Fl0220671190',
+      });
+      assertEqualOrThrow(restoreForever.success, true, 'Restored forever license');
+    }
+
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
   } finally {

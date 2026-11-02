@@ -6192,6 +6192,34 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 109,
+    name: 'flocafe_4_0_10_hardware_bound_licensing',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _flo_hardware_license (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          payload TEXT NOT NULL,
+          signature TEXT NOT NULL,
+          tier TEXT NOT NULL,
+          hwid TEXT NOT NULL,
+          activated_at INTEGER NOT NULL,
+          expires_at INTEGER,
+          max_seen_timestamp INTEGER NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS _flo_hardware_license_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tier TEXT NOT NULL,
+          hwid TEXT NOT NULL,
+          activated_at INTEGER NOT NULL,
+          expires_at INTEGER,
+          created_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6593,6 +6621,27 @@ function createSchema(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_payments_bill_id ON payments(bill_id);
     CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
+
+    CREATE TABLE IF NOT EXISTS _flo_hardware_license (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      payload TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      hwid TEXT NOT NULL,
+      activated_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      max_seen_timestamp INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS _flo_hardware_license_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tier TEXT NOT NULL,
+      hwid TEXT NOT NULL,
+      activated_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      created_at TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS loyalty_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

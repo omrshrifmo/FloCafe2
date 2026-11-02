@@ -76,7 +76,34 @@ function mobilePairingErrorMessage(error: any): string {
 
 const inlineCustomerLookupRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
 
+import { licenseRoutes } from './license';
+import { verifyHardwareLicense } from '../services/hardware-license';
+
 export function registerRoutes(app: Express): void {
+  // License routes (exempt from auth and license gate)
+  app.use('/api/license', licenseRoutes);
+
+  // Global hardware license enforcement across /api/*
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api')) { return next(); }
+    if (
+      req.path === '/api/health' ||
+      req.path === '/api/license' ||
+      req.path.startsWith('/api/license/')
+    ) {
+      return next();
+    }
+    const db = getDatabase();
+    const licenseStatus = verifyHardwareLicense(db);
+    if (!licenseStatus.valid) {
+      return res.status(402).json({
+        error: 'HARDWARE_LICENSE_LOCKED',
+        licenseStatus,
+      });
+    }
+    next();
+  });
+
   // Auth routes
   app.use('/api/auth', authRoutes);
 

@@ -41,6 +41,9 @@ api.interceptors.response.use(
     if (error.response?.status === 403 && error.response?.data?.code === 'permission_denied' && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('flo:authorization-denied'));
     }
+    if (error.response?.status === 402 && error.response?.data?.error === 'HARDWARE_LICENSE_LOCKED' && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('flo:hardware-license-locked', { detail: error.response.data.licenseStatus }));
+    }
     return Promise.reject(error);
   }
 );
