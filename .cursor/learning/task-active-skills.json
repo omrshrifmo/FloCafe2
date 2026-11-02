@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-31T17:31:19.229Z",
-  "proposalsGeneratedAt": "2026-10-31T17:31:19.226Z",
+  "generatedAt": "2026-11-02T14:46:38.226Z",
+  "proposalsGeneratedAt": "2026-11-01T22:01:31.471Z",
   "source": "task-skill-proposals",
   "activeSkills": [
     "self-learning",
@@ -10,12 +10,12 @@
     "skill-usage-insights",
     "skill-feedback-adaptation",
     "skill-official-updater",
-    "cross-platform-scripting",
     "cursor-kiro-extension-publishing",
     "deployment-practical",
     "doc-coauthoring",
     "drawio-diagrams",
-    "extension-value-audit"
+    "extension-value-audit",
+    "github-actions-ci"
   ],
   "ignoredSkills": []
 }

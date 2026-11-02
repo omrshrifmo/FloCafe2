@@ -13,7 +13,7 @@ applyTo:
   - **/azure-pipelines.yml
   - **/.env*
   - **/deployment/**
-deployedAt: "2026-11-01T15:20:58.506Z"
+deployedAt: "2026-11-02T14:46:38.317Z"
 ---
 
 # deployment-practical
