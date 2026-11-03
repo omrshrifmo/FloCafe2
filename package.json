@@ -1,6 +1,6 @@
 {
   "name": "flo-desktop",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
@@ -337,12 +337,19 @@
     "icon": "assets/icon-512.png",
     "afterPack": "scripts/afterPack.js",
     "asar": true,
-    "asarUnpack": "**/node_modules/better-sqlite3/**/*",
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*",
+      "dist/main/sentinel/**",
+      "scripts/flocafe-sentinel.cjs",
+      "scripts/flocafe-owner-mcp.cjs",
+      "scripts/install-sentinel-service.cjs"
+    ],
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
+      "scripts/**/*",
       "node_modules/**/*",
       "!**/better-sqlite3/build/Release/test_extension.node",
       "!owner-private-keys/**",

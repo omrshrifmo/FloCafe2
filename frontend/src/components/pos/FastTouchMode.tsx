@@ -7,12 +7,13 @@ import { usePrinterStore } from '@/hooks/usePrinter';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { nameToColor } from '@/lib/image-utils';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useTranslations, useLocale } from 'use-intl';
 import api from '@/lib/api';
 import axios from 'axios';
 import { parseDbTimestamp } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import type { Category, Product, Table, CartItem, Order, OrderItem } from '@/lib/types';
+import type { Category, Product, Table, CartItem, Order, OrderItem, Customer } from '@/lib/types';
 import {
   Zap,
   Repeat,
@@ -296,6 +297,71 @@ export function FastTouchMode({
   const activeTableOrder = (cart.orderType === 'dine_in' && cart.tableId)
     ? (pendingOrder || fetchedActiveOrder)
     : null;
+
+  // Fast-Touch Customer & Loyalty Stamp Card
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [searchingCustomer, setSearchingCustomer] = useState(false);
+  const [loyaltyPoints, setLoyaltyPoints] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!cart.customer?.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoyaltyPoints(null);
+      return;
+    }
+    const controller = new AbortController();
+    api.get(`/customers/${cart.customer.id}/wallet`, { signal: controller.signal })
+      .then((res) => {
+        setLoyaltyPoints(res.data?.balance ?? 0);
+      })
+      .catch(() => setLoyaltyPoints(null));
+    return () => controller.abort();
+  }, [cart.customer?.id]);
+
+  useEffect(() => {
+    const q = customerSearchQuery.trim();
+    if (q.length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCustomerResults([]);
+      setShowCustomerDropdown(false);
+      return;
+    }
+    const controller = new AbortController();
+    setSearchingCustomer(true);
+    const timer = setTimeout(() => {
+      api.get(`/customers-search?q=${encodeURIComponent(q)}`, { signal: controller.signal })
+        .then((res) => {
+          setCustomerResults(res.data?.customers || []);
+          setShowCustomerDropdown(true);
+        })
+        .catch(() => {})
+        .finally(() => setSearchingCustomer(false));
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [customerSearchQuery]);
+
+  const handleSelectCustomer = (c: Customer) => {
+    cart.setCustomer(c);
+    cart.setCustomerId(c.id);
+    setCustomerSearchQuery('');
+    setShowCustomerDropdown(false);
+  };
+
+  const handleClearCustomer = () => {
+    cart.setCustomer(null);
+    cart.setCustomerId(null);
+    setLoyaltyPoints(null);
+    setCustomerSearchQuery('');
+  };
+
+  const loyaltyStamps = (loyaltyPoints ?? 0) % 7;
+  const freeRewardsEarned = Math.floor((loyaltyPoints ?? 0) / 7);
 
   // Global Escape keyboard listener to exit Fast-Touch
   useEffect(() => {
@@ -857,6 +923,93 @@ export function FastTouchMode({
                 </span>
               )}
             </div>
+
+            {/* Customer & Loyalty Stamp Card */}
+            {cart.customer ? (
+              <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-8 w-8 rounded-lg bg-amber-500/20 text-amber-600 flex items-center justify-center font-bold text-sm shrink-0">
+                    ☕
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-foreground truncate flex items-center gap-1.5">
+                      <span>{cart.customer.name}</span>
+                      {cart.customer.phone && (
+                        <span className="text-[10px] text-muted-foreground font-mono font-normal">
+                          ({cart.customer.phone})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                      <span>{isArabic ? 'بطاقة الأختام:' : 'Stamp Card:'}</span>
+                      <span className="font-mono font-black">{loyaltyStamps}/7</span>
+                      <div className="flex items-center gap-0.5 ms-1">
+                        {[...Array(7)].map((_, i) => (
+                          <span
+                            key={i}
+                            className={`inline-block size-2 rounded-full ${
+                              i < loyaltyStamps ? 'bg-amber-500 shadow-xs' : 'bg-muted-foreground/30'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      {freeRewardsEarned > 0 && (
+                        <Badge variant="default" className="ms-1.5 text-[9px] bg-amber-600 text-white font-bold h-4 px-1">
+                          🎉 {freeRewardsEarned} Free
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearCustomer}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+                  title="Remove customer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative shrink-0">
+                <div className="relative">
+                  <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder={isArabic ? 'بحث عن العميل بالهاتف أو الاسم...' : 'Customer phone or name (Loyalty Stamp)...'}
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    className="w-full ps-8 pe-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs outline-none focus:ring-1 focus:ring-brand text-foreground"
+                  />
+                  {searchingCustomer && (
+                    <div className="absolute end-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground animate-pulse">
+                      ...
+                    </div>
+                  )}
+                </div>
+
+                {showCustomerDropdown && customerResults.length > 0 && (
+                  <div className="absolute top-full start-0 end-0 mt-1 bg-popover border border-border rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto divide-y divide-border text-xs">
+                    {customerResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleSelectCustomer(c)}
+                        className="w-full p-2 text-start hover:bg-muted flex items-center justify-between cursor-pointer"
+                      >
+                        <div>
+                          <div className="font-bold text-foreground">{c.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{c.phone || 'No phone'}</div>
+                        </div>
+                        <div className="text-[10px] font-mono text-brand font-bold">
+                          {c.loyalty_points ?? c.wallet_balance ?? 0} pts
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Scrollable Items Container (Served Items + New Pending Items) */}
             <div className="flex-1 overflow-y-auto space-y-3 pe-1">

@@ -912,3 +912,43 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
   }
 }
+
+export interface FiscalQrInput {
+  sellerName: string;
+  taxRegistrationNumber: string;
+  timestamp: string;
+  invoiceTotalWithTax: number | string;
+  taxTotal: number | string;
+}
+
+/**
+ * Encodes Egyptian ETA / ZATCA TLV format into Base64:
+ * Tag 1: SellerName
+ * Tag 2: TaxRegistrationNumber
+ * Tag 3: ISO8601Timestamp
+ * Tag 4: InvoiceTotalWithTax
+ * Tag 5: TaxTotal
+ */
+export function generateFiscalQrPayload(input: FiscalQrInput): string {
+  const formatAmount = (val: number | string) => {
+    const num = Number(val) || 0;
+    return num.toFixed(2);
+  };
+
+  const tags: Array<{ tag: number; value: string }> = [
+    { tag: 1, value: String(input.sellerName || 'FloCafe Store').trim() },
+    { tag: 2, value: String(input.taxRegistrationNumber || '').trim() },
+    { tag: 3, value: String(input.timestamp || new Date().toISOString()).trim() },
+    { tag: 4, value: formatAmount(input.invoiceTotalWithTax) },
+    { tag: 5, value: formatAmount(input.taxTotal) },
+  ];
+
+  const buffers: Buffer[] = [];
+  for (const item of tags) {
+    const valBuf = Buffer.from(item.value, 'utf8');
+    const tagBuf = Buffer.from([item.tag, valBuf.length]);
+    buffers.push(tagBuf, valBuf);
+  }
+
+  return Buffer.concat(buffers).toString('base64');
+}

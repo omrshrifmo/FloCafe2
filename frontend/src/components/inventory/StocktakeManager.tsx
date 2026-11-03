@@ -53,6 +53,23 @@ export function StocktakeManager() {
   const [activeSession, setActiveSession] = useState<StocktakeSession | null>(null);
   const [sessionItems, setSessionItems] = useState<StocktakeItem[]>([]);
   const [search, setSearch] = useState('');
+  const [barcodeScanInput, setBarcodeScanInput] = useState('');
+
+  const handleBarcodeQuickCount = (code: string) => {
+    const trimmed = code.trim().toLowerCase();
+    if (!trimmed) return;
+    const match = sessionItems.find(
+      (it) => it.supply_id.toLowerCase() === trimmed || it.supply_name.toLowerCase().includes(trimmed)
+    );
+    if (match) {
+      const currentCount = match.counted_quantity ?? 0;
+      handleUpdateItemCount(match.supply_id, String(currentCount + 1));
+      toast.success(`Count +1: ${match.supply_name} (${currentCount + 1})`);
+      setBarcodeScanInput('');
+    } else {
+      toast.error(`Item not found for "${code}"`);
+    }
+  };
 
   // New Session Modal
   const [showNewModal, setShowNewModal] = useState(false);
@@ -248,16 +265,45 @@ export function StocktakeManager() {
             </div>
           </div>
 
-          {/* Search bar */}
-          <div className="relative max-w-sm">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('searchItemsPlaceholder')}
-              className="w-full ps-9 pe-4 py-2 bg-background border border-border rounded-lg text-sm"
-            />
+          {/* Search & Barcode Quick Scan */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="relative max-w-sm flex-1 min-w-[200px]">
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('searchItemsPlaceholder')}
+                className="w-full ps-9 pe-4 py-2 bg-background border border-border rounded-lg text-sm"
+              />
+            </div>
+
+            {activeSession.status !== 'completed' && (
+              <div className="flex items-center gap-2 max-w-md flex-1">
+                <input
+                  type="text"
+                  value={barcodeScanInput}
+                  onChange={(e) => setBarcodeScanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleBarcodeQuickCount(barcodeScanInput);
+                    }
+                  }}
+                  placeholder="Scan barcode / SKU to count +1..."
+                  className="w-full px-3 py-2 bg-background border border-brand/50 rounded-lg text-sm focus:ring-2 focus:ring-brand"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleBarcodeQuickCount(barcodeScanInput)}
+                  className="h-9 shrink-0 text-xs"
+                >
+                  Scan Count
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Counting Table */}

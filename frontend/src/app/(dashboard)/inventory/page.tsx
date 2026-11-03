@@ -11,12 +11,26 @@ import { Plus, Search, X, Edit, Trash2, ArrowDownCircle, ArrowUpCircle, PackageM
 import { useTranslations } from 'use-intl';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useFormatNumber } from '@/hooks/useFormatNumber';
+import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { tenantCan } from '@/lib/permissions';
 import { StocktakeManager } from '@/components/inventory/StocktakeManager';
 import { PurchasingManager } from '@/components/inventory/PurchasingManager';
 
 const SUPPLY_UNITS = ['each', 'g', 'kg', 'ml', 'l'] as const;
 type SupplyUnit = (typeof SUPPLY_UNITS)[number];
+
+interface WasteLog {
+  id: string;
+  waste_type: 'dial_in' | 'staff_meal' | 'spoilage' | 'damaged' | 'expired';
+  source_type: 'product' | 'inventory_item' | 'supply';
+  source_id: string;
+  source_name: string;
+  quantity: number;
+  estimated_cost: number;
+  reason: string | null;
+  logged_by: string;
+  logged_at: string;
+}
 
 interface Supply {
   id: string;
@@ -80,12 +94,15 @@ export default function InventoryPage() {
   const tCommon = useTranslations('common');
   const { formatDate } = useFormatDate();
   const fmtNum = useFormatNumber();
+  const fmtCurrency = useFormatCurrency();
   const canManage = tenantCan(currentTenant, 'inventory.manage');
 
   const [tab, setTab] = useState('supplies');
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [movements, setMovements] = useState<SupplyMovement[]>([]);
+  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([]);
+  const [loadingWaste, setLoadingWaste] = useState(false);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
@@ -169,6 +186,20 @@ export default function InventoryPage() {
       });
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, refreshKey, canManage]);
+
+  useEffect(() => {
+    if (!canManage || tab !== 'waste') return;
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingWaste(true);
+    api.get('/inventory/waste-logs', { signal: controller.signal })
+      .then(({ data }) => setWasteLogs(data.waste_logs || []))
+      .catch((err: unknown) => {
+        if (!(err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError'))) toast.error('Failed to load waste records');
+      })
+      .finally(() => setLoadingWaste(false));
+    return () => controller.abort();
   }, [tab, refreshKey, canManage]);
 
   const openAddSupply = () => {
@@ -333,6 +364,7 @@ export default function InventoryPage() {
           <TabsTrigger value="movements">{t('tabMovements')}</TabsTrigger>
           <TabsTrigger value="stocktakes">{t('count')}</TabsTrigger>
           <TabsTrigger value="purchasing">Purchasing &amp; GRN</TabsTrigger>
+          <TabsTrigger value="waste">Waste &amp; Spoilage</TabsTrigger>
         </TabsList>
 
         <TabsContent value="supplies">
@@ -507,6 +539,70 @@ export default function InventoryPage() {
 
         <TabsContent value="purchasing">
           <PurchasingManager />
+        </TabsContent>
+
+        <TabsContent value="waste">
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-foreground">Waste &amp; Spoilage Ledger</h3>
+                <p className="text-xs text-muted-foreground">Authorized waste, barista dial-in shots, staff meals, and damaged goods</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setRefreshKey((k) => k + 1)}>
+                Refresh
+              </Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted text-muted-foreground font-semibold">
+                  <tr>
+                    <th className="p-3 text-start">Type / Reason</th>
+                    <th className="p-3 text-start">Item</th>
+                    <th className="p-3 text-end">Quantity</th>
+                    <th className="p-3 text-end">Est. Loss</th>
+                    <th className="p-3 text-start">Logged By</th>
+                    <th className="p-3 text-start">Date / Time</th>
+                    <th className="p-3 text-start">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {wasteLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-muted/20">
+                      <td className="p-3">
+                        <Badge
+                          variant={
+                            log.waste_type === 'dial_in'
+                              ? 'secondary'
+                              : log.waste_type === 'staff_meal'
+                              ? 'default'
+                              : 'destructive'
+                          }
+                          className="capitalize text-[10px]"
+                        >
+                          {log.waste_type.replace('_', ' ')}
+                        </Badge>
+                      </td>
+                      <td className="p-3 font-semibold text-foreground">{log.source_name}</td>
+                      <td className="p-3 text-end font-mono font-bold">{fmtNum(log.quantity)}</td>
+                      <td className="p-3 text-end font-bold text-rose-600 dark:text-rose-400">
+                        {fmtCurrency(log.estimated_cost)}
+                      </td>
+                      <td className="p-3 text-muted-foreground">{log.logged_by}</td>
+                      <td className="p-3 text-muted-foreground">{formatDate(log.logged_at)}</td>
+                      <td className="p-3 text-muted-foreground truncate max-w-xs">{log.reason || '—'}</td>
+                    </tr>
+                  ))}
+                  {wasteLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                        {loadingWaste ? 'Loading waste records...' : 'No waste records found.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 

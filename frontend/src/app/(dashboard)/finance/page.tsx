@@ -24,6 +24,8 @@ import {
   TrendingUp,
   Trash2,
   DollarSign,
+  Truck,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface FinanceSummary {
@@ -61,6 +63,9 @@ interface PnlData {
   total_operating_expenses: number;
   expense_breakdown: Record<string, number>;
   payroll_expense: number;
+  gross_aggregator_revenue?: number;
+  aggregator_commissions?: number;
+  net_aggregator_receivable?: number;
   net_operating_profit_ebitda: number;
   ebitda_margin_pct: number;
 }
@@ -97,7 +102,63 @@ export default function FinancePage() {
   const { formatDate } = useFormatDate();
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier'>('overview');
+
+  interface CourierUnsettledOrder {
+    id: string;
+    order_number: string;
+    total: number;
+    created_at: string;
+    courier_staff_id: string | null;
+    courier_name: string | null;
+    delivery_channel_name: string | null;
+  }
+  const [unsettledOrders, setUnsettledOrders] = useState<CourierUnsettledOrder[]>([]);
+  const [loadingCourier, setLoadingCourier] = useState(false);
+  const [settlingCourier, setSettlingCourier] = useState(false);
+
+  const loadUnsettledOrders = useCallback(async () => {
+    try {
+      setLoadingCourier(true);
+      const res = await api.get('/orders/courier-unsettled');
+      setUnsettledOrders(res.data?.unsettled_orders || []);
+    } catch {
+      toast.error('Failed to load unsettled courier orders');
+    } finally {
+      setLoadingCourier(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'courier') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadUnsettledOrders();
+    }
+  }, [activeTab, loadUnsettledOrders]);
+
+  const handleSettleCourier = async (courierStaffId?: string | null, orderIds?: string[]) => {
+    try {
+      setSettlingCourier(true);
+      let activeShiftId: number | null = null;
+      try {
+        const sessionRes = await api.get('/cash-sessions/active');
+        activeShiftId = sessionRes.data?.id ?? null;
+      } catch {}
+
+      const res = await api.post('/orders/courier-settle', {
+        courier_staff_id: courierStaffId || undefined,
+        order_ids: orderIds,
+        shift_id: activeShiftId,
+      });
+      toast.success(res.data?.message || 'Driver cash successfully settled into drawer!');
+      void loadUnsettledOrders();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg || 'Failed to settle courier cash');
+    } finally {
+      setSettlingCourier(false);
+    }
+  };
 
   // Overview / Transactions state
   const [summary, setSummary] = useState<FinanceSummary>({
@@ -497,6 +558,18 @@ export default function FinancePage() {
           <Receipt className="h-4 w-4" />
           Operating Expenses Manager
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('courier')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'courier'
+              ? 'bg-brand text-brand-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <Truck className="h-4 w-4" />
+          Courier COD Settlement
+        </button>
       </div>
 
       {/* TAB 1: OVERVIEW & LEDGER */}
@@ -813,6 +886,28 @@ export default function FinancePage() {
                   </div>
                 )}
               </div>
+
+              {/* Aggregator & Delivery Platform Performance */}
+              <div className="md:col-span-2 bg-card p-5 rounded-2xl border border-border space-y-4">
+                <h3 className="text-base font-semibold text-foreground border-b border-border pb-2 flex items-center justify-between">
+                  <span>Delivery Aggregators &amp; Channels</span>
+                  <span className="text-xs text-muted-foreground font-normal">Talabat, Hungerstation, Jahez, etc.</span>
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-3 bg-muted/40 rounded-xl border border-border">
+                    <span className="text-xs text-muted-foreground block">Gross Aggregator Sales</span>
+                    <span className="text-base font-bold text-foreground">{fmtCurrency(pnlData.gross_aggregator_revenue || 0)}</span>
+                  </div>
+                  <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
+                    <span className="text-xs text-rose-700 dark:text-rose-300 block">Platform Commissions</span>
+                    <span className="text-base font-bold text-rose-600 dark:text-rose-400">-{fmtCurrency(pnlData.aggregator_commissions || 0)}</span>
+                  </div>
+                  <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                    <span className="text-xs text-emerald-700 dark:text-emerald-300 block">Net Platform Receivable</span>
+                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">{fmtCurrency(pnlData.net_aggregator_receivable || 0)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -978,6 +1073,80 @@ export default function FinancePage() {
                         </td>
                       </tr>
                     ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: COURIER COD SETTLEMENT */}
+      {activeTab === 'courier' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">In-House Courier COD Cash Settlement</h2>
+              <p className="text-xs text-muted-foreground">Reconcile cash-on-delivery payments from drivers directly into active POS cash drawer</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => void loadUnsettledOrders()} disabled={loadingCourier}>
+                Refresh
+              </Button>
+              {unsettledOrders.length > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => void handleSettleCourier(undefined, unsettledOrders.map((o) => o.id))}
+                  disabled={settlingCourier}
+                  className="bg-brand hover:bg-brand/90"
+                >
+                  <CheckCircle2 className="h-4 w-4 me-1.5" />
+                  Settle All ({fmtCurrency(unsettledOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))})
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted text-muted-foreground font-semibold">
+                  <tr>
+                    <th className="p-3 text-start">Order #</th>
+                    <th className="p-3 text-start">Courier / Driver</th>
+                    <th className="p-3 text-start">Delivery Channel</th>
+                    <th className="p-3 text-start">Order Date</th>
+                    <th className="p-3 text-end">COD Amount</th>
+                    <th className="p-3 text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {unsettledOrders.map((ord) => (
+                    <tr key={ord.id} className="hover:bg-muted/20">
+                      <td className="p-3 font-mono font-bold text-foreground">#{ord.order_number}</td>
+                      <td className="p-3 font-semibold text-foreground">{ord.courier_name || 'Driver (Unassigned)'}</td>
+                      <td className="p-3 text-muted-foreground">{ord.delivery_channel_name || 'In-House'}</td>
+                      <td className="p-3 text-muted-foreground">{formatDate(ord.created_at)}</td>
+                      <td className="p-3 text-end font-mono font-bold text-foreground">{fmtCurrency(ord.total)}</td>
+                      <td className="p-3 text-end">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void handleSettleCourier(undefined, [ord.id])}
+                          disabled={settlingCourier}
+                          className="h-7 text-[11px]"
+                        >
+                          Settle to Drawer
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {unsettledOrders.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                        {loadingCourier ? 'Loading courier orders...' : 'All courier deliveries are fully settled!'}
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>

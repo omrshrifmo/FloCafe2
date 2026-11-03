@@ -491,7 +491,7 @@ function applyLabelOverrides(
           : block.discount,
         tax: block.tax && labels.tax !== undefined
           ? (
-              isGenericTaxTitle(block.tax.label.primary)
+              isGenericTaxTitle(block.tax?.label?.primary)
                 ? { ...block.tax, label: overrideLabel(block.tax.label, labels.tax) }
                 : block.tax
             )

@@ -241,7 +241,7 @@ purchasingRoutes.post('/purchase-orders/:id/receive', requirePermission('purchas
     const user = (req as any).user;
     const actorId = user?.id || user?.userId || 'system';
     const poId = req.params.id;
-    const { pay_from_drawer, shift_id, received_items } = req.body;
+    const { pay_from_drawer, shift_id, received_items, payment_mode, paid_amount: requested_paid_amount, payment_method, due_date } = req.body;
 
     const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId) as any;
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
@@ -312,55 +312,113 @@ purchasingRoutes.post('/purchase-orders/:id/receive', requirePermission('purchas
         }
       }
 
-      // Mark PO received
+      // Calculate payment breakdown
+      const totalAmount = Number(po.total_amount) || 0;
+      let effectivePaid = 0;
+      if (payment_mode === 'full') {
+        effectivePaid = totalAmount;
+      } else if (payment_mode === 'credit') {
+        effectivePaid = 0;
+      } else if (payment_mode === 'partial') {
+        effectivePaid = Math.max(0, Math.min(totalAmount, Number(requested_paid_amount) || 0));
+      } else if (pay_from_drawer) {
+        effectivePaid = totalAmount;
+      }
+
+      const unpaidDelta = Math.max(0, totalAmount - effectivePaid);
+      const paymentStatus = effectivePaid >= totalAmount ? 'paid' : (effectivePaid > 0 ? 'partial' : 'unpaid');
+
+      // Mark PO received with payment tracking
       db.prepare(`
         UPDATE purchase_orders
-        SET status = 'received', received_at = ?, received_by = ?, updated_at = ?
+        SET status = 'received', payment_status = ?, paid_amount = ?, due_date = COALESCE(?, due_date), received_at = ?, received_by = ?, updated_at = ?
         WHERE id = ?
-      `).run(timestamp, actorId, timestamp, poId);
+      `).run(paymentStatus, effectivePaid, due_date || null, timestamp, actorId, timestamp, poId);
 
-      // If paid from drawer, record in cash_movements & cash_drawer_movements
-      if (pay_from_drawer) {
-        const drawerAmount = Number(po.total_amount);
-        const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
-        const amountCents = Math.round(drawerAmount * minorFactor);
-        const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
-        let drawerMovementId: number | null = null;
+      // Effective shift id if applicable
+      const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
+      const shiftStr = effectiveShiftId ? String(effectiveShiftId) : null;
 
-        try {
-          const dRes = db.prepare(`
-            INSERT INTO cash_drawer_movements (
-              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
-            ) VALUES (date('now'), 'pay_out', ?, ?, ?, ?, ?)
+      // If unpaid_delta > 0, increment suppliers.balance_due and log 'po_invoice'
+      if (unpaidDelta > 0) {
+        db.prepare(`
+          UPDATE suppliers
+          SET balance_due = COALESCE(balance_due, 0) + ?, updated_at = ?
+          WHERE id = ?
+        `).run(unpaidDelta, timestamp, po.supplier_id);
+
+        db.prepare(`
+          INSERT INTO supplier_ledger_entries (
+            id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+          ) VALUES (?, ?, 'po_invoice', ?, ?, 'on_credit', ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          po.supplier_id,
+          po.id,
+          unpaidDelta,
+          shiftStr,
+          `Invoice balance for PO ${po.po_number}`,
+          actorId,
+          timestamp,
+        );
+      }
+
+      // If paid_amount > 0, record 'payment' in supplier_ledger_entries and deduct from drawer if requested
+      if (effectivePaid > 0) {
+        const payMethod = pay_from_drawer ? 'cash' : (payment_method || 'cash');
+        db.prepare(`
+          INSERT INTO supplier_ledger_entries (
+            id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+          ) VALUES (?, ?, 'payment', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          po.supplier_id,
+          po.id,
+          effectivePaid,
+          payMethod,
+          shiftStr,
+          `Initial payment on receive for PO ${po.po_number}`,
+          actorId,
+          timestamp,
+        );
+
+        if (pay_from_drawer) {
+          const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+          const amountCents = Math.round(effectivePaid * minorFactor);
+          let drawerMovementId: number | null = null;
+
+          try {
+            const dRes = db.prepare(`
+              INSERT INTO cash_drawer_movements (
+                business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+              ) VALUES (date('now'), 'pay_out', ?, ?, ?, ?, ?)
+            `).run(
+              amountCents,
+              `Supplier payment for PO ${po.po_number}`,
+              actorId,
+              timestamp,
+              effectiveShiftId,
+            );
+            drawerMovementId = Number(dRes.lastInsertRowid);
+          } catch (err) {
+            console.error('[Purchasing] Error inserting cash_drawer_movements:', err);
+          }
+
+          db.prepare(`
+            INSERT INTO cash_movements (
+              id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+            ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?, ?)
           `).run(
-            amountCents,
+            randomUUID(),
+            shiftStr,
+            effectivePaid,
+            po.id,
             `Supplier payment for PO ${po.po_number}`,
             actorId,
             timestamp,
-            effectiveShiftId,
+            drawerMovementId,
           );
-          drawerMovementId = Number(dRes.lastInsertRowid);
-        } catch (err) {
-          console.error('[Purchasing] Error inserting cash_drawer_movements:', err);
         }
-
-        const movementId = randomUUID();
-        db.prepare(`
-          INSERT INTO cash_movements (
-            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
-          ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'purchase_order', ?, ?, ?, ?, ?)
-        `).run(
-          movementId,
-          effectiveShiftId ? String(effectiveShiftId) : null,
-          drawerAmount,
-          po.id,
-          `Supplier payment for PO ${po.po_number}`,
-          actorId,
-          timestamp,
-          drawerMovementId,
-        );
-
-        db.prepare('UPDATE purchase_orders SET paid_amount = total_amount WHERE id = ?').run(poId);
       }
     });
 
@@ -370,6 +428,190 @@ purchasingRoutes.post('/purchase-orders/:id/receive', requirePermission('purchas
   } catch (error: any) {
     console.error('[Purchasing] Error receiving purchase order:', error);
     res.status(500).json({ error: error.message || 'Failed to receive purchase order' });
+  }
+});
+
+// Pay Supplier Balance (AP Settlement)
+purchasingRoutes.post('/suppliers/:id/pay', requirePermission('purchasing.orders.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.id || user?.userId || 'system';
+    const supplierId = req.params.id;
+    const { amount, payment_method = 'cash', pay_from_drawer, shift_id, notes, reference_id } = req.body;
+
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId) as any;
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+    const payAmount = Math.max(0, Number(amount) || 0);
+    if (payAmount <= 0) return res.status(400).json({ error: 'Payment amount must be greater than 0' });
+
+    const currentBalance = Number(supplier.balance_due) || 0;
+    const newBalance = Math.max(0, currentBalance - payAmount);
+    const timestamp = now();
+    const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
+    const shiftStr = effectiveShiftId ? String(effectiveShiftId) : null;
+
+    withTxn(() => {
+      db.prepare('UPDATE suppliers SET balance_due = ?, updated_at = ? WHERE id = ?').run(newBalance, timestamp, supplierId);
+
+      const entryId = randomUUID();
+      db.prepare(`
+        INSERT INTO supplier_ledger_entries (
+          id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+        ) VALUES (?, ?, 'payment', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entryId,
+        supplierId,
+        reference_id || null,
+        payAmount,
+        payment_method,
+        shiftStr,
+        notes || `Payment towards balance due (prev: ${currentBalance.toFixed(2)})`,
+        actorId,
+        timestamp,
+      );
+
+      if (pay_from_drawer) {
+        const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+        const amountCents = Math.round(payAmount * minorFactor);
+        let drawerMovementId: number | null = null;
+
+        try {
+          const dRes = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (date('now'), 'pay_out', ?, ?, ?, ?, ?)
+          `).run(
+            amountCents,
+            `Supplier balance payout for ${supplier.name}`,
+            actorId,
+            timestamp,
+            effectiveShiftId,
+          );
+          drawerMovementId = Number(dRes.lastInsertRowid);
+        } catch (err) {
+          console.error('[Purchasing] Error inserting cash_drawer_movements:', err);
+        }
+
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'supplier_payment', 'Purchasing', ?, 'cash', 'supplier', ?, ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          shiftStr,
+          payAmount,
+          supplierId,
+          notes || `Supplier balance payment to ${supplier.name}`,
+          actorId,
+          timestamp,
+          drawerMovementId,
+        );
+      }
+    });
+
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId) as any;
+    res.json({ success: true, supplier: updated });
+  } catch (error: any) {
+    console.error('[Purchasing] Error paying supplier:', error);
+    res.status(500).json({ error: error.message || 'Failed to record supplier payment' });
+  }
+});
+
+// Issue Supplier Credit Note / Damaged Goods Return
+purchasingRoutes.post('/suppliers/:id/credit-note', requirePermission('purchasing.orders.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.id || user?.userId || 'system';
+    const supplierId = req.params.id;
+    const { amount, reference_id, notes, return_items } = req.body;
+
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId) as any;
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+    const creditAmount = Math.max(0, Number(amount) || 0);
+    if (creditAmount <= 0) return res.status(400).json({ error: 'Credit note amount must be greater than 0' });
+
+    const currentBalance = Number(supplier.balance_due) || 0;
+    const newBalance = Math.max(0, currentBalance - creditAmount);
+    const timestamp = now();
+
+    withTxn(() => {
+      db.prepare('UPDATE suppliers SET balance_due = ?, updated_at = ? WHERE id = ?').run(newBalance, timestamp, supplierId);
+
+      const entryId = randomUUID();
+      db.prepare(`
+        INSERT INTO supplier_ledger_entries (
+          id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+        ) VALUES (?, ?, 'credit_note_return', ?, ?, 'credit_adjustment', NULL, ?, ?, ?)
+      `).run(
+        entryId,
+        supplierId,
+        reference_id || null,
+        creditAmount,
+        notes || 'Supplier return / credit note',
+        actorId,
+        timestamp,
+      );
+
+      // Optional physical stock return deduction
+      if (Array.isArray(return_items)) {
+        for (const item of return_items) {
+          const qty = Math.max(0, Number(item.quantity) || 0);
+          if (qty <= 0) continue;
+          if (item.target_type === 'inventory') {
+            const inv = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(item.target_id) as any;
+            if (inv) {
+              const newQty = Math.max(0, Number(inv.quantity || 0) - qty);
+              db.prepare('UPDATE inventory_items SET quantity = ?, updated_at = ? WHERE id = ?').run(newQty, timestamp, inv.id);
+              db.prepare(`
+                INSERT INTO stock_logs (
+                  target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+                ) VALUES ('inventory', ?, ?, ?, ?, ?, ?, 'credit_note', ?, ?)
+              `).run(inv.id, -qty, newQty, inv.unit, `Supplier Return / Credit Note: ${supplier.name}`, actorId, entryId, timestamp);
+            }
+          } else if (item.target_type === 'supply') {
+            const sup = db.prepare('SELECT * FROM supplies WHERE id = ?').get(item.target_id) as any;
+            if (sup) {
+              const cur = Number(sup.stock_quantity ?? sup.quantity ?? 0);
+              const newQty = Math.max(0, cur - qty);
+              db.prepare('UPDATE supplies SET stock_quantity = ?, quantity = ?, updated_at = ? WHERE id = ?').run(newQty, newQty, timestamp, sup.id);
+              db.prepare(`
+                INSERT INTO stock_logs (
+                  target_type, target_id, quantity_delta, stock_after, unit, reason, actor_user_id, reference_type, reference_id, created_at
+                ) VALUES ('supply', ?, ?, ?, ?, ?, ?, 'credit_note', ?, ?)
+              `).run(sup.id, -qty, newQty, sup.base_unit || 'each', `Supplier Return / Credit Note: ${supplier.name}`, actorId, entryId, timestamp);
+            }
+          }
+        }
+      }
+    });
+
+    const updated = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId) as any;
+    res.json({ success: true, supplier: updated });
+  } catch (error: any) {
+    console.error('[Purchasing] Error issuing supplier credit note:', error);
+    res.status(500).json({ error: error.message || 'Failed to issue credit note' });
+  }
+});
+
+// View Supplier Ledger Entries
+purchasingRoutes.get('/suppliers/:id/ledger', requirePermission('purchasing.orders.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const supplierId = req.params.id;
+    const entries = db.prepare(`
+      SELECT * FROM supplier_ledger_entries
+      WHERE supplier_id = ?
+      ORDER BY created_at DESC
+      LIMIT 200
+    `).all(supplierId);
+    res.json({ entries });
+  } catch (error: any) {
+    console.error('[Purchasing] Error fetching supplier ledger:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch supplier ledger' });
   }
 });
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import api from '@/lib/api';
 import {
   ShoppingCart, UtensilsCrossed, Package, Truck, Globe,
   Plus, Minus, Trash2, Pause, MapPin, SquarePen,
@@ -141,9 +142,16 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
   const fmt = useFormatCurrency();
   const canHold = isRestaurant && cart.orderType === 'dine_in' && cart.tableId && cart.items.length > 0 && billingType === 'postpaid';
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
+  const [deliveryChannels, setDeliveryChannels] = useState<Array<{ id: string; channel_name: string; commission_rate: number }>>([]);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
   const tPrint = useTranslations('print');
   const tOrders = useTranslations('orders');
+
+  useEffect(() => {
+    api.get('/finance/delivery-channels')
+      .then((res) => setDeliveryChannels(res.data?.channels || []))
+      .catch(() => {});
+  }, []);
 
   const handlePrintPreliminary = async () => {
     if (printingPreliminary || cart.items.length === 0) return;
@@ -227,17 +235,52 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
           </div>
         )}
 
-        {/* Delivery address — shown inline when delivery is selected */}
+        {/* Delivery address & channel — shown inline when delivery is selected */}
         {cart.orderType === 'delivery' && (
-          <div className="flex items-center gap-2">
-            <MapPin size={14} className="text-muted-foreground shrink-0" />
-            <input
-              type="text"
-              value={cart.deliveryAddress}
-              onChange={(e) => cart.setDeliveryAddress(e.target.value)}
-              placeholder={t('deliveryAddress')}
-              className="flex-1 min-h-11 px-3 py-2 text-sm border border-border bg-card rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
-            />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <MapPin size={14} className="text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={cart.deliveryAddress}
+                onChange={(e) => cart.setDeliveryAddress(e.target.value)}
+                placeholder={t('deliveryAddress')}
+                className="flex-1 min-h-10 px-3 py-1.5 text-xs border border-border bg-card rounded-lg focus:ring-1 focus:ring-brand outline-none"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={cart.deliveryChannelId || ''}
+                onChange={(e) => {
+                  const ch = deliveryChannels.find((c) => c.id === e.target.value);
+                  cart.setDeliveryChannel(ch ? ch.id : null, ch ? ch.channel_name : null);
+                }}
+                className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
+              >
+                <option value="">Direct (0% comm)</option>
+                {deliveryChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.channel_name} ({c.commission_rate}%)
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={cart.courierName}
+                onChange={(e) => cart.setCourier(null, e.target.value)}
+                placeholder="Driver / Courier"
+                className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
+              />
+            </div>
+            {cart.deliveryChannelId && (
+              <input
+                type="text"
+                value={cart.aggregatorOrderRef}
+                onChange={(e) => cart.setAggregatorOrderRef(e.target.value)}
+                placeholder="Platform Order # (e.g. TAL-1049)"
+                className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
+              />
+            )}
           </div>
         )}
 

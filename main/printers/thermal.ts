@@ -16,7 +16,8 @@ import {
 } from './profiles';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { resolveTaxComponents } from '../services/tax-components';
-import { resolveTaxLabel, isGenericTaxTitle } from '../services/tax';
+import { resolveTaxLabel, isGenericTaxTitle, generateFiscalQrPayload } from '../services/tax';
+export { generateFiscalQrPayload };
 import { loadInstalledPrintTemplate, parseBillTemplateSelection } from '../services/print-templates';
 import { renderMerchantReceiptViaDocument } from './document-merchant';
 import { correlationId, type FloErrorCode } from '../errors';
@@ -946,11 +947,34 @@ export async function printReceipt(order: any, bill: any, business?: any, templa
         warnings,
       };
     }
+    let finalReceiptData = data;
+    const hasFiscalQrConfig = Boolean(
+      business?.tax_registration_number ||
+      business?.taxRegistrationNumber ||
+      getSettingValue('tax_registration_number') ||
+      getSettingValue('enable_fiscal_qr') === 'true'
+    );
+    if (hasFiscalQrConfig && !isPreliminary) {
+      const fiscalPayload = generateFiscalQrPayload({
+        sellerName: business?.name || getSettingValue('store_name') || 'FloCafe Store',
+        taxRegistrationNumber: business?.tax_registration_number || business?.taxRegistrationNumber || getSettingValue('tax_registration_number') || '',
+        timestamp: bill?.created_at || new Date().toISOString(),
+        invoiceTotalWithTax: bill?.total || 0,
+        taxTotal: bill?.tax_amount || 0,
+      });
+      const qrBuf = encodeEscPosQr(fiscalPayload);
+      finalReceiptData = Buffer.concat([finalReceiptData, qrBuf]);
+    }
+
+    if (printer?.bill_text_size === 'large') {
+      finalReceiptData = Buffer.concat([Buffer.from([0x1D, 0x21, 0x01]), finalReceiptData]);
+    }
+
     const pulseSetting = getSettingValue('cash_drawer_pulse_enabled');
     const shouldPulse = !isPreliminary && (pulseSetting === null
       ? printer.cash_drawer_pulse_enabled === 1
       : pulseSetting === 'true' && shouldPulseForPayment(bill));
-    const receiptData = shouldPulse ? appendCashDrawerPulse(data) : data;
+    const receiptData = shouldPulse ? appendCashDrawerPulse(finalReceiptData) : finalReceiptData;
     console.log('[Printer] Using printer:', printer.name, printer.connection_type, 'columns:', columns);
     console.log('[Printer] Receipt data length:', receiptData.length, 'bytes');
     console.log('[Printer] First 100 bytes:', Array.from(receiptData.slice(0, 100)).map(b => b.toString(16)).join(' '));
@@ -1127,13 +1151,35 @@ export async function printKOT(order: any, items: any[], stationName: string, us
         warnings,
       };
     }
-    console.log('[Printer] KOT data length:', data.length, 'bytes');
-    const dispatch = await dispatchPrint(printer, data, signal);
+    let kotData = data;
+    if (printer?.kot_text_size === 'large') {
+      kotData = Buffer.concat([Buffer.from([0x1D, 0x21, 0x01]), kotData]);
+    }
+    console.log('[Printer] KOT data length:', kotData.length, 'bytes');
+    const dispatch = await dispatchPrint(printer, kotData, signal);
     return warnings.length > 0 ? { ...dispatch, warnings } : dispatch;
   } catch (error: any) {
     console.error('[Printer] KOT print error:', error);
     return { ok: false, detail: error?.message };
   }
+}
+
+/** Encodes arbitrary payload as an ESC/POS Model 2 QR code. */
+export function encodeEscPosQr(payload: string): Buffer {
+  const data = Buffer.from(payload, 'utf8');
+  const p = data.length + 3;
+  const pL = p % 256;
+  const pH = Math.floor(p / 256);
+  return Buffer.concat([
+    Buffer.from([0x1B, 0x61, 0x01]), // Center align
+    Buffer.from([0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]), // Model 2
+    Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x04]), // Module size 4
+    Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x31]), // Error correction level M
+    Buffer.from([0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30]), // Store data
+    data,
+    Buffer.from([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30]), // Print QR
+    Buffer.from([0x0A]),
+  ]);
 }
 
 /** Report print failure via telemetry tiers (best-effort, non-blocking). */
@@ -2359,6 +2405,16 @@ export function buildZReportSections(
   const languages = additionalLanguage && additionalLanguage !== lang
     ? [lang, additionalLanguage] as const
     : [lang] as const;
+  const expectedCashCents = z?.expected_cash_cents !== undefined && z?.expected_cash_cents !== null
+    ? Number(z.expected_cash_cents)
+    : (z?.expected_balance !== undefined && z?.expected_balance !== null ? Math.round(Number(z.expected_balance) * factor) : 0);
+  const countedCashCents = z?.counted_cash_cents !== undefined && z?.counted_cash_cents !== null
+    ? Number(z.counted_cash_cents)
+    : (z?.closing_balance !== undefined && z?.closing_balance !== null ? Math.round(Number(z.closing_balance) * factor) : (z?.actual_balance !== undefined ? Math.round(Number(z.actual_balance) * factor) : 0));
+  const varianceCents = z?.variance_cents !== undefined && z?.variance_cents !== null
+    ? Number(z.variance_cents)
+    : (z?.discrepancy !== undefined && z?.discrepancy !== null ? Math.round(Number(z.discrepancy) * factor) : (countedCashCents - expectedCashCents));
+
   const documentData: ZReportPrintData = {
     zNumber: z?.z_number ?? 0,
     businessDate: String(z?.business_date || ''),
@@ -2384,15 +2440,9 @@ export function buildZReportSections(
       orderCount: Number(row?.orderCount ?? row?.orders) || 0,
       revenueCents: Number(row?.revenue_cents ?? row?.revenue) || 0,
     })),
-    expectedCashCents: z?.expected_cash_cents !== undefined && z?.expected_cash_cents !== null
-      ? Number(z.expected_cash_cents)
-      : (z?.expected_balance !== undefined && z?.expected_balance !== null ? Math.round(Number(z.expected_balance) * factor) : 0),
-    countedCashCents: z?.counted_cash_cents !== undefined && z?.counted_cash_cents !== null
-      ? Number(z.counted_cash_cents)
-      : (z?.closing_balance !== undefined && z?.closing_balance !== null ? Math.round(Number(z.closing_balance) * factor) : (z?.actual_balance !== undefined ? Math.round(Number(z.actual_balance) * factor) : 0)),
-    varianceCents: z?.variance_cents !== undefined && z?.variance_cents !== null
-      ? Number(z.variance_cents)
-      : (z?.discrepancy !== undefined && z?.discrepancy !== null ? Math.round(Number(z.discrepancy) * factor) : ((Number(z?.counted_cash_cents) || 0) - (Number(z?.expected_cash_cents) || 0))),
+    expectedCashCents,
+    countedCashCents,
+    varianceCents,
     closedByName: String(z?.closed_by_name || z?.closed_by || ''),
     businessName: String(settings.business_name || ''),
     businessAddress: String(settings.business_address || ''),

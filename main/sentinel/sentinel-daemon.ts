@@ -4,8 +4,10 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { sentinelRoutes } from '../routes/sentinel';
+import { sentinelRoutes, getNetworkInfo } from '../routes/sentinel';
 import { initHardwareLicenseSchema, verifyHardwareLicense } from '../services/hardware-license';
+
+export { getNetworkInfo };
 
 export function resolveSentinelDbPath(): string {
   if (process.env.FLO_DB_PATH && fs.existsSync(process.env.FLO_DB_PATH)) {
@@ -60,7 +62,7 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
   app.get('/', (_req, res) => {
     res.json({
       service: 'flocafe-sentinel',
-      version: '4.1.0',
+      version: '4.2.0',
       port,
       status: 'active',
       endpoints: [

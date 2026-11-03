@@ -15,7 +15,7 @@ import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals, recomputeOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
 import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot, roundQuantity } from '../services/recipes';
-import { requireConfirmedIdentity, requireOpenSessionForOrder } from '../services/shift-session-gate';
+import { requireConfirmedIdentity, requireOpenSessionForOrder, getOpenSession } from '../services/shift-session-gate';
 import { notifyKdsUpdate, notifyOrderUpdated, broadcastWsEvent } from '../services/kds';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
@@ -452,6 +452,114 @@ function batchHydrateOrders(db: ReturnType<typeof getDatabase>, orders: any[]) {
   });
 }
 
+// ==========================================
+// In-House Courier Dispatch & COD Settlement
+// ==========================================
+router.get('/courier-unsettled', requirePermission('orders.read'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { courier_staff_id } = req.query;
+    let sql = `
+      SELECT id, order_number, total, created_at, courier_staff_id, courier_name, delivery_channel_name
+      FROM orders
+      WHERE (type = 'delivery' OR courier_staff_id IS NOT NULL)
+        AND status != 'cancelled'
+        AND courier_settled_at IS NULL
+    `;
+    const params: any[] = [];
+    if (courier_staff_id) {
+      sql += ' AND courier_staff_id = ?';
+      params.push(String(courier_staff_id));
+    }
+    sql += ' ORDER BY created_at ASC';
+    const orders = db.prepare(sql).all(...params);
+    res.json({ unsettled_orders: orders });
+  } catch (error: any) {
+    console.error('[Orders] Error fetching unsettled courier orders:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch unsettled courier orders' });
+  }
+});
+
+router.post('/courier-settle', requirePermission('orders.create'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.id || user?.userId || 'system';
+    const { courier_staff_id, order_ids, shift_id } = req.body;
+
+    let targetOrders: any[] = [];
+    if (Array.isArray(order_ids) && order_ids.length > 0) {
+      const placeholders = order_ids.map(() => '?').join(',');
+      targetOrders = db.prepare(`SELECT * FROM orders WHERE id IN (${placeholders}) AND courier_settled_at IS NULL`).all(...order_ids);
+    } else if (courier_staff_id) {
+      targetOrders = db.prepare(`SELECT * FROM orders WHERE courier_staff_id = ? AND courier_settled_at IS NULL AND status != 'cancelled'`).all(courier_staff_id);
+    } else {
+      return res.status(400).json({ error: 'courier_staff_id or order_ids is required' });
+    }
+
+    if (targetOrders.length === 0) {
+      return res.json({ success: true, settled_count: 0, total_settled: 0, message: 'No unsettled orders found' });
+    }
+
+    const timestamp = now();
+    const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
+    const shiftStr = effectiveShiftId ? String(effectiveShiftId) : null;
+    let totalSettled = 0;
+
+    withTxn(() => {
+      for (const ord of targetOrders) {
+        totalSettled += Number(ord.total) || 0;
+        db.prepare('UPDATE orders SET courier_settled_at = ?, courier_settlement_session_id = ?, updated_at = ? WHERE id = ?')
+          .run(timestamp, shiftStr, timestamp, ord.id);
+      }
+
+      if (totalSettled > 0 && effectiveShiftId) {
+        const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency());
+        const amountCents = Math.round(totalSettled * minorFactor);
+        const courierLabel = targetOrders[0]?.courier_name || courier_staff_id || 'Courier';
+        let drawerMovementId: number | null = null;
+
+        try {
+          const dRes = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (date('now'), 'pay_in', ?, ?, ?, ?, ?)
+          `).run(
+            amountCents,
+            `Courier cash settlement (${targetOrders.length} orders) - ${courierLabel}`,
+            actorId,
+            timestamp,
+            effectiveShiftId,
+          );
+          drawerMovementId = Number(dRes.lastInsertRowid);
+        } catch (dErr) {
+          console.error('[Orders] Error inserting cash_drawer_movements for courier settlement:', dErr);
+        }
+
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'cash_in', 'Courier Settlement', ?, 'cash', 'courier_settlement', ?, ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          shiftStr,
+          totalSettled,
+          courier_staff_id || String(targetOrders[0]?.id),
+          `Settled ${targetOrders.length} delivery orders for ${courierLabel}`,
+          actorId,
+          timestamp,
+          drawerMovementId,
+        );
+      }
+    });
+
+    res.json({ success: true, settled_count: targetOrders.length, total_settled: totalSettled });
+  } catch (error: any) {
+    console.error('[Orders] Error settling courier orders:', error);
+    res.status(500).json({ error: error.message || 'Failed to settle courier orders' });
+  }
+});
+
 router.get('/:id', orderReadRateLimit, requirePermission('orders.read'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
@@ -474,7 +582,13 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
     requireConfirmedIdentity(req);
     requireOpenSessionForOrder(getDatabase(), req);
     const body = req.body || {};
-    const { table_id, customer_id, type, guest_count, special_instructions, packaging_charge, delivery_charge, service_charge, items, online_platform, external_order_id, internal_label } = body;
+    const {
+      table_id, customer_id, type, guest_count, special_instructions,
+      packaging_charge, delivery_charge, service_charge, items,
+      online_platform, external_order_id, internal_label,
+      delivery_channel_id, delivery_channel_name, aggregator_order_ref,
+      courier_staff_id, courier_name,
+    } = body;
     // Carries optional service charge without automatic calculation policy.
     const idempotencyKey = orderIdempotencyKey(req);
     const idempotencyUserId = String((req as any).user.userId);
@@ -525,6 +639,19 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
     const internalLabel = typeof internal_label === 'string' ? internal_label.trim().slice(0, 100) || null : null;
 
     const db = getDatabase();
+
+    let deliveryChannelId = delivery_channel_id || null;
+    let deliveryChannelName = delivery_channel_name || null;
+    let commissionRate = 0;
+    let channelType = 'in_house';
+    if (deliveryChannelId) {
+      const dChan = db.prepare('SELECT * FROM delivery_channels WHERE id = ?').get(deliveryChannelId) as any;
+      if (dChan) {
+        deliveryChannelName = dChan.name;
+        commissionRate = Number(dChan.commission_pct) || 0;
+        channelType = dChan.channel_type;
+      }
+    }
 
     try {
       validateOrderNotes(db, special_instructions);
@@ -601,13 +728,17 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         const orderResult = db.prepare(`
           INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
             packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
-            service_charge, service_charge_tax_category_id, online_platform, external_order_id, internal_label, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            service_charge, service_charge_tax_category_id, online_platform, external_order_id, internal_label,
+            delivery_channel_id, delivery_channel_name, aggregator_order_ref, aggregator_commission_rate, aggregator_commission_amount,
+            courier_staff_id, courier_name, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?)
         `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
           special_instructions || null, pkgCharge, delCharge,
           chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
           serviceCharge, chargeContext.service_charge_tax_category_id,
-          onlinePlatform || null, externalOrderId || null, internalLabel, now(), now());
+          onlinePlatform || null, externalOrderId || null, internalLabel,
+          deliveryChannelId, deliveryChannelName, aggregator_order_ref || externalOrderId || null, commissionRate,
+          courier_staff_id || null, courier_name || null, now(), now());
         orderId = Number(orderResult.lastInsertRowid);
       }
 
@@ -631,7 +762,12 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
           throw Object.assign(new Error(`Product ${item.product_id} not found`), { statusCode: 400 });
         }
 
-        const unitPrice = parseFloat(product.price);
+        const originalUnitPrice = parseFloat(product.price);
+        const hasPriceOverride = (item.override_price !== undefined && item.override_price !== null) ||
+                                 (item.override_unit_price !== undefined && item.override_unit_price !== null);
+        const unitPrice = hasPriceOverride
+          ? Math.max(0, Number(item.override_price ?? item.override_unit_price))
+          : originalUnitPrice;
         const quantity = item.quantity;
         // Item discounts are applied via dedicated discount routes, not creation.
         const itemDiscount = 0;
@@ -641,6 +777,32 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         const deduction = resolveInventoryDeduction(product, quantity);
         if (unitPrice < 0 || !Number.isFinite(unitPrice)) {
           throw Object.assign(new Error(`Invalid price for ${product.name}: must be a non-negative number`), { statusCode: 400 });
+        }
+
+        const itemCreatedAt = now();
+        if (hasPriceOverride) {
+          const delta = (unitPrice - originalUnitPrice) * quantity;
+          const openSession = getOpenSession(db);
+          db.prepare(`
+            INSERT INTO price_override_logs (
+              id, order_id, order_number, product_id, product_name, original_unit_price, override_unit_price,
+              quantity, price_delta_total, reason, approved_by, cash_session_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            randomUUID(),
+            String(orderId),
+            orderNumber,
+            product.id,
+            product.name,
+            originalUnitPrice,
+            unitPrice,
+            quantity,
+            delta,
+            item.override_reason || item.reason || 'Manager Override',
+            item.override_approved_by || authenticatedUserId,
+            openSession?.id ? String(openSession.id) : null,
+            itemCreatedAt
+          );
         }
 
         let itemSubtotal = unitPrice * quantity;
@@ -673,7 +835,6 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         const itemTotal = itemSubtotal + (taxResult.tax_type === 'inclusive' ? 0 : taxResult.tax_amount);
         subtotal += itemSubtotal;
 
-        const itemCreatedAt = now();
         const recipeSnapshot = buildRecipeSnapshot(db, product.id, quantity, { addons: item.addons, orderType: type });
         const insertItemResult = insertItem.run(
           orderId, product.id, product.name, product.sku, unitPrice, quantity,
@@ -709,8 +870,12 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
           });
         }
 
+        const variantId = item.variant_id || item.variant_selection?.id || null;
+        const addonIds = (item.addons || []).map((a: any) => a.addon_id || a.id).filter(Boolean);
         depleteBomForOrderItem(db, {
           productId: product.id,
+          variantId,
+          addonIds,
           quantity,
           orderId: String(orderId),
           orderNumber,
@@ -736,16 +901,17 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         + delCharge + pkgCharge + serviceCharge;
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
+      const commissionAmount = commissionRate > 0 ? Number(((total * commissionRate) / 100).toFixed(2)) : 0;
 
       if (existingActiveOrder) {
         recalculateAndPersistOrder(db, orderId);
       } else {
         db.prepare(`
           UPDATE orders SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, total = ?,
-            round_off = ?, updated_at = ? WHERE id = ?
+            round_off = ?, aggregator_commission_amount = ?, updated_at = ? WHERE id = ?
         `).run(
           subtotal, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns),
-          taxRollup.snapshotJson, total, roundOff, now(), orderId,
+          taxRollup.snapshotJson, total, roundOff, commissionAmount, now(), orderId,
         );
       }
 
@@ -754,18 +920,26 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       }
 
       const order = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
-      if (body.payments || body.payment_method) {
+
+      // Handle delivery aggregator direct settlement or explicit payment
+      let effectivePayments = body.payments;
+      let effectivePaymentMethod = body.payment_method;
+      if (channelType === 'aggregator' && deliveryChannelName && !effectivePayments && !effectivePaymentMethod) {
+        effectivePaymentMethod = 'aggregator:' + deliveryChannelName;
+      }
+
+      if (effectivePayments || effectivePaymentMethod) {
         try {
           const generated = getOrCreateBillForOrder(db, orderId);
           if (generated?.id) {
             let directPayments: any[] = [];
-            if (Array.isArray(body.payments)) {
-              directPayments = body.payments;
+            if (Array.isArray(effectivePayments)) {
+              directPayments = effectivePayments;
             } else {
               directPayments = [{
-                method: body.payment_method,
+                method: effectivePaymentMethod,
                 payment_method_id: body.payment_method_id ?? body.method_id,
-                method_name: body.payment_method_name ?? body.method_name,
+                method_name: body.payment_method_name ?? body.method_name ?? effectivePaymentMethod,
                 amount: body.paid_amount ?? order.total,
                 tendered: body.tendered ?? body.paid_amount ?? order.total,
                 change: body.change ?? 0,

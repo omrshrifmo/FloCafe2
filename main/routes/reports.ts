@@ -1002,4 +1002,89 @@ router.get('/sales-itemized', requirePermission('reports.view'), (req: Request, 
   }
 });
 
+// ==========================================
+// Owner Cart Price Exceptions Report
+// ==========================================
+router.get('/price-exceptions', requirePermission('reports.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { start_date, end_date } = req.query;
+    let query = 'SELECT * FROM price_override_logs WHERE 1=1';
+    const params: any[] = [];
+    if (start_date) {
+      query += ' AND date(created_at) >= date(?)';
+      params.push(String(start_date));
+    }
+    if (end_date) {
+      query += ' AND date(created_at) <= date(?)';
+      params.push(String(end_date));
+    }
+    query += ' ORDER BY created_at DESC LIMIT 500';
+    const exceptions = db.prepare(query).all(...params) as any[];
+
+    const totalDelta = exceptions.reduce((sum, item) => sum + (Number(item.price_delta_total) || 0), 0);
+    res.json({
+      price_exceptions: exceptions,
+      count: exceptions.length,
+      total_price_delta: Math.round(totalDelta * 100) / 100,
+    });
+  } catch (error: any) {
+    console.error('[Reports] Error fetching price exceptions:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch price exceptions' });
+  }
+});
+
+// ==========================================
+// Owner Customer Itemized Sales Export
+// ==========================================
+router.get('/customer-sales-export', requirePermission('reports.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { start_date, end_date, customer_id } = req.query;
+    let query = `
+      SELECT
+        o.id as order_id,
+        o.order_number,
+        o.created_at as order_created_at,
+        o.type as order_type,
+        o.delivery_channel_name,
+        c.id as customer_id,
+        COALESCE(c.name, 'Walk-In Customer') as customer_name,
+        c.phone as customer_phone,
+        oi.id as item_id,
+        oi.product_id,
+        oi.product_name,
+        oi.product_sku,
+        oi.quantity,
+        oi.unit_price,
+        oi.subtotal as item_subtotal,
+        oi.tax_amount as item_tax,
+        oi.total as item_total
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE o.status != 'cancelled'
+    `;
+    const params: any[] = [];
+    if (start_date) {
+      query += ' AND date(o.created_at) >= date(?)';
+      params.push(String(start_date));
+    }
+    if (end_date) {
+      query += ' AND date(o.created_at) <= date(?)';
+      params.push(String(end_date));
+    }
+    if (customer_id) {
+      query += ' AND o.customer_id = ?';
+      params.push(String(customer_id));
+    }
+    query += ' ORDER BY o.created_at DESC LIMIT 1000';
+    const rows = db.prepare(query).all(...params);
+    res.json({ customer_sales: rows, count: rows.length });
+  } catch (error: any) {
+    console.error('[Reports] Error generating customer sales export:', error);
+    res.status(500).json({ error: error.message || 'Failed to export customer sales' });
+  }
+});
+
 export const reportRoutes = router;

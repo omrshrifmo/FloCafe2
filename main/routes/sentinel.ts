@@ -26,7 +26,7 @@ export function getNetworkInfo() {
   for (const [name, addrs] of Object.entries(interfaces)) {
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === 'IPv4' && !addr.internal) {
+      if ((addr.family === 'IPv4' || (addr as unknown as { family: number }).family === 4) && !addr.internal) {
         const ip = addr.address;
         const isTailscale = name.toLowerCase().includes('tailscale') || ip.startsWith('100.');
         const isZeroTier = name.toLowerCase().startsWith('zt');

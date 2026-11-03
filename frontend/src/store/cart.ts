@@ -58,6 +58,11 @@ interface CartState {
   onlinePlatform: string;
   externalOrderId: string;
   orderNotes: string;
+  deliveryChannelId: string | null;
+  deliveryChannelName: string | null;
+  aggregatorOrderRef: string;
+  courierStaffId: string | null;
+  courierName: string;
 
   addItem: (product: Product, quantity?: number, addons?: Addon[], specialInstructions?: string) => void;
   updateItemDetails: (cartItemId: string, quantity: number, addons: Addon[], specialInstructions: string) => void;
@@ -75,6 +80,9 @@ interface CartState {
   setOnlinePlatform: (platform: string) => void;
   setExternalOrderId: (id: string) => void;
   setOrderNotes: (notes: string) => void;
+  setDeliveryChannel: (id: string | null, name?: string | null) => void;
+  setAggregatorOrderRef: (ref: string) => void;
+  setCourier: (id: string | null, name?: string) => void;
 
   subtotal: () => number;
   itemCount: () => number;
@@ -93,6 +101,11 @@ export const useCartStore = create<CartState>((set, get) => ({
   onlinePlatform: '',
   externalOrderId: '',
   orderNotes: '',
+  deliveryChannelId: null,
+  deliveryChannelName: null,
+  aggregatorOrderRef: '',
+  courierStaffId: null,
+  courierName: '',
 
   addItem: (product, quantity = 1, addons = [], specialInstructions = '') => {
     const items = get().items;
@@ -183,6 +196,9 @@ export const useCartStore = create<CartState>((set, get) => ({
   setOnlinePlatform: (platform) => set({ onlinePlatform: platform }),
   setExternalOrderId: (id) => set({ externalOrderId: id }),
   setOrderNotes: (notes) => set({ orderNotes: notes }),
+  setDeliveryChannel: (id, name = null) => set({ deliveryChannelId: id, deliveryChannelName: name }),
+  setAggregatorOrderRef: (ref) => set({ aggregatorOrderRef: ref }),
+  setCourier: (id, name = '') => set({ courierStaffId: id, courierName: name }),
 
   subtotal: () => {
     return get().items.reduce((sum, item) => {

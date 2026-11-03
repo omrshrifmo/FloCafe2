@@ -237,6 +237,48 @@ financeRoutes.get('/categories', requirePermission('reports.view'), (req: Reques
   }
 });
 
+// ==========================================
+// Delivery Channels & Aggregator Commissions
+// ==========================================
+financeRoutes.get('/delivery-channels', requirePermission('finance.expenses.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const channels = db.prepare('SELECT * FROM delivery_channels ORDER BY channel_type ASC, name ASC').all();
+    res.json({ delivery_channels: channels, channels });
+  } catch (error: any) {
+    console.error('[Finance] Error listing delivery channels:', error);
+    res.status(500).json({ error: error.message || 'Failed to list delivery channels' });
+  }
+});
+
+financeRoutes.post('/delivery-channels', requirePermission('finance.expenses.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { id, name, channel_type = 'aggregator', commission_pct = 0, settlement_account = 'aggregator_receivable', is_active = 1 } = req.body;
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Channel name is required' });
+    }
+
+    const channelId = id || String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    db.prepare(`
+      INSERT INTO delivery_channels (id, name, channel_type, commission_pct, settlement_account, is_active)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        channel_type = excluded.channel_type,
+        commission_pct = excluded.commission_pct,
+        settlement_account = excluded.settlement_account,
+        is_active = excluded.is_active
+    `).run(channelId, String(name).trim(), channel_type, Number(commission_pct) || 0, settlement_account, is_active ? 1 : 0);
+
+    const channel = db.prepare('SELECT * FROM delivery_channels WHERE id = ?').get(channelId);
+    res.status(201).json({ success: true, delivery_channel: channel });
+  } catch (error: any) {
+    console.error('[Finance] Error saving delivery channel:', error);
+    res.status(500).json({ error: error.message || 'Failed to save delivery channel' });
+  }
+});
+
 financeRoutes.get('/reports/pnl', requirePermission('finance.expenses.view'), (req: Request, res: Response) => {
   return handleGetPnl(req, res);
 });
@@ -613,7 +655,21 @@ export function handleGetPnl(req: Request, res: Response): void {
     `).get(startDate, endDate) as any;
     const payrollExpense = Number(payrollRow?.total_payroll || 0);
 
-    // 5. Net Operating Profit (EBITDA)
+    // 5. Delivery Aggregator Revenue & Platform Commissions
+    const aggRow = db.prepare(`
+      SELECT
+        COALESCE(SUM(total), 0) as gross_aggregator_revenue,
+        COALESCE(SUM(aggregator_commission_amount), 0) as aggregator_commissions
+      FROM orders
+      WHERE status != 'cancelled'
+        AND delivery_channel_id IS NOT NULL
+        AND date(created_at) >= date(?) AND date(created_at) <= date(?)
+    `).get(startDate, endDate) as any;
+    const grossAggregatorRevenue = Number(aggRow?.gross_aggregator_revenue || 0);
+    const aggregatorCommissions = Number(aggRow?.aggregator_commissions || 0);
+    const netAggregatorReceivable = Math.max(0, grossAggregatorRevenue - aggregatorCommissions);
+
+    // 6. Net Operating Profit (EBITDA)
     const ebitda = grossProfit - totalOperatingExpenses - payrollExpense;
     const ebitdaMarginPct = netRevenue > 0 ? (ebitda / netRevenue) * 100 : 0;
 
@@ -632,6 +688,9 @@ export function handleGetPnl(req: Request, res: Response): void {
         total_operating_expenses: totalOperatingExpenses,
         expense_breakdown: expenseBreakdown,
         payroll_expense: payrollExpense,
+        gross_aggregator_revenue: grossAggregatorRevenue,
+        aggregator_commissions: aggregatorCommissions,
+        net_aggregator_receivable: netAggregatorReceivable,
         net_operating_profit_ebitda: ebitda,
         ebitda_margin_pct: ebitdaMarginPct,
       },

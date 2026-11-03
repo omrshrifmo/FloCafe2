@@ -94,6 +94,8 @@ function printerShape(printer: any) {
     cash_drawer_pulse_enabled: printer.cash_drawer_pulse_enabled,
     paper_width: printer.paper_width,
     branded_raster_transport: printer.branded_raster_transport || 'gs_v_0',
+    kot_text_size: printer.kot_text_size || 'normal',
+    bill_text_size: printer.bill_text_size || 'normal',
     created_at: printer.created_at,
     updated_at: printer.updated_at,
     profile_id: profile.id,
@@ -161,7 +163,7 @@ router.get('/:id', requirePermission('printers.manage'), (req: Request, res: Res
 // POST /api/printers — create
 router.post('/', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
-    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport } = req.body;
+    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport, kot_text_size, bill_text_size } = req.body;
     // Trim accidental whitespace so the name matches the OS print queue exactly.
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : req.body.name;
 
@@ -191,8 +193,8 @@ router.post('/', requirePermission('printers.manage'), (req: Request, res: Respo
       const shouldBeDefault = Boolean(is_default) || isFirstPrinter;
       if (shouldBeDefault) db.prepare('UPDATE printers SET is_default = 0').run();
       db.prepare(`
-        INSERT INTO printers (id, name, connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO printers (id, name, connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport, kot_text_size, bill_text_size, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, name, connection_type,
         ip_address ?? null,
@@ -201,6 +203,8 @@ router.post('/', requirePermission('printers.manage'), (req: Request, res: Respo
         shouldBeDefault ? 1 : 0,
         cash_drawer_pulse_enabled === true ? 1 : 0,
         branded_raster_transport || 'gs_v_0',
+        kot_text_size === 'large' ? 'large' : 'normal',
+        bill_text_size === 'large' ? 'large' : 'normal',
         now(), now()
       );
       ensureDefaultPrinter(db);
@@ -221,7 +225,7 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
     const existing = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Printer not found' });
 
-    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport } = req.body;
+    const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, branded_raster_transport, kot_text_size, bill_text_size } = req.body;
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : req.body.name;
 
     const fieldError = validatePrinterFields({ ...req.body, name }, existing);
@@ -235,7 +239,7 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
         UPDATE printers SET
           name = ?, connection_type = ?, ip_address = ?, port = ?,
           paper_width = ?, is_default = ?, cash_drawer_pulse_enabled = ?,
-          branded_raster_transport = ?, updated_at = ?
+          branded_raster_transport = ?, kot_text_size = ?, bill_text_size = ?, updated_at = ?
         WHERE id = ?
       `).run(
         name !== undefined ? name : existing.name,
@@ -246,6 +250,8 @@ router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Res
         becameDefault ? 1 : (is_default === false ? 0 : existing.is_default),
         cash_drawer_pulse_enabled !== undefined ? (cash_drawer_pulse_enabled ? 1 : 0) : existing.cash_drawer_pulse_enabled,
         branded_raster_transport !== undefined ? branded_raster_transport : (existing.branded_raster_transport || 'gs_v_0'),
+        kot_text_size !== undefined ? (kot_text_size === 'large' ? 'large' : 'normal') : (existing.kot_text_size || 'normal'),
+        bill_text_size !== undefined ? (bill_text_size === 'large' ? 'large' : 'normal') : (existing.bill_text_size || 'normal'),
         now(), req.params.id
       );
       if (becameDefault) db.prepare('UPDATE printers SET is_default = 0 WHERE id != ?').run(req.params.id);

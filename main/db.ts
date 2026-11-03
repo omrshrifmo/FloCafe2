@@ -6220,6 +6220,211 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 110,
+    name: 'flocafe_4_2_0_modifier_bom_prep_batches_waste_ap_delivery_and_overrides',
+    up: () => {
+      // 1. Modifier & Variant BOM Extensions (bom_components)
+      const bomCols = getColumns(db, 'bom_components');
+      if (bomCols.length > 0) {
+        if (!bomCols.includes('variant_id')) db.exec('ALTER TABLE bom_components ADD COLUMN variant_id TEXT');
+        if (!bomCols.includes('addon_id')) db.exec('ALTER TABLE bom_components ADD COLUMN addon_id TEXT');
+        if (!bomCols.includes('portion_multiplier')) db.exec('ALTER TABLE bom_components ADD COLUMN portion_multiplier REAL NOT NULL DEFAULT 1');
+        if (!bomCols.includes('replaces_target_id')) db.exec('ALTER TABLE bom_components ADD COLUMN replaces_target_id TEXT');
+      }
+
+      // 2. Prep Batch Production & Sub-Recipes
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS prep_recipes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          output_target_type TEXT NOT NULL DEFAULT 'inventory',
+          output_target_id TEXT NOT NULL,
+          yield_quantity REAL NOT NULL,
+          yield_unit TEXT NOT NULL,
+          prep_time_minutes REAL NOT NULL DEFAULT 15,
+          labor_rate_per_hour REAL NOT NULL DEFAULT 60,
+          shelf_life_hours INTEGER NOT NULL DEFAULT 48,
+          storage_area TEXT NOT NULL DEFAULT 'Walk-In Chiller',
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS prep_recipe_components (
+          id TEXT PRIMARY KEY,
+          prep_recipe_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'inventory',
+          target_id TEXT NOT NULL,
+          component_name TEXT NOT NULL,
+          unit TEXT NOT NULL,
+          net_quantity REAL NOT NULL,
+          waste_pct REAL NOT NULL DEFAULT 0,
+          gross_quantity REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS prep_production_logs (
+          id TEXT PRIMARY KEY,
+          prep_recipe_id TEXT NOT NULL,
+          batch_lot_number TEXT NOT NULL,
+          batches_multiplier REAL NOT NULL DEFAULT 1,
+          produced_quantity REAL NOT NULL,
+          total_batch_cost REAL NOT NULL,
+          unit_cost REAL NOT NULL,
+          haccp_batch_id TEXT,
+          produced_by TEXT NOT NULL,
+          produced_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_prep_recipe_components_recipe_id ON prep_recipe_components(prep_recipe_id);
+        CREATE INDEX IF NOT EXISTS idx_prep_production_logs_recipe_id ON prep_production_logs(prep_recipe_id);
+      `);
+
+      // 3. Authorized Waste, Barista Dial-In & Staff Meals Ledger
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS waste_logs (
+          id TEXT PRIMARY KEY,
+          waste_type TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          item_name TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          unit TEXT NOT NULL,
+          total_cost REAL NOT NULL,
+          shift_session_id TEXT,
+          reason TEXT,
+          logged_by TEXT NOT NULL,
+          logged_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_waste_logs_logged_at ON waste_logs(logged_at);
+      `);
+
+      // 4. Supplier Accounts Payable Ledger & Credit Notes
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS supplier_ledger_entries (
+          id TEXT PRIMARY KEY,
+          supplier_id TEXT NOT NULL,
+          entry_type TEXT NOT NULL,
+          reference_id TEXT,
+          amount REAL NOT NULL,
+          payment_method TEXT,
+          shift_session_id TEXT,
+          notes TEXT,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_entries_supplier_id ON supplier_ledger_entries(supplier_id);
+      `);
+
+      const poCols = getColumns(db, 'purchase_orders');
+      if (poCols.length > 0) {
+        if (!poCols.includes('payment_status')) db.exec("ALTER TABLE purchase_orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'unpaid'");
+        if (!poCols.includes('paid_amount')) db.exec('ALTER TABLE purchase_orders ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0');
+        if (!poCols.includes('due_date')) db.exec('ALTER TABLE purchase_orders ADD COLUMN due_date TEXT');
+      }
+
+      const supCols = getColumns(db, 'suppliers');
+      if (supCols.length > 0 && !supCols.includes('balance_due')) {
+        db.exec('ALTER TABLE suppliers ADD COLUMN balance_due REAL NOT NULL DEFAULT 0');
+      }
+
+      // 5. Delivery Aggregators & In-House Courier Dispatch
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS delivery_channels (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          channel_type TEXT NOT NULL DEFAULT 'aggregator',
+          commission_pct REAL NOT NULL DEFAULT 0,
+          settlement_account TEXT NOT NULL DEFAULT 'aggregator_receivable',
+          is_active INTEGER NOT NULL DEFAULT 1
+        );
+      `);
+
+      const defaultChannels = [
+        { id: 'chan_inhouse', name: 'In-House Delivery', channel_type: 'in_house', commission_pct: 0 },
+        { id: 'chan_talabat', name: 'Talabat', channel_type: 'aggregator', commission_pct: 22 },
+        { id: 'chan_elmenus', name: 'elmenus', channel_type: 'aggregator', commission_pct: 18 },
+        { id: 'chan_breadfast', name: 'Breadfast', channel_type: 'aggregator', commission_pct: 15 },
+        { id: 'chan_instashop', name: 'Instashop', channel_type: 'aggregator', commission_pct: 15 },
+        { id: 'chan_marsool', name: 'Marsool', channel_type: 'aggregator', commission_pct: 10 },
+      ];
+      const insertChan = db.prepare(`
+        INSERT OR IGNORE INTO delivery_channels (id, name, channel_type, commission_pct, settlement_account, is_active)
+        VALUES (?, ?, ?, ?, 'aggregator_receivable', 1)
+      `);
+      for (const ch of defaultChannels) {
+        insertChan.run(ch.id, ch.name, ch.channel_type, ch.commission_pct);
+      }
+
+      const orderCols = getColumns(db, 'orders');
+      if (orderCols.length > 0) {
+        if (!orderCols.includes('delivery_channel_id')) db.exec('ALTER TABLE orders ADD COLUMN delivery_channel_id TEXT');
+        if (!orderCols.includes('delivery_channel_name')) db.exec('ALTER TABLE orders ADD COLUMN delivery_channel_name TEXT');
+        if (!orderCols.includes('aggregator_order_ref')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_order_ref TEXT');
+        if (!orderCols.includes('aggregator_commission_rate')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_rate REAL NOT NULL DEFAULT 0');
+        if (!orderCols.includes('aggregator_commission_amount')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_amount REAL NOT NULL DEFAULT 0');
+        if (!orderCols.includes('courier_staff_id')) db.exec('ALTER TABLE orders ADD COLUMN courier_staff_id TEXT');
+        if (!orderCols.includes('courier_name')) db.exec('ALTER TABLE orders ADD COLUMN courier_name TEXT');
+        if (!orderCols.includes('courier_settled_at')) db.exec('ALTER TABLE orders ADD COLUMN courier_settled_at TEXT');
+        if (!orderCols.includes('courier_settlement_session_id')) db.exec('ALTER TABLE orders ADD COLUMN courier_settlement_session_id TEXT');
+      }
+
+      // 6. Owner Cart Price Overrides & Printer Text Size
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS price_override_logs (
+          id TEXT PRIMARY KEY,
+          order_id TEXT,
+          order_number TEXT,
+          product_id TEXT NOT NULL,
+          product_name TEXT NOT NULL,
+          original_unit_price REAL NOT NULL,
+          override_unit_price REAL NOT NULL,
+          quantity REAL NOT NULL,
+          price_delta_total REAL NOT NULL,
+          reason TEXT NOT NULL,
+          approved_by TEXT NOT NULL,
+          cash_session_id TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_price_override_logs_created_at ON price_override_logs(created_at);
+      `);
+
+      const printerCols = getColumns(db, 'printers');
+      if (printerCols.length > 0) {
+        if (!printerCols.includes('kot_text_size')) db.exec("ALTER TABLE printers ADD COLUMN kot_text_size TEXT NOT NULL DEFAULT 'normal'");
+        if (!printerCols.includes('bill_text_size')) db.exec("ALTER TABLE printers ADD COLUMN bill_text_size TEXT NOT NULL DEFAULT 'normal'");
+      }
+
+      // 7. Ensure operating_expenses accepts any category (including Authorized Waste & Staff Meals)
+      try {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS operating_expenses_v110 (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            cost_type TEXT NOT NULL DEFAULT 'indirect' CHECK (cost_type IN ('direct', 'indirect')),
+            allocation_method TEXT NOT NULL DEFAULT 'per_unit_sold' CHECK (allocation_method IN ('per_unit_sold', 'percent_of_revenue', 'prep_minute')),
+            amount REAL NOT NULL,
+            billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+            business_date TEXT NOT NULL,
+            paid_from_session_id TEXT,
+            supplier_id TEXT,
+            notes TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          INSERT INTO operating_expenses_v110 SELECT * FROM operating_expenses;
+          DROP TABLE operating_expenses;
+          ALTER TABLE operating_expenses_v110 RENAME TO operating_expenses;
+          CREATE INDEX IF NOT EXISTS idx_operating_expenses_date ON operating_expenses(business_date);
+        `);
+      } catch {}
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6527,6 +6732,15 @@ function createSchema(): void {
       completed_at TEXT,
       cancelled_at TEXT,
       cancellation_reason TEXT,
+      delivery_channel_id TEXT,
+      delivery_channel_name TEXT,
+      aggregator_order_ref TEXT,
+      aggregator_commission_rate REAL DEFAULT 0,
+      aggregator_commission_amount REAL DEFAULT 0,
+      courier_staff_id TEXT,
+      courier_name TEXT,
+      courier_settled_at TEXT,
+      courier_settlement_session_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -6681,6 +6895,8 @@ function createSchema(): void {
       cash_drawer_pulse_enabled INTEGER NOT NULL DEFAULT 0,
       paper_width TEXT DEFAULT '80mm',
       branded_raster_transport TEXT NOT NULL DEFAULT 'gs_v_0',
+      kot_text_size TEXT NOT NULL DEFAULT 'normal',
+      bill_text_size TEXT NOT NULL DEFAULT 'normal',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );

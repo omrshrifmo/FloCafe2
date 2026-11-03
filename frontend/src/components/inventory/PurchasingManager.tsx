@@ -110,6 +110,26 @@ export function PurchasingManager() {
   const [receivingPo, setReceivingPo] = useState<PurchaseOrder | null>(null);
   const [payFromDrawer, setPayFromDrawer] = useState(false);
   const [isReceiving, setIsReceiving] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<'full' | 'partial' | 'credit'>('full');
+  const [receivePaidAmount, setReceivePaidAmount] = useState<number>(0);
+
+  // Supplier Pay Modal
+  const [payingSupplier, setPayingSupplier] = useState<Supplier | null>(null);
+  const [supplierPayAmount, setSupplierPayAmount] = useState<number>(0);
+  const [supplierPayMethod, setSupplierPayMethod] = useState<'cash' | 'bank_transfer' | 'cheque'>('cash');
+  const [supplierPayFromDrawer, setSupplierPayFromDrawer] = useState(false);
+  const [supplierPayNotes, setSupplierPayNotes] = useState('');
+  const [isSubmittingPay, setIsSubmittingPay] = useState(false);
+
+  // Supplier Credit Note Modal
+  const [creditingSupplier, setCreditingSupplier] = useState<Supplier | null>(null);
+  const [creditNoteAmount, setCreditNoteAmount] = useState<number>(0);
+  const [creditNoteReason, setCreditNoteReason] = useState('Damaged goods / Return');
+  const [creditNoteRef, setCreditNoteRef] = useState('');
+  const [isSubmittingCredit, setIsSubmittingCredit] = useState(false);
+
+  // PO Barcode Scan Input
+  const [barcodeInput, setBarcodeInput] = useState('');
 
   const getErrorMessage = (err: unknown, fallback: string): string => {
     if (err && typeof err === 'object' && 'response' in err) {
@@ -264,7 +284,7 @@ export function PurchasingManager() {
     try {
       setIsReceiving(true);
       let activeShiftId: number | null = null;
-      if (payFromDrawer) {
+      if (payFromDrawer && paymentMode !== 'credit') {
         try {
           const sessionRes = await api.get('/cash-sessions/active');
           activeShiftId = sessionRes.data?.id ?? null;
@@ -272,8 +292,11 @@ export function PurchasingManager() {
           // Fallback to backend auto-detection if no open shift
         }
       }
+      const actualPaid = paymentMode === 'credit' ? 0 : paymentMode === 'partial' ? receivePaidAmount : receivingPo.total_amount;
       const res = await api.post(`/purchasing/purchase-orders/${receivingPo.id}/receive`, {
-        pay_from_drawer: payFromDrawer,
+        payment_mode: paymentMode,
+        paid_amount: actualPaid,
+        pay_from_drawer: payFromDrawer && paymentMode !== 'credit',
         shift_id: activeShiftId,
       });
       toast.success(res.data?.message || t('goodsReceivedSuccess'));
@@ -284,6 +307,96 @@ export function PurchasingManager() {
       toast.error(getErrorMessage(err, t('loadDataError')));
     } finally {
       setIsReceiving(false);
+    }
+  };
+
+  const handlePaySupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingSupplier || supplierPayAmount <= 0) return;
+    try {
+      setIsSubmittingPay(true);
+      let activeShiftId: number | null = null;
+      if (supplierPayFromDrawer) {
+        try {
+          const sessionRes = await api.get('/cash-sessions/active');
+          activeShiftId = sessionRes.data?.id ?? null;
+        } catch {}
+      }
+      await api.post(`/purchasing/suppliers/${payingSupplier.id}/pay`, {
+        amount: supplierPayAmount,
+        payment_method: supplierPayMethod,
+        notes: supplierPayNotes || undefined,
+        pay_from_drawer: supplierPayFromDrawer,
+        shift_id: activeShiftId,
+      });
+      toast.success('Supplier payment recorded successfully');
+      setPayingSupplier(null);
+      setSupplierPayAmount(0);
+      setSupplierPayNotes('');
+      setSupplierPayFromDrawer(false);
+      loadData();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Failed to record supplier payment'));
+    } finally {
+      setIsSubmittingPay(false);
+    }
+  };
+
+  const handleCreateCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!creditingSupplier || creditNoteAmount <= 0) return;
+    try {
+      setIsSubmittingCredit(true);
+      await api.post(`/purchasing/suppliers/${creditingSupplier.id}/credit-note`, {
+        amount: creditNoteAmount,
+        reason: creditNoteReason,
+        reference: creditNoteRef || undefined,
+      });
+      toast.success('Credit note applied to supplier balance');
+      setCreditingSupplier(null);
+      setCreditNoteAmount(0);
+      setCreditNoteReason('Damaged goods / Return');
+      setCreditNoteRef('');
+      loadData();
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Failed to apply credit note'));
+    } finally {
+      setIsSubmittingCredit(false);
+    }
+  };
+
+  const handleBarcodeQuickScan = (code: string) => {
+    const trimmed = code.trim().toLowerCase();
+    if (!trimmed) return;
+    const match = availableItems.find(
+      (it) => it.id.toLowerCase() === trimmed || it.name.toLowerCase().includes(trimmed)
+    );
+    if (match) {
+      const existingIdx = poForm.items.findIndex((it) => it.target_id === match.id);
+      if (existingIdx >= 0) {
+        const next = [...poForm.items];
+        next[existingIdx].ordered_qty += 1;
+        setPoForm({ ...poForm, items: next });
+      } else {
+        setPoForm({
+          ...poForm,
+          items: [
+            ...poForm.items,
+            {
+              target_type: match.target_type,
+              target_id: match.id,
+              item_name: match.name,
+              unit: match.unit,
+              ordered_qty: 1,
+              unit_cost: match.cost,
+            },
+          ],
+        });
+      }
+      toast.success(`Scanned: ${match.name}`);
+      setBarcodeInput('');
+    } else {
+      toast.error(`No item found matching "${code}"`);
     }
   };
 
@@ -425,7 +538,12 @@ export function PurchasingManager() {
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={() => setReceivingPo(po)}
+                          onClick={() => {
+                            setReceivingPo(po);
+                            setPaymentMode('full');
+                            setReceivePaidAmount(po.total_amount);
+                            setPayFromDrawer(false);
+                          }}
                           className="text-[11px] h-7 bg-brand hover:bg-brand/90"
                         >
                           <PackageCheck className="size-3.5 me-1" />
@@ -467,6 +585,7 @@ export function PurchasingManager() {
                   <th className="p-3 text-start">{t('colTerms')}</th>
                   <th className="p-3 text-end">{t('colLeadTime')}</th>
                   <th className="p-3 text-end">{t('colBalanceDue')}</th>
+                  <th className="p-3 text-end">{t('colAction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -481,11 +600,41 @@ export function PurchasingManager() {
                     <td className="p-3 text-end font-bold text-foreground">
                       {fmtCurrency(sup.balance_due)}
                     </td>
+                    <td className="p-3 text-end">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setPayingSupplier(sup);
+                            setSupplierPayAmount(sup.balance_due > 0 ? sup.balance_due : 0);
+                            setSupplierPayFromDrawer(false);
+                            setSupplierPayNotes('');
+                          }}
+                          className="text-[11px] h-7"
+                        >
+                          Pay
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setCreditingSupplier(sup);
+                            setCreditNoteAmount(0);
+                            setCreditNoteReason('Damaged goods / Return');
+                            setCreditNoteRef('');
+                          }}
+                          className="text-[11px] h-7 text-muted-foreground hover:text-foreground"
+                        >
+                          Credit Note
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {suppliers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="p-8 text-center text-muted-foreground">
                       {t('noSuppliersFound')}
                     </td>
                   </tr>
@@ -531,20 +680,73 @@ export function PurchasingManager() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={payFromDrawer}
-                  onChange={(e) => setPayFromDrawer(e.target.checked)}
-                  className="rounded accent-brand size-4"
-                />
+              <div>
+                <label className="font-semibold text-foreground block mb-1.5">Settlement &amp; Payment Mode</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentMode('full'); setReceivePaidAmount(receivingPo.total_amount); }}
+                    className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'full' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
+                  >
+                    Full Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentMode('partial'); setReceivePaidAmount(Math.round(receivingPo.total_amount / 2)); }}
+                    className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'partial' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
+                  >
+                    Partial Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPaymentMode('credit'); setReceivePaidAmount(0); }}
+                    className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'credit' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
+                  >
+                    On Credit (AP)
+                  </button>
+                </div>
+              </div>
+
+              {paymentMode === 'partial' && (
                 <div>
-                  <p className="font-semibold text-foreground">{t('payFromDrawer')}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {t('payFromDrawerDesc')}
+                  <label className="font-medium text-foreground">Paid Amount Now</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max={receivingPo.total_amount}
+                    value={receivePaidAmount}
+                    onChange={(e) => setReceivePaidAmount(parseFloat(e.target.value) || 0)}
+                    className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Balance due of {fmtCurrency(Math.max(0, receivingPo.total_amount - receivePaidAmount))} will be added to {receivingPo.supplier_name || 'supplier'} balance.
                   </p>
                 </div>
-              </label>
+              )}
+
+              {paymentMode === 'credit' && (
+                <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-800 dark:text-blue-300">
+                  Full total of {fmtCurrency(receivingPo.total_amount)} will be added to {receivingPo.supplier_name || 'supplier'} payable balance.
+                </div>
+              )}
+
+              {paymentMode !== 'credit' && (
+                <label className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={payFromDrawer}
+                    onChange={(e) => setPayFromDrawer(e.target.checked)}
+                    className="rounded accent-brand size-4"
+                  />
+                  <div>
+                    <p className="font-semibold text-foreground">{t('payFromDrawer')}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t('payFromDrawerDesc')}
+                    </p>
+                  </div>
+                </label>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -606,6 +808,31 @@ export function PurchasingManager() {
                     className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                   />
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2 p-2 bg-muted/40 rounded-lg border border-border">
+                <input
+                  type="text"
+                  placeholder="Scan barcode / SKU or type item name to add..."
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleBarcodeQuickScan(barcodeInput);
+                    }
+                  }}
+                  className="flex-1 p-1.5 bg-background border border-border rounded text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleBarcodeQuickScan(barcodeInput)}
+                  className="text-xs h-7"
+                >
+                  Quick Add
+                </Button>
               </div>
 
               <div>
@@ -768,6 +995,160 @@ export function PurchasingManager() {
                 </Button>
                 <Button type="submit" variant="default" size="sm">
                   {t('btnSaveSupplier')}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Supplier Modal */}
+      {payingSupplier && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="text-sm font-bold text-foreground">Pay Supplier: {payingSupplier.name}</h3>
+              <button
+                type="button"
+                onClick={() => setPayingSupplier(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handlePaySupplier} className="space-y-3 text-xs">
+              <div className="p-3 bg-muted/40 rounded-lg flex justify-between items-center">
+                <span className="text-muted-foreground">Current Balance Due:</span>
+                <span className="font-bold text-foreground">{fmtCurrency(payingSupplier.balance_due)}</span>
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Payment Amount</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  required
+                  value={supplierPayAmount}
+                  onChange={(e) => setSupplierPayAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Payment Method</label>
+                <select
+                  value={supplierPayMethod}
+                  onChange={(e) => setSupplierPayMethod(e.target.value as 'cash' | 'bank_transfer' | 'cheque')}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Reference / Notes</label>
+                <input
+                  type="text"
+                  placeholder="Receipt #, Cheque #, etc."
+                  value={supplierPayNotes}
+                  onChange={(e) => setSupplierPayNotes(e.target.value)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded"
+                />
+              </div>
+
+              {supplierPayMethod === 'cash' && (
+                <label className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={supplierPayFromDrawer}
+                    onChange={(e) => setSupplierPayFromDrawer(e.target.checked)}
+                    className="rounded accent-brand size-4"
+                  />
+                  <div>
+                    <p className="font-semibold text-foreground">Pay From Cash Drawer</p>
+                    <p className="text-[10px] text-muted-foreground">Record payout in active cash drawer session</p>
+                  </div>
+                </label>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <Button type="button" variant="outline" size="sm" onClick={() => setPayingSupplier(null)}>
+                  {t('btnCancel')}
+                </Button>
+                <Button type="submit" variant="default" size="sm" disabled={isSubmittingPay}>
+                  {isSubmittingPay ? t('processing') : 'Confirm Payment'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Note Modal */}
+      {creditingSupplier && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="text-sm font-bold text-foreground">Credit Note / Return: {creditingSupplier.name}</h3>
+              <button
+                type="button"
+                onClick={() => setCreditingSupplier(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCreditNote} className="space-y-3 text-xs">
+              <div className="p-3 bg-muted/40 rounded-lg flex justify-between items-center">
+                <span className="text-muted-foreground">Current Balance Due:</span>
+                <span className="font-bold text-foreground">{fmtCurrency(creditingSupplier.balance_due)}</span>
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Credit Amount</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  required
+                  value={creditNoteAmount}
+                  onChange={(e) => setCreditNoteAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Reason for Credit / Return</label>
+                <input
+                  type="text"
+                  required
+                  value={creditNoteReason}
+                  onChange={(e) => setCreditNoteReason(e.target.value)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Reference / RMA # (optional)</label>
+                <input
+                  type="text"
+                  value={creditNoteRef}
+                  onChange={(e) => setCreditNoteRef(e.target.value)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <Button type="button" variant="outline" size="sm" onClick={() => setCreditingSupplier(null)}>
+                  {t('btnCancel')}
+                </Button>
+                <Button type="submit" variant="default" size="sm" disabled={isSubmittingCredit}>
+                  {isSubmittingCredit ? t('processing') : 'Apply Credit Note'}
                 </Button>
               </div>
             </form>

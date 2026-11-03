@@ -27,7 +27,7 @@ const mockSafeStorage = {
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === 'electron') {
     return {
-      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.0.9' },
+      app: { isPackaged: true, getPath: () => testDir, getVersion: () => '4.2.0' },
       safeStorage: mockSafeStorage,
     };
   }
@@ -43,7 +43,7 @@ const { registerRoutes } = require('../main/routes/index');
 const { randomUUID } = require('crypto');
 
 async function main() {
-  console.log('FloCafe 4.0.9 Enterprise Suite Integration Test');
+  console.log('FloCafe 4.2.0 Enterprise Suite Integration Test');
   console.log('='.repeat(70));
   resetCounters();
 
@@ -57,10 +57,10 @@ async function main() {
   const { baseUrl, server } = await startServer(app);
 
   try {
-    // ── Test 1: Non-destructive SQLite migration v108 schema verification ──────
-    console.log('\n[1] Verifying Release 4.0.9 Schema Migration (v108)...');
+    // ── Test 1: Non-destructive SQLite migration v110 schema verification ──────
+    console.log('\n[1] Verifying Release 4.2.0 Schema Migration (v110)...');
     const userVersion = db.pragma('user_version', { simple: true });
-    assertOrThrow(userVersion >= 108, `Schema user_version is ${userVersion} (expected >= 108)`);
+    assertOrThrow(userVersion >= 110, `Schema user_version is ${userVersion} (expected >= 110)`);
 
     const tables = [
       'stock_logs', 'cash_movements', 'operating_expenses', 'suppliers',
@@ -68,6 +68,8 @@ async function main() {
       'bom_headers', 'bom_components', 'haccp_ccp_logs', 'haccp_checklists', 'haccp_batches',
       'hr_employee_profiles', 'hr_attendance_summaries', 'hr_employee_loans', 'hr_payroll_runs',
       'bill_payments', 'payments',
+      'prep_recipes', 'prep_recipe_components', 'prep_production_logs', 'waste_logs',
+      'supplier_ledger_entries', 'delivery_channels', 'price_override_logs',
     ];
     for (const tbl of tables) {
       const exists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(tbl);
@@ -83,6 +85,21 @@ async function main() {
 
     const billCols = db.prepare(`PRAGMA table_info(bills)`).all().map((c: any) => c.name);
     assertOrThrow(billCols.includes('payment_method') && billCols.includes('payment_method_id'), 'bills has payment_method and payment_method_id columns');
+
+    const bomCompCols = db.prepare(`PRAGMA table_info(bom_components)`).all().map((c: any) => c.name);
+    assertOrThrow(bomCompCols.includes('variant_id') && bomCompCols.includes('addon_id') && bomCompCols.includes('portion_multiplier') && bomCompCols.includes('replaces_target_id'), 'bom_components has variant_id, addon_id, portion_multiplier, replaces_target_id');
+
+    const poCols = db.prepare(`PRAGMA table_info(purchase_orders)`).all().map((c: any) => c.name);
+    assertOrThrow(poCols.includes('payment_status') && poCols.includes('paid_amount') && poCols.includes('due_date'), 'purchase_orders has payment_status, paid_amount, due_date');
+
+    const supplierCols = db.prepare(`PRAGMA table_info(suppliers)`).all().map((c: any) => c.name);
+    assertOrThrow(supplierCols.includes('balance_due'), 'suppliers has balance_due');
+
+    const orderCols = db.prepare(`PRAGMA table_info(orders)`).all().map((c: any) => c.name);
+    assertOrThrow(orderCols.includes('delivery_channel_id') && orderCols.includes('aggregator_commission_rate') && orderCols.includes('courier_staff_id'), 'orders has delivery_channel_id, aggregator_commission_rate, courier_staff_id');
+
+    const printerCols = db.prepare(`PRAGMA table_info(printers)`).all().map((c: any) => c.name);
+    assertOrThrow(printerCols.includes('kot_text_size') && printerCols.includes('bill_text_size'), 'printers has kot_text_size, bill_text_size');
 
     // ── Test 2: BOM Gross-Quantity Calculation & Depletion on Orders ──────────
     console.log('\n[2] Verifying BOM Gross-Quantity Depletion & Refund Restoration...');
@@ -1315,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.1.0', 'MCP server version is 4.1.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.2.0', 'MCP server version is 4.2.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1327,6 +1344,444 @@ async function main() {
     assertOrThrow(toolNames.includes('flocafe_node_license_update'), 'MCP exposes flocafe_node_license_update');
     assertOrThrow(toolNames.includes('flocafe_node_control'), 'MCP exposes flocafe_node_control');
     assertOrThrow(toolNames.includes('flocafe_node_sql'), 'MCP exposes flocafe_node_sql');
+
+    // ── Test 14: Release 4.2.0 Advanced ERP & POS Operations ──────────
+    console.log('\n[14] Verifying Release 4.2.0 Advanced ERP & POS Operations...');
+
+    // 14.1 Variant & Modifier BOM Costing & Depletion (replaces_target_id, addon, multiplier)
+    console.log('   Testing Modifier & Variant BOM Costing & Depletion (replaces_target_id)...');
+    const rawEspressoId = randomUUID();
+    const rawWholeMilkId = randomUUID();
+    const rawOatMilkId = randomUUID();
+    const rawVanillaSyrupId = randomUUID();
+
+    db.prepare(`
+      INSERT INTO inventory_items (id, name, sku, category, unit, quantity, cost_per_unit, is_active, created_at, updated_at)
+      VALUES (?, 'Raw Espresso Beans 4.2', 'RAW-ESP-42', 'ingredient', 'g', 1000, 0.20, 1, datetime('now'), datetime('now'))
+    `).run(rawEspressoId);
+    db.prepare(`
+      INSERT INTO inventory_items (id, name, sku, category, unit, quantity, cost_per_unit, is_active, created_at, updated_at)
+      VALUES (?, 'Raw Whole Milk 4.2', 'RAW-MILK-42', 'ingredient', 'ml', 1000, 0.05, 1, datetime('now'), datetime('now'))
+    `).run(rawWholeMilkId);
+    db.prepare(`
+      INSERT INTO inventory_items (id, name, sku, category, unit, quantity, cost_per_unit, is_active, created_at, updated_at)
+      VALUES (?, 'Raw Oat Milk 4.2', 'RAW-OAT-42', 'ingredient', 'ml', 1000, 0.10, 1, datetime('now'), datetime('now'))
+    `).run(rawOatMilkId);
+    db.prepare(`
+      INSERT INTO inventory_items (id, name, sku, category, unit, quantity, cost_per_unit, is_active, created_at, updated_at)
+      VALUES (?, 'Raw Vanilla Syrup 4.2', 'RAW-VAN-42', 'ingredient', 'ml', 1000, 0.08, 1, datetime('now'), datetime('now'))
+    `).run(rawVanillaSyrupId);
+
+    const bomProdId = 'prod-bom-latte-42';
+    seedProduct(db, bomProdId, 'cat-ent', 'Specialty Latte 4.2', 150, { track_inventory: false, stock_quantity: 0 });
+
+    const bomHeader42Id = randomUUID();
+    db.prepare(`
+      INSERT INTO bom_headers (id, product_id, yield_portions, prep_time_minutes, direct_labor_rate_per_hour, target_food_cost_pct, updated_at)
+      VALUES (?, ?, 1, 3, 60, 25, datetime('now'))
+    `).run(bomHeader42Id, bomProdId);
+
+    // Base component 1: 18g espresso beans
+    db.prepare(`
+      INSERT INTO bom_components (id, bom_id, target_type, target_id, component_name, unit, net_quantity, waste_pct, gross_quantity, created_at, updated_at)
+      VALUES (?, ?, 'inventory', ?, 'Raw Espresso Beans 4.2', 'g', 18, 0, 18, datetime('now'), datetime('now'))
+    `).run(randomUUID(), bomHeader42Id, rawEspressoId);
+
+    // Base component 2: 200ml whole milk
+    db.prepare(`
+      INSERT INTO bom_components (id, bom_id, target_type, target_id, component_name, unit, net_quantity, waste_pct, gross_quantity, created_at, updated_at)
+      VALUES (?, ?, 'inventory', ?, 'Raw Whole Milk 4.2', 'ml', 200, 0, 200, datetime('now'), datetime('now'))
+    `).run(randomUUID(), bomHeader42Id, rawWholeMilkId);
+
+    // Modifier component: 200ml oat milk that replaces whole milk
+    db.prepare(`
+      INSERT INTO bom_components (id, bom_id, target_type, target_id, component_name, unit, net_quantity, waste_pct, gross_quantity, addon_id, replaces_target_id, created_at, updated_at)
+      VALUES (?, ?, 'inventory', ?, 'Raw Oat Milk 4.2', 'ml', 200, 0, 200, 'addon-oat-sub', ?, datetime('now'), datetime('now'))
+    `).run(randomUUID(), bomHeader42Id, rawOatMilkId, rawWholeMilkId);
+
+    // Extra Addon component: 30ml vanilla syrup
+    db.prepare(`
+      INSERT INTO bom_components (id, bom_id, target_type, target_id, component_name, unit, net_quantity, waste_pct, gross_quantity, addon_id, created_at, updated_at)
+      VALUES (?, ?, 'inventory', ?, 'Raw Vanilla Syrup 4.2', 'ml', 30, 0, 30, 'addon-vanilla-shot', datetime('now'), datetime('now'))
+    `).run(randomUUID(), bomHeader42Id, rawVanillaSyrupId);
+
+    // Large Variant component: portion multiplier 1.5 on espresso
+    db.prepare(`
+      INSERT INTO bom_components (id, bom_id, target_type, target_id, component_name, unit, net_quantity, waste_pct, gross_quantity, variant_id, portion_multiplier, created_at, updated_at)
+      VALUES (?, ?, 'inventory', ?, 'Raw Espresso Beans 4.2', 'g', 18, 0, 18, 'var-large', 1.5, datetime('now'), datetime('now'))
+    `).run(randomUUID(), bomHeader42Id, rawEspressoId);
+
+    // Test depletion with Oat Milk substitution + Vanilla Shot
+    const { depleteBomForOrderItem, restoreBomForOrderItem } = require('../main/services/bom-depletion');
+    const orderBomId = randomUUID();
+    const depleted = depleteBomForOrderItem(db, {
+      productId: bomProdId,
+      quantity: 1,
+      orderId: orderBomId,
+      orderNumber: 'ORD-BOM-1',
+      actorUserId: userId,
+      addonIds: ['addon-oat-sub', 'addon-vanilla-shot'],
+    });
+    assertEqualOrThrow(depleted, true, 'depleteBomForOrderItem executed successfully');
+
+    // Verify raw material quantities:
+    // Espresso: 1000 - 18 = 982
+    const espRow = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawEspressoId);
+    assertEqualOrThrow(espRow.quantity, 982, 'Espresso deducted by 18g');
+
+    // Whole milk: replaced by oat milk -> must remain 1000!
+    const milkRow = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawWholeMilkId);
+    assertEqualOrThrow(milkRow.quantity, 1000, 'Whole milk was NOT deducted because it was replaced');
+
+    // Oat milk: 1000 - 200 = 800
+    const oatRow = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawOatMilkId);
+    assertEqualOrThrow(oatRow.quantity, 800, 'Oat milk deducted by 200ml');
+
+    // Vanilla syrup: 1000 - 30 = 970
+    const vanRow = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawVanillaSyrupId);
+    assertEqualOrThrow(vanRow.quantity, 970, 'Vanilla syrup deducted by 30ml');
+
+    // Test restoreBomForOrderItem
+    restoreBomForOrderItem(db, {
+      productId: bomProdId,
+      quantity: 1,
+      orderId: orderBomId,
+      orderNumber: 'ORD-BOM-1',
+      actorUserId: userId,
+      addonIds: ['addon-oat-sub', 'addon-vanilla-shot'],
+      waste: false,
+    });
+    const espRestored = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawEspressoId);
+    assertEqualOrThrow(espRestored.quantity, 1000, 'Espresso restored to 1000g');
+    const oatRestored = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawOatMilkId);
+    assertEqualOrThrow(oatRestored.quantity, 1000, 'Oat milk restored to 1000ml');
+
+    // 14.2 Prep Recipe & Production Batch linked to Inventory & HACCP
+    console.log('   Testing Prep Batch Production & Sub-Recipes...');
+    const prepTargetId = randomUUID();
+    db.prepare(`
+      INSERT INTO inventory_items (id, name, sku, category, unit, quantity, cost_per_unit, is_active, created_at, updated_at)
+      VALUES (?, 'Prepared Cold Brew Keg', 'PREP-CB-KEG', 'prepared', 'L', 0, 0, 1, datetime('now'), datetime('now'))
+    `).run(prepTargetId);
+
+    const createPrepRecipeRes = await api(baseUrl, '/api/bom-costing/prep-recipes', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        name: 'Cold Brew 20L Keg Batch',
+        output_target_type: 'inventory',
+        output_target_id: prepTargetId,
+        yield_quantity: 20,
+        yield_unit: 'L',
+        prep_time_minutes: 60,
+        labor_rate_per_hour: 60,
+        shelf_life_hours: 168,
+        storage_area: 'Cold Storage <= 4°C',
+        notes: 'Keep chilled below 4°C, sanitize keg coupling',
+        components: [
+          { target_type: 'inventory', target_id: rawEspressoId, component_name: 'Raw Espresso Beans 4.2', unit: 'g', net_quantity: 500, waste_pct: 0 },
+        ],
+      },
+    });
+    assertEqualOrThrow(createPrepRecipeRes.status, 201, 'Prep recipe created with 201');
+    const prepRecipeId = createPrepRecipeRes.data.prep_recipe?.id || createPrepRecipeRes.data.recipe?.id;
+
+    // Produce batch
+    const produceRes = await api(baseUrl, `/api/bom-costing/prep-recipes/${prepRecipeId}/produce`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        batches_multiplier: 1,
+        produced_by: 'Head Chef',
+      },
+    });
+    assertOrThrow([200, 201].includes(produceRes.status), 'Prep batch produce returned 200 or 201');
+    assertEqualOrThrow(produceRes.data.success, true, 'Prep batch production success');
+
+    // Target item incremented: 0 + 20 = 20 L
+    const prepTargetRow = db.prepare('SELECT quantity, cost_per_unit FROM inventory_items WHERE id = ?').get(prepTargetId);
+    assertEqualOrThrow(prepTargetRow.quantity, 20, 'Prepared Keg inventory increased to 20L');
+    assertOrThrow(prepTargetRow.cost_per_unit > 0, 'Prepared Keg cost per unit computed');
+
+    // Raw material deducted: 1000 - 500 = 500g
+    const espAfterPrep = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawEspressoId);
+    assertEqualOrThrow(espAfterPrep.quantity, 500, 'Espresso deducted by 500g for prep batch');
+
+    // Verify HACCP batch created
+    const haccpBatch = db.prepare('SELECT * FROM haccp_batches WHERE item_name = ?').get('Cold Brew 20L Keg Batch');
+    assertOrThrow(Boolean(haccpBatch), 'HACCP batch record created for prep production');
+
+    // Verify prep_production_logs entry
+    const prepLog = db.prepare('SELECT * FROM prep_production_logs WHERE prep_recipe_id = ?').get(prepRecipeId);
+    assertOrThrow(Boolean(prepLog), 'prep_production_logs recorded production entry');
+
+    // 14.3 1-Tap Waste / Barista Dial-In / Staff Meal
+    console.log('   Testing 1-Tap Waste & Spoilage Logging...');
+    const wasteRes = await api(baseUrl, '/api/inventory/waste-logs', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        waste_type: 'dial_in',
+        source_type: 'inventory',
+        source_id: rawEspressoId,
+        quantity: 50,
+        reason: 'Morning Grinder Calibration',
+      },
+    });
+    assertOrThrow([200, 201].includes(wasteRes.status), 'Waste log returned 200 or 201');
+    assertEqualOrThrow(wasteRes.data.success, true, 'Waste log success');
+
+    // Espresso after waste: 500 - 50 = 450
+    const espAfterWaste = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(rawEspressoId);
+    assertEqualOrThrow(espAfterWaste.quantity, 450, 'Espresso deducted by 50g waste');
+
+    // Verify operating_expenses entry created for waste
+    const wasteExp = db.prepare("SELECT * FROM operating_expenses WHERE category = 'Authorized Waste & Staff Meals'").get();
+    assertOrThrow(Boolean(wasteExp), 'Operating expense logged for Authorized Waste & Staff Meals');
+
+    // Verify GET /api/inventory/waste-logs
+    const wasteListRes = await api(baseUrl, '/api/inventory/waste-logs', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(wasteListRes.status, 200, 'GET /api/inventory/waste-logs returned 200');
+    const wasteLogsArray = wasteListRes.data.waste_logs || wasteListRes.data.logs || [];
+    assertOrThrow(wasteLogsArray.length > 0, 'Waste logs listed in response');
+
+    // 14.4 Supplier AP, Partial Receiving, Balance Due, Payments & Credit Notes
+    console.log('   Testing Supplier AP, Partial PO Receiving, Balance Due & Ledger...');
+    const supRes = await api(baseUrl, '/api/purchasing/suppliers', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        name: 'Apex Bean Imports',
+        contact_person: 'Elena Rostova',
+        phone: '+15550009988',
+        email: 'elena@apexbean.com',
+        category: 'Coffee',
+        payment_terms: 'Net 30',
+        lead_time_days: 3,
+      },
+    });
+    assertEqualOrThrow(supRes.status, 201, 'Supplier created with 201');
+    const supplier42Id = supRes.data.supplier.id;
+
+    // Create a Purchase Order
+    const po42Res = await api(baseUrl, '/api/purchasing/purchase-orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        supplier_id: supplier42Id,
+        items: [
+          {
+            target_type: 'inventory_item',
+            target_id: rawEspressoId,
+            item_name: 'Raw Espresso Beans 4.2',
+            unit: 'g',
+            ordered_qty: 1000,
+            unit_cost: 0.20,
+          },
+        ],
+      },
+    });
+    assertEqualOrThrow(po42Res.status, 201, 'PO created with 201');
+    const po42Id = po42Res.data.purchase_order.id;
+    const po42ItemId = po42Res.data.purchase_order.items[0].id;
+
+    // Receive PO with partial payment: total is $200 (1000 * 0.20), pay $50, remaining balance $150
+    const poReceiveRes = await api(baseUrl, `/api/purchasing/purchase-orders/${po42Id}/receive`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        payment_mode: 'partial',
+        paid_amount: 50,
+        payment_method: 'bank_transfer',
+        received_items: [
+          { id: po42ItemId, received_qty: 1000 },
+        ],
+      },
+    });
+    assertEqualOrThrow(poReceiveRes.status, 200, 'PO received with partial payment mode');
+
+    // Verify supplier balance due is 150
+    const supAfterPo = db.prepare('SELECT balance_due FROM suppliers WHERE id = ?').get(supplier42Id);
+    assertEqualOrThrow(supAfterPo.balance_due, 150, 'Supplier balance_due is $150 after partial receive');
+
+    // Pay supplier $50
+    const paySupRes = await api(baseUrl, `/api/purchasing/suppliers/${supplier42Id}/pay`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        amount: 50,
+        payment_method: 'bank_transfer',
+        reference_note: 'Partial settlement for PO',
+      },
+    });
+    assertEqualOrThrow(paySupRes.status, 200, 'Supplier payment returned 200');
+    const supAfterPay = db.prepare('SELECT balance_due FROM suppliers WHERE id = ?').get(supplier42Id);
+    assertEqualOrThrow(supAfterPay.balance_due, 100, 'Supplier balance_due decreased to $100');
+
+    // Issue credit note of $25
+    const creditNoteRes = await api(baseUrl, `/api/purchasing/suppliers/${supplier42Id}/credit-note`, {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        amount: 25,
+        reason: 'Bean quality defect allowance',
+      },
+    });
+    assertEqualOrThrow(creditNoteRes.status, 200, 'Supplier credit note returned 200');
+    const supAfterCredit = db.prepare('SELECT balance_due FROM suppliers WHERE id = ?').get(supplier42Id);
+    assertEqualOrThrow(supAfterCredit.balance_due, 75, 'Supplier balance_due decreased to $75');
+
+    // Fetch supplier ledger
+    const ledgerRes = await api(baseUrl, `/api/purchasing/suppliers/${supplier42Id}/ledger`, {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(ledgerRes.status, 200, 'Supplier ledger returned 200');
+    assertOrThrow(ledgerRes.data.entries?.length >= 3, 'Ledger contains PO, payment, and credit note');
+
+    // 14.5 Delivery Aggregator Commission Engine & Courier COD Settlement
+    console.log('   Testing Delivery Aggregators & Courier COD Settlement...');
+    const channelsRes = await api(baseUrl, '/api/finance/delivery-channels', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(channelsRes.status, 200, 'GET /api/finance/delivery-channels returned 200');
+    const channelsList = channelsRes.data.delivery_channels || channelsRes.data.channels || [];
+    assertOrThrow(channelsList.length >= 1, 'Delivery channels configured');
+
+    const aggregatorChannel = channelsList.find((c: any) => (c.commission_pct || c.commission_rate) > 0) || channelsList[0];
+
+    // Create aggregator order
+    const aggOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'takeaway',
+        delivery_channel_id: aggregatorChannel.id,
+        delivery_channel_name: aggregatorChannel.name,
+        aggregator_order_ref: 'AGG-TEST-999',
+        aggregator_commission_rate: 15,
+        items: [
+          { product_id: 'prod-espresso', quantity: 1, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(aggOrderRes.status, 201, 'Aggregator order created with 201');
+    const aggOrder = aggOrderRes.data.order;
+    assertEqualOrThrow(aggOrder.delivery_channel_name, aggregatorChannel.name, 'Aggregator channel saved on order');
+    assertEqualOrThrow(Number(aggOrder.aggregator_commission_amount), 18, 'Aggregator commission calculated as 15% of 120 = 18');
+
+    // Verify aggregator order auto-settled with non-cash method
+    const aggBill = db.prepare('SELECT * FROM bills WHERE order_id = ?').get(aggOrder.id);
+    assertOrThrow(Boolean(aggBill), 'Bill created for aggregator order');
+    assertEqualOrThrow(aggBill.payment_status, 'paid', 'Aggregator bill auto-settled as paid');
+    assertOrThrow(aggBill.payment_method?.startsWith('aggregator:'), 'Aggregator payment method tagged');
+
+    // In-house courier order
+    const courierOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'takeaway',
+        courier_staff_id: userId,
+        courier_name: 'Tariq Courier',
+        items: [
+          { product_id: 'prod-espresso', quantity: 1, unit_price: 120 },
+        ],
+      },
+    });
+    assertEqualOrThrow(courierOrderRes.status, 201, 'Courier order created');
+    const courierOrderId = courierOrderRes.data.order.id;
+
+    // Check unsettled courier orders
+    const unsettledRes = await api(baseUrl, '/api/orders/courier-unsettled', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(unsettledRes.status, 200, 'GET /api/orders/courier-unsettled returned 200');
+    const unsettledOrders = unsettledRes.data.unsettled_orders || unsettledRes.data.orders || [];
+    const foundUnsettled = unsettledOrders.find((o: any) => o.id === courierOrderId);
+    assertOrThrow(Boolean(foundUnsettled), 'Courier order found in unsettled list');
+
+    // Settle courier orders
+    const settleRes = await api(baseUrl, '/api/orders/courier-settle', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        order_ids: [courierOrderId],
+        courier_name: 'Tariq Courier',
+      },
+    });
+    assertEqualOrThrow(settleRes.status, 200, 'Courier settle returned 200');
+    assertEqualOrThrow(settleRes.data.settled_count, 1, '1 courier order settled');
+
+    // 14.6 TLV Base64 Fiscal QR Generator
+    console.log('   Testing TLV Base64 Fiscal QR Payload Generator...');
+    const { generateFiscalQrPayload } = require('../main/services/tax');
+    const qrPayload = generateFiscalQrPayload({
+      sellerName: 'FloCafe Specialty Coffee',
+      taxRegistrationNumber: '310123456700003',
+      timestamp: '2026-11-03T15:00:00Z',
+      invoiceTotalWithTax: 138.00,
+      taxTotal: 18.00,
+    });
+    assertOrThrow(typeof qrPayload === 'string' && qrPayload.length > 0, 'Fiscal QR payload generated');
+    const qrBuffer = Buffer.from(qrPayload, 'base64');
+    assertEqualOrThrow(qrBuffer[0], 1, 'Tag 1 is sellerName');
+    const sellerLen = qrBuffer[1];
+    assertEqualOrThrow(qrBuffer.subarray(2, 2 + sellerLen).toString('utf8'), 'FloCafe Specialty Coffee', 'SellerName decoded correctly');
+
+    // 14.7 Price Override Logging & Customer Itemized Sales Export
+    console.log('   Testing Price Override Exceptions & Customer Sales Export...');
+    const overrideOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'takeaway',
+        customer_id: 'cust-ent-override',
+        items: [
+          {
+            product_id: 'prod-espresso',
+            quantity: 1,
+            unit_price: 120,
+            override_price: 90,
+            override_reason: 'VIP Loyal Regular Discount',
+          },
+        ],
+      },
+    });
+    assertEqualOrThrow(overrideOrderRes.status, 201, 'Order with price override created');
+
+    const priceExcRes = await api(baseUrl, '/api/reports/price-exceptions', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(priceExcRes.status, 200, 'GET /api/reports/price-exceptions returned 200');
+    const exceptionsList = priceExcRes.data.price_exceptions || priceExcRes.data.exceptions || [];
+    assertOrThrow(exceptionsList.length > 0, 'Price override exception logged in report');
+
+    const custSalesRes = await api(baseUrl, '/api/reports/customer-sales-export?customer_id=cust-ent-override', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(custSalesRes.status, 200, 'GET /api/reports/customer-sales-export returned 200');
+    const salesList = custSalesRes.data.customer_sales || custSalesRes.data.items || [];
+    assertOrThrow(Array.isArray(salesList), 'Customer sales export returns items array');
+
+    // 14.8 Printer Text Size Configuration
+    console.log('   Testing Printer KOT & Bill Text Size Configuration...');
+    const printerId = randomUUID();
+    db.prepare(`
+      INSERT INTO printers (id, name, connection_type, kot_text_size, bill_text_size, created_at, updated_at)
+      VALUES (?, 'Barista Thermal Bar', 'usb', 'double', 'double_height', datetime('now'), datetime('now'))
+    `).run(printerId);
+
+    const printerRow = db.prepare('SELECT kot_text_size, bill_text_size FROM printers WHERE id = ?').get(printerId);
+    assertEqualOrThrow(printerRow.kot_text_size, 'double', 'kot_text_size persisted as double');
+    assertEqualOrThrow(printerRow.bill_text_size, 'double_height', 'bill_text_size persisted as double_height');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

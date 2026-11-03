@@ -5,10 +5,91 @@ interface DepletionParams {
   orderNumber?: string | null;
   actorUserId?: string | null;
   createdAt?: string;
+  variantId?: string | null;
+  addonIds?: (string | number)[] | null;
+  orderItemId?: string | number | null;
 }
 
 interface RestoreParams extends DepletionParams {
   waste?: boolean;
+}
+
+function resolveEffectiveBomComponents(db: any, headerId: string, params: DepletionParams) {
+  let activeAddonIds: string[] = (params.addonIds || []).map(String);
+  if (params.orderItemId && activeAddonIds.length === 0) {
+    try {
+      const rows = db.prepare('SELECT addon_id FROM order_item_addons WHERE order_item_id = ?').all(params.orderItemId) as any[];
+      activeAddonIds = rows.map((r) => String(r.addon_id));
+    } catch {}
+  }
+
+  // 1. Base components
+  const baseComponents = db.prepare(`
+    SELECT * FROM bom_components
+    WHERE bom_id = ?
+      AND (variant_id IS NULL OR variant_id = '')
+      AND (addon_id IS NULL OR addon_id = '')
+  `).all(headerId) as any[];
+
+  // 2. Matched variant components
+  let variantComponents: any[] = [];
+  let portionMultiplier = 1;
+  if (params.variantId) {
+    variantComponents = db.prepare(`
+      SELECT * FROM bom_components
+      WHERE bom_id = ? AND variant_id = ?
+    `).all(headerId, params.variantId) as any[];
+
+    for (const vc of variantComponents) {
+      if (vc.portion_multiplier && Number(vc.portion_multiplier) > 0) {
+        portionMultiplier = Number(vc.portion_multiplier);
+      }
+    }
+  }
+
+  // 3. Matched addon components
+  let addonComponents: any[] = [];
+  if (activeAddonIds.length > 0) {
+    const placeholders = activeAddonIds.map(() => '?').join(',');
+    addonComponents = db.prepare(`
+      SELECT * FROM bom_components
+      WHERE bom_id = ? AND addon_id IN (${placeholders})
+    `).all(headerId, ...activeAddonIds) as any[];
+  }
+
+  // 4. Exclude base components if any matched variant or addon line has replaces_target_id set
+  const replacedTargetIds = new Set<string>();
+  for (const c of [...variantComponents, ...addonComponents]) {
+    if (c.replaces_target_id) {
+      replacedTargetIds.add(String(c.replaces_target_id));
+    }
+  }
+
+  const effectiveComponents: any[] = [];
+  for (const base of baseComponents) {
+    if (replacedTargetIds.has(String(base.target_id))) {
+      continue;
+    }
+    effectiveComponents.push({
+      ...base,
+      effective_portion_multiplier: portionMultiplier,
+    });
+  }
+
+  for (const vc of variantComponents) {
+    effectiveComponents.push({
+      ...vc,
+      effective_portion_multiplier: 1,
+    });
+  }
+  for (const ac of addonComponents) {
+    effectiveComponents.push({
+      ...ac,
+      effective_portion_multiplier: 1,
+    });
+  }
+
+  return effectiveComponents;
 }
 
 export function depleteBomForOrderItem(db: any, params: DepletionParams): boolean {
@@ -17,7 +98,7 @@ export function depleteBomForOrderItem(db: any, params: DepletionParams): boolea
     const header = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?').get(productId) as any;
     if (!header) return false;
 
-    const components = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?').all(header.id) as any[];
+    const components = resolveEffectiveBomComponents(db, header.id, params);
     if (!components || components.length === 0) return false;
 
     const portions = Math.max(0.1, Number(header.yield_portions || 1));
@@ -26,7 +107,8 @@ export function depleteBomForOrderItem(db: any, params: DepletionParams): boolea
     for (const comp of components) {
       const net = Number(comp.net_quantity) || 0;
       const waste = Math.min(99, Math.max(0, Number(comp.waste_pct) || 0));
-      const grossPerPortion = net / (1 - waste / 100);
+      const mult = Number(comp.effective_portion_multiplier || 1);
+      const grossPerPortion = (net / (1 - waste / 100)) * mult;
       const totalDeplete = (grossPerPortion / portions) * quantity;
 
       if (comp.target_type === 'inventory') {
@@ -80,7 +162,7 @@ export function restoreBomForOrderItem(db: any, params: RestoreParams): boolean 
     const header = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?').get(productId) as any;
     if (!header) return false;
 
-    const components = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?').all(header.id) as any[];
+    const components = resolveEffectiveBomComponents(db, header.id, params);
     if (!components || components.length === 0) return false;
 
     const portions = Math.max(0.1, Number(header.yield_portions || 1));
@@ -89,7 +171,8 @@ export function restoreBomForOrderItem(db: any, params: RestoreParams): boolean 
     for (const comp of components) {
       const net = Number(comp.net_quantity) || 0;
       const wastePct = Math.min(99, Math.max(0, Number(comp.waste_pct) || 0));
-      const grossPerPortion = net / (1 - wastePct / 100);
+      const mult = Number(comp.effective_portion_multiplier || 1);
+      const grossPerPortion = (net / (1 - wastePct / 100)) * mult;
       const totalRestore = (grossPerPortion / portions) * quantity;
 
       if (comp.target_type === 'inventory') {

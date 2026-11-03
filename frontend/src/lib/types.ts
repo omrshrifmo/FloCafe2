@@ -158,6 +158,7 @@ export interface Customer {
   total_spent?: number;
   last_visit_at?: string | null;
   wallet_balance?: number;
+  loyalty_points?: number | null;
   global_customer_id?: number | null;
   dietary_preferences?: string[] | null;
   favourite_dishes?: string[] | null;
