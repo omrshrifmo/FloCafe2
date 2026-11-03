@@ -2,7 +2,9 @@ import { Router, Request, Response, NextFunction } from 'express';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
-import { exec, execSync } from 'child_process';
+import http from 'http';
+import https from 'https';
+import { exec, execSync, spawn, ChildProcess } from 'child_process';
 import { getDatabase } from '../db';
 import {
   verifyHardwareLicense,
@@ -16,6 +18,175 @@ import {
 } from '../services/hardware-license';
 
 export const sentinelRoutes = Router();
+
+// Fallback DB instance for standalone daemon mode (:3009)
+let activeSentinelDb: any = null;
+
+export function setSentinelDb(dbInstance: any): void {
+  activeSentinelDb = dbInstance;
+}
+
+export function resolveSentinelDbPath(): string {
+  if (process.env.FLO_DB_PATH && fs.existsSync(process.env.FLO_DB_PATH)) {
+    return process.env.FLO_DB_PATH;
+  }
+
+  const cwdDb = path.join(process.cwd(), 'flo.db');
+  if (fs.existsSync(cwdDb)) return cwdDb;
+
+  const platform = os.platform();
+  const candidates: string[] = [];
+  if (platform === 'win32') {
+    candidates.push(path.join(process.env.APPDATA || '', 'flo-desktop', 'flo.db'));
+    candidates.push(path.join(process.env.LOCALAPPDATA || '', 'flo-desktop', 'flo.db'));
+  } else if (platform === 'darwin') {
+    candidates.push(path.join(os.homedir(), 'Library', 'Application Support', 'flo-desktop', 'flo.db'));
+  } else {
+    candidates.push(path.join(os.homedir(), '.config', 'flo-desktop', 'flo.db'));
+  }
+  candidates.push(path.resolve(__dirname, '../../flo.db'));
+  candidates.push(path.resolve(__dirname, '../../../flo.db'));
+
+  for (const cand of candidates) {
+    if (cand && fs.existsSync(cand)) return cand;
+  }
+
+  return cwdDb;
+}
+
+export function getDatabaseSafe(): any {
+  try {
+    return getDatabase();
+  } catch {
+    if (activeSentinelDb) return activeSentinelDb;
+    const dbPath = resolveSentinelDbPath();
+    const Database = require('better-sqlite3');
+    activeSentinelDb = new Database(dbPath);
+    return activeSentinelDb;
+  }
+}
+
+// Zero-Cost Tunnel State
+let activeTunnelProcess: ChildProcess | null = null;
+let activeTunnelUrl: string | null = null;
+let activeTunnelProvider: string | null = null;
+
+export function getActiveTunnelUrl(): string | null {
+  return activeTunnelUrl;
+}
+
+export function setActiveTunnelUrl(url: string | null): void {
+  activeTunnelUrl = url;
+}
+
+export function stopTunnel(): boolean {
+  if (activeTunnelProcess) {
+    try {
+      activeTunnelProcess.kill('SIGTERM');
+    } catch {}
+    activeTunnelProcess = null;
+  }
+  activeTunnelUrl = null;
+  activeTunnelProvider = null;
+  return true;
+}
+
+export async function startTunnel(provider = 'auto', port = Number(process.env.SENTINEL_PORT || 3009)): Promise<{ url: string | null; provider: string }> {
+  stopTunnel();
+
+  let chosenProvider = provider;
+  if (chosenProvider === 'auto') {
+    let hasCloudflared = false;
+    try {
+      const probeCmd = process.platform === 'win32' ? 'where cloudflared' : 'which cloudflared';
+      execSync(probeCmd, { stdio: 'ignore' });
+      hasCloudflared = true;
+    } catch {}
+    chosenProvider = hasCloudflared ? 'cloudflared' : 'localhost.run';
+  }
+
+  activeTunnelProvider = chosenProvider;
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = (url: string | null) => {
+      if (!resolved) {
+        resolved = true;
+        activeTunnelUrl = url;
+        resolve({ url, provider: chosenProvider });
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      finish(activeTunnelUrl);
+    }, 12000);
+
+    try {
+      if (chosenProvider === 'cloudflared') {
+        const proc = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${port}`], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        activeTunnelProcess = proc;
+
+        const onData = (data: Buffer) => {
+          const text = data.toString('utf8');
+          const match = text.match(/https:\/\/[a-zA-Z0-9.-]+\.trycloudflare\.com/i);
+          if (match) {
+            clearTimeout(timeout);
+            finish(match[0]);
+          }
+        };
+
+        proc.stdout?.on('data', onData);
+        proc.stderr?.on('data', onData);
+        proc.on('close', () => {
+          if (activeTunnelProcess === proc) {
+            activeTunnelProcess = null;
+            activeTunnelUrl = null;
+          }
+          finish(null);
+        });
+      } else {
+        // Built-in OpenSSH localhost.run tunnel (works on Win 10/11 & Linux out-of-the-box, no account)
+        const sshArgs = [
+          '-o', 'StrictHostKeyChecking=no',
+          '-o', 'UserKnownHostsFile=/dev/null',
+          '-o', 'ServerAliveInterval=30',
+          '-R', `80:127.0.0.1:${port}`,
+          'nokey@localhost.run',
+        ];
+        const proc = spawn('ssh', sshArgs, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        activeTunnelProcess = proc;
+
+        const onData = (data: Buffer) => {
+          const text = data.toString('utf8');
+          const match = text.match(/https:\/\/[a-zA-Z0-9.-]+(\.localhost\.run|\.lhr\.life|\.lhr\.rocks)/i);
+          if (match) {
+            clearTimeout(timeout);
+            finish(match[0]);
+          }
+        };
+
+        proc.stdout?.on('data', onData);
+        proc.stderr?.on('data', onData);
+        proc.on('close', () => {
+          if (activeTunnelProcess === proc) {
+            activeTunnelProcess = null;
+            activeTunnelUrl = null;
+          }
+          finish(null);
+        });
+      }
+    } catch (err: any) {
+      clearTimeout(timeout);
+      finish(null);
+    }
+  });
+}
 
 export function getNetworkInfo() {
   const interfaces = os.networkInterfaces();
@@ -48,8 +219,6 @@ export function getNetworkInfo() {
 
 /**
  * Middleware: Enforces cryptographic Zero-Trust Owner Authentication.
- * Requires valid Owner Password (scrypt-verified Fl0220671190) AND
- * either Owner Master Key content (owner-reactivate-master.flokey) OR valid signature.
  */
 export function requireOwnerAuth(req: Request, res: Response, next: NextFunction): void {
   const reactivationPassword =
@@ -64,7 +233,6 @@ export function requireOwnerAuth(req: Request, res: Response, next: NextFunction
     (req.query?.ownerMasterKeyContent as string);
 
   if (typeof ownerMasterKeyContent === 'string') {
-    // Support base64 encoded key files in headers
     if (!ownerMasterKeyContent.trim().startsWith('{')) {
       try {
         const decoded = Buffer.from(ownerMasterKeyContent, 'base64').toString('utf8');
@@ -109,14 +277,14 @@ export function requireOwnerAuth(req: Request, res: Response, next: NextFunction
 }
 
 // 1. GET /api/sentinel/ping - Public discovery beacon
-sentinelRoutes.get('/ping', (_req: Request, res: Response) => {
+sentinelRoutes.get('/ping', async (req: Request, res: Response) => {
   try {
-    const db = getDatabase();
+    const db = getDatabaseSafe();
     const license = verifyHardwareLicense(db);
     const hwid = getHardwareFingerprint();
     const net = getNetworkInfo();
 
-    let version = '4.1.0';
+    let version = '4.3.0';
     try {
       const pkgPath = path.resolve(__dirname, '../../package.json');
       if (fs.existsSync(pkgPath)) {
@@ -124,6 +292,24 @@ sentinelRoutes.get('/ping', (_req: Request, res: Response) => {
         if (pkg.version) version = pkg.version;
       }
     } catch {}
+
+    // Check if FloCafe GUI / backend is active
+    let flocafeRunning = false;
+    const currentPort = (req.socket as any)?.localPort;
+    if (currentPort && currentPort !== 3009) {
+      flocafeRunning = true;
+    } else {
+      try {
+        const pingTest = await new Promise<boolean>((resolve) => {
+          const r = http.get('http://127.0.0.1:3001/api/health', { timeout: 800 }, (resp) => {
+            resolve(resp.statusCode === 200 || resp.statusCode === 401 || resp.statusCode === 402);
+          });
+          r.on('error', () => resolve(false));
+          r.on('timeout', () => { r.destroy(); resolve(false); });
+        });
+        flocafeRunning = pingTest;
+      } catch {}
+    }
 
     res.json({
       status: 'ok',
@@ -133,13 +319,15 @@ sentinelRoutes.get('/ping', (_req: Request, res: Response) => {
       os_release: os.release(),
       arch: os.arch(),
       flocafe_version: version,
-      flocafe_running: true,
+      flocafe_running: flocafeRunning,
       license_tier: license.tier || 'unactivated',
       license_valid: Boolean(license.valid),
       license_expires_at: license.expires_at || null,
       lan_ips: net.lanIps,
       p2p_ip: net.p2pIp,
       p2p_details: net.p2pDetails,
+      tunnel_url: activeTunnelUrl,
+      tunnel_provider: activeTunnelProvider,
       uptime_seconds: Math.floor(os.uptime()),
     });
   } catch (err: any) {
@@ -150,12 +338,11 @@ sentinelRoutes.get('/ping', (_req: Request, res: Response) => {
 // 2. GET /api/sentinel/diagnostics - OS & machine health (Owner Auth)
 sentinelRoutes.get('/diagnostics', requireOwnerAuth, (_req: Request, res: Response) => {
   try {
-    const db = getDatabase();
+    const db = getDatabaseSafe();
     const net = getNetworkInfo();
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
 
-    // SQLite Health
     let sqliteIntegrity = 'ok';
     let sqliteJournalMode = 'unknown';
     let dbFileSizeBytes = 0;
@@ -175,7 +362,6 @@ sentinelRoutes.get('/diagnostics', requireOwnerAuth, (_req: Request, res: Respon
       }
     } catch {}
 
-    // Printer count
     let configuredPrinters = 0;
     try {
       const pRow = db.prepare('SELECT count(*) as count FROM printers').get() as any;
@@ -204,6 +390,11 @@ sentinelRoutes.get('/diagnostics', requireOwnerAuth, (_req: Request, res: Respon
         p2p_ip: net.p2pIp,
         p2p_details: net.p2pDetails,
       },
+      tunnel: {
+        url: activeTunnelUrl,
+        provider: activeTunnelProvider,
+        active: Boolean(activeTunnelUrl),
+      },
       sqlite: {
         integrity: sqliteIntegrity,
         journal_mode: sqliteJournalMode,
@@ -223,11 +414,10 @@ sentinelRoutes.get('/diagnostics', requireOwnerAuth, (_req: Request, res: Respon
 // 3. GET /api/sentinel/insights - Live business analytics (Owner Auth)
 sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response) => {
   try {
-    const db = getDatabase();
+    const db = getDatabaseSafe();
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
-    // Today's Revenue & Completed Orders
     let todayRevenue = 0;
     let todayOrdersCount = 0;
     try {
@@ -240,7 +430,6 @@ sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response)
       todayOrdersCount = Number(todayRow?.cnt || 0);
     } catch {}
 
-    // 30-Day Revenue
     let monthlyRevenue = 0;
     let monthlyOrdersCount = 0;
     try {
@@ -253,16 +442,12 @@ sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response)
       monthlyOrdersCount = Number(mRow?.cnt || 0);
     } catch {}
 
-    // Active Open Tables
     let openTablesCount = 0;
     try {
-      const tRow = db.prepare(`
-        SELECT count(*) as cnt FROM tables WHERE status = 'occupied'
-      `).get() as any;
+      const tRow = db.prepare(`SELECT count(*) as cnt FROM tables WHERE status = 'occupied'`).get() as any;
       openTablesCount = Number(tRow?.cnt || 0);
     } catch {}
 
-    // Expected Cash Drawer Balance from active cash shift
     let activeCashSession = null;
     try {
       activeCashSession = db.prepare(`
@@ -273,7 +458,6 @@ sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response)
       `).get() || null;
     } catch {}
 
-    // Low Stock Warnings
     let lowStockCount = 0;
     let lowStockItems: any[] = [];
     try {
@@ -287,7 +471,6 @@ sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response)
       lowStockItems = items;
     } catch {}
 
-    // Active Staff Count
     let activeStaffCount = 0;
     try {
       const sRow = db.prepare(`SELECT count(*) as cnt FROM users WHERE is_active = 1`).get() as any;
@@ -320,11 +503,11 @@ sentinelRoutes.get('/insights', requireOwnerAuth, (_req: Request, res: Response)
   }
 });
 
-// 4. POST /api/sentinel/app-control - App lifecycle & DB checkpoints (Owner Auth)
+// 4. POST /api/sentinel/app-control - Remote FloCafe GUI lifecycle & DB maintenance (Owner Auth)
 sentinelRoutes.post('/app-control', requireOwnerAuth, (req: Request, res: Response) => {
   try {
     const { action } = req.body || {};
-    const db = getDatabase();
+    const db = getDatabaseSafe();
 
     if (action === 'backup_db') {
       const backupDir = path.resolve(process.cwd(), 'backups');
@@ -349,11 +532,85 @@ sentinelRoutes.post('/app-control', requireOwnerAuth, (req: Request, res: Respon
       });
     }
 
-    if (action === 'restart' || action === 'stop' || action === 'start') {
+    if (action === 'start') {
+      const candidates: string[] = [];
+      if (process.env.FLOCAFE_GUI_EXEC_PATH) candidates.push(process.env.FLOCAFE_GUI_EXEC_PATH);
+      if (process.platform === 'win32') {
+        candidates.push('C:\\Program Files\\Flo Cafe\\Flo Cafe.exe');
+        candidates.push(path.join(process.env.LOCALAPPDATA || '', 'Programs', 'flo-desktop', 'Flo Cafe.exe'));
+        candidates.push(process.execPath);
+      } else {
+        candidates.push('/usr/bin/flocafe');
+        candidates.push('/usr/local/bin/flocafe');
+        candidates.push(process.execPath);
+      }
+
+      const validTarget = candidates.find((p) => p && fs.existsSync(p)) || process.execPath;
+      const cleanEnv = { ...process.env };
+      delete cleanEnv.ELECTRON_RUN_AS_NODE;
+
+      try {
+        const child = spawn(validTarget, [], {
+          detached: true,
+          stdio: 'ignore',
+          env: cleanEnv,
+        });
+        child.unref();
+        return res.json({
+          success: true,
+          action,
+          message: 'FloCafe GUI launched successfully.',
+          pid: child.pid,
+          exec_path: validTarget,
+        });
+      } catch (launchErr: any) {
+        return res.status(500).json({ error: `Failed to launch FloCafe GUI: ${launchErr.message}` });
+      }
+    }
+
+    if (action === 'stop') {
+      try {
+        if (process.platform === 'win32') {
+          execSync('taskkill /IM "Flo Cafe.exe" /F', { stdio: 'ignore' });
+        } else {
+          execSync('pkill -f "flocafe" -o', { stdio: 'ignore' });
+        }
+      } catch {}
       return res.json({
         success: true,
         action,
-        message: `App control command '${action}' acknowledged.`,
+        message: 'FloCafe GUI stop command executed.',
+      });
+    }
+
+    if (action === 'restart') {
+      try {
+        if (process.platform === 'win32') {
+          execSync('taskkill /IM "Flo Cafe.exe" /F', { stdio: 'ignore' });
+        } else {
+          execSync('pkill -f "flocafe" -o', { stdio: 'ignore' });
+        }
+      } catch {}
+
+      setTimeout(() => {
+        const candidates = [
+          process.env.FLOCAFE_GUI_EXEC_PATH,
+          process.platform === 'win32' ? 'C:\\Program Files\\Flo Cafe\\Flo Cafe.exe' : '/usr/bin/flocafe',
+          process.execPath,
+        ];
+        const validTarget = candidates.find((p) => p && fs.existsSync(p)) || process.execPath;
+        const cleanEnv = { ...process.env };
+        delete cleanEnv.ELECTRON_RUN_AS_NODE;
+        try {
+          const child = spawn(validTarget, [], { detached: true, stdio: 'ignore', env: cleanEnv });
+          child.unref();
+        } catch {}
+      }, 1000);
+
+      return res.json({
+        success: true,
+        action,
+        message: 'FloCafe GUI restart sequence initiated.',
       });
     }
 
@@ -372,7 +629,7 @@ sentinelRoutes.post('/sql-query', requireOwnerAuth, (req: Request, res: Response
     }
 
     const trimmed = query.trim();
-    const db = getDatabase();
+    const db = getDatabaseSafe();
 
     if (/^(SELECT|PRAGMA|EXPLAIN)\b/i.test(trimmed)) {
       const stmt = db.prepare(trimmed);
@@ -380,7 +637,6 @@ sentinelRoutes.post('/sql-query', requireOwnerAuth, (req: Request, res: Response
       return res.json({ success: true, rows, count: rows.length });
     }
 
-    // Write operations require Owner Auth (which is already verified by requireOwnerAuth)
     const stmt = db.prepare(trimmed);
     const info = Array.isArray(params) ? stmt.run(...params) : stmt.run();
     return res.json({ success: true, changes: info.changes, lastInsertRowid: info.lastInsertRowid });
@@ -389,56 +645,148 @@ sentinelRoutes.post('/sql-query', requireOwnerAuth, (req: Request, res: Response
   }
 });
 
-// 6. POST /api/sentinel/exec-support - Signed diagnostic & maintenance commands (Owner Auth)
+// 6. POST /api/sentinel/exec-support - Unrestricted Owner-Authorized Remote Shell / PowerShell (Owner Auth)
 sentinelRoutes.post('/exec-support', requireOwnerAuth, (req: Request, res: Response) => {
   try {
-    const { command } = req.body || {};
+    const { command, cwd, timeoutMs } = req.body || {};
     if (!command || typeof command !== 'string') {
       return res.status(400).json({ error: 'Missing command string.' });
     }
 
-    // Whitelist check for safe diagnostic/maintenance commands
-    const allowedPrefixes = [
-      'git status',
-      'git log',
-      'git pull',
-      'npm run build',
-      'systemctl --user status flocafe-sentinel',
-      'systemctl status flocafe-sentinel',
-      'systemctl restart cups',
-      'lpstat',
-      'free',
-      'df',
-      'uptime',
-      'node -v',
-      'uname',
-    ];
+    const start = Date.now();
+    const maxTimeout = Math.min(Math.max(Number(timeoutMs) || 30000, 1000), 120000);
 
-    const isAllowed = allowedPrefixes.some((p) => command.trim().startsWith(p));
-    if (!isAllowed) {
-      return res.status(403).json({
-        error: 'COMMAND_NOT_PERMITTED',
-        message: `Command '${command}' is not in the safe diagnostic allowlist.`,
-      });
+    const execOptions: Record<string, unknown> = {
+      timeout: maxTimeout,
+      maxBuffer: 10 * 1024 * 1024,
+      cwd: cwd && fs.existsSync(cwd) ? cwd : process.cwd(),
+    };
+
+    if (process.platform === 'win32') {
+      execOptions.shell = 'powershell.exe';
+    } else {
+      execOptions.shell = '/bin/bash';
     }
 
-    exec(command, { timeout: 15000 }, (error, stdout, stderr) => {
+    exec(command, execOptions, (error, stdout, stderr) => {
+      const durationMs = Date.now() - start;
       res.json({
         command,
-        exitCode: error ? error.code || 1 : 0,
-        stdout: stdout || '',
-        stderr: stderr || (error ? error.message : ''),
+        exitCode: error ? (error.code ?? 1) : 0,
+        stdout: stdout ? stdout.toString() : '',
+        stderr: stderr ? stderr.toString() : (error ? error.message : ''),
+        durationMs,
       });
     });
   } catch (err: any) {
-    res.status(500).json({ error: 'Command execution failed', details: err.message });
+    res.status(500).json({ error: 'Remote command execution failed', details: err.message });
   }
 });
 
-// 7. POST /api/sentinel/remote-license - Remote license update & auto-renewal (Owner Auth)
+// 7. POST /api/sentinel/self-update - Remote Software Update / Reinstall (Owner Auth)
+sentinelRoutes.post('/self-update', requireOwnerAuth, async (req: Request, res: Response) => {
+  try {
+    const { update_mode, target_url } = req.body || {};
+    const mode = update_mode || 'github_latest';
+
+    // 1. Take pre-update backup of SQLite database
+    const db = getDatabaseSafe();
+    const backupDir = path.resolve(process.cwd(), 'backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    const backupFile = path.join(backupDir, `flo-pre-update-${Date.now()}.db`);
+    try {
+      db.prepare('VACUUM INTO ?').run(backupFile);
+    } catch {}
+
+    if (process.platform === 'win32') {
+      const downloadUrl = target_url || 'https://github.com/omrshrifmo/FloCafe2/releases/latest/download/flocafe-4.3.0-win-x64.exe';
+      const tempInstaller = path.join(os.tmpdir(), `flocafe-update-${Date.now()}.exe`);
+
+      res.json({
+        success: true,
+        update_mode: mode,
+        message: `Self-update initiated on Windows. Downloading from ${downloadUrl}...`,
+        backup_created: backupFile,
+        installer_path: tempInstaller,
+      });
+
+      // Background download and silent install
+      const fileStream = fs.createWriteStream(tempInstaller);
+      const requestLib = downloadUrl.startsWith('https') ? https : http;
+      requestLib.get(downloadUrl, (dlRes) => {
+        dlRes.pipe(fileStream);
+        fileStream.on('finish', () => {
+          fileStream.close(() => {
+            try {
+              // Trigger silent NSIS installer detached
+              const installer = spawn(tempInstaller, ['/S'], { detached: true, stdio: 'ignore' });
+              installer.unref();
+            } catch (instErr: any) {
+              console.error('[Sentinel Update] Silent install failed:', instErr.message);
+            }
+          });
+        });
+      }).on('error', (err) => {
+        console.error('[Sentinel Update] Download failed:', err.message);
+      });
+      return;
+    }
+
+    // Linux / Arch: git pull + build or service restart
+    exec('git pull origin main && npm run build', { cwd: process.cwd(), timeout: 120000 }, (error, stdout, stderr) => {
+      console.log('[Sentinel Update] Linux update finished:', { error, stdout, stderr });
+    });
+
+    return res.json({
+      success: true,
+      update_mode: mode,
+      message: 'Self-update sequence started on Linux.',
+      backup_created: backupFile,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Self-update failed', details: err.message });
+  }
+});
+
+// 8. POST & GET /api/sentinel/tunnel - Zero-Cost Internet Tunnel Management
+sentinelRoutes.get('/tunnel', (_req: Request, res: Response) => {
+  res.json({
+    status: activeTunnelUrl ? 'active' : 'inactive',
+    tunnel_url: activeTunnelUrl,
+    provider: activeTunnelProvider,
+  });
+});
+
+sentinelRoutes.post('/tunnel', requireOwnerAuth, async (req: Request, res: Response) => {
+  try {
+    const { action, provider } = req.body || {};
+    if (action === 'stop') {
+      stopTunnel();
+      return res.json({
+        success: true,
+        action: 'stop',
+        status: 'inactive',
+        tunnel_url: null,
+      });
+    }
+
+    const tunnelResult = await startTunnel(provider || 'auto');
+    return res.json({
+      success: Boolean(tunnelResult.url),
+      action: 'start',
+      status: tunnelResult.url ? 'active' : 'failed',
+      tunnel_url: tunnelResult.url,
+      provider: tunnelResult.provider,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Tunnel control failed', details: err.message });
+  }
+});
+
+// 9. POST /api/sentinel/remote-license - Remote license update & auto-renewal (Owner Auth)
 sentinelRoutes.post('/remote-license', requireOwnerAuth, (req: Request, res: Response) => {
   try {
-    const db = getDatabase();
+    const db = getDatabaseSafe();
     const {
       tierKeyContent,
       ownerMasterKeyContent,
@@ -495,7 +843,7 @@ sentinelRoutes.post('/remote-license', requireOwnerAuth, (req: Request, res: Res
   }
 });
 
-// 8. POST /api/sentinel/telemetry-sink - Sovereign local sink for telemetry
+// 10. POST /api/sentinel/telemetry-sink - Sovereign local sink for telemetry
 sentinelRoutes.post('/telemetry-sink', (_req: Request, res: Response) => {
   res.json({ status: 'ok', received: true });
 });

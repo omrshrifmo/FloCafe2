@@ -1,41 +1,31 @@
 import express from 'express';
 import cors from 'cors';
-import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { sentinelRoutes, getNetworkInfo } from '../routes/sentinel';
-import { initHardwareLicenseSchema, verifyHardwareLicense } from '../services/hardware-license';
+import {
+  sentinelRoutes,
+  getNetworkInfo,
+  setSentinelDb,
+  resolveSentinelDbPath,
+  getActiveTunnelUrl,
+  startTunnel,
+  stopTunnel,
+} from '../routes/sentinel';
+import {
+  initHardwareLicenseSchema,
+  verifyHardwareLicense,
+  checkAndApplyAutoRenew,
+} from '../services/hardware-license';
 
-export { getNetworkInfo };
-
-export function resolveSentinelDbPath(): string {
-  if (process.env.FLO_DB_PATH && fs.existsSync(process.env.FLO_DB_PATH)) {
-    return process.env.FLO_DB_PATH;
-  }
-
-  const cwdDb = path.join(process.cwd(), 'flo.db');
-  if (fs.existsSync(cwdDb)) return cwdDb;
-
-  const platform = os.platform();
-  const candidates: string[] = [];
-  if (platform === 'win32') {
-    candidates.push(path.join(process.env.APPDATA || '', 'flo-desktop', 'flo.db'));
-    candidates.push(path.join(process.env.LOCALAPPDATA || '', 'flo-desktop', 'flo.db'));
-  } else if (platform === 'darwin') {
-    candidates.push(path.join(os.homedir(), 'Library', 'Application Support', 'flo-desktop', 'flo.db'));
-  } else {
-    candidates.push(path.join(os.homedir(), '.config', 'flo-desktop', 'flo.db'));
-  }
-  candidates.push(path.resolve(__dirname, '../../flo.db'));
-  candidates.push(path.resolve(__dirname, '../../../flo.db'));
-
-  for (const cand of candidates) {
-    if (cand && fs.existsSync(cand)) return cand;
-  }
-
-  return cwdDb;
-}
+export {
+  getNetworkInfo,
+  resolveSentinelDbPath,
+  checkAndApplyAutoRenew,
+  startTunnel,
+  stopTunnel,
+  getActiveTunnelUrl,
+};
 
 export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3009)) {
   const app = express();
@@ -51,9 +41,26 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
     if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
     db = new Database(dbPath);
     initHardwareLicenseSchema(db);
+    setSentinelDb(db);
   } catch (err: any) {
     console.warn(`[Sentinel] Database initialization warning at ${dbPath}:`, err.message);
   }
+
+  // Initial and background 10-minute Auto-Renew execution loop
+  if (db) {
+    try {
+      checkAndApplyAutoRenew(db);
+    } catch {}
+  }
+  const autoRenewTimer = setInterval(() => {
+    if (db) {
+      try {
+        checkAndApplyAutoRenew(db);
+      } catch (err: any) {
+        console.error('[Sentinel] Background auto-renew check error:', err.message);
+      }
+    }
+  }, 10 * 60 * 1000);
 
   // Mount Sentinel API
   app.use('/api/sentinel', sentinelRoutes);
@@ -62,9 +69,10 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
   app.get('/', (_req, res) => {
     res.json({
       service: 'flocafe-sentinel',
-      version: '4.2.0',
+      version: '4.3.0',
       port,
       status: 'active',
+      tunnel_url: getActiveTunnelUrl(),
       endpoints: [
         'GET /api/sentinel/ping',
         'GET /api/sentinel/diagnostics',
@@ -72,6 +80,9 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
         'POST /api/sentinel/app-control',
         'POST /api/sentinel/sql-query',
         'POST /api/sentinel/exec-support',
+        'POST /api/sentinel/self-update',
+        'GET /api/sentinel/tunnel',
+        'POST /api/sentinel/tunnel',
         'POST /api/sentinel/remote-license',
       ],
     });
@@ -84,6 +95,8 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
 
   const shutdown = () => {
     console.log('[Sentinel] Shutting down daemon...');
+    clearInterval(autoRenewTimer);
+    stopTunnel();
     server.close(() => {
       if (db) {
         try { db.close(); } catch {}

@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1117" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>FloOwner Control System v4.3.0</title>
+<meta name="description" content="Standalone remote fleet management for FloCafe POS — Windows, Linux, Android." />
+<style>
+:root {
+  --bg:#0f1117;--surface:#161b27;--card:#1e2436;--border:#2a3148;
+  --accent:#6c63ff;--accent2:#00d4aa;--text:#e8eaf0;--muted:#7b8196;
+  --success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--radius:12px;
+  --font:'Segoe UI',system-ui,-apple-system,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden}
+a{color:var(--accent);text-decoration:none}
+button{cursor:pointer;font-family:var(--font)}
+input,textarea,select{font-family:var(--font)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--surface)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+#app{display:grid;grid-template-rows:auto 1fr;min-height:100vh}
+#header{background:linear-gradient(135deg,#1a1f35,#141826);border-bottom:1px solid var(--border);
+  padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+#logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+#logo svg{width:32px;height:32px}
+#logo-text h1{font-size:1rem;font-weight:700;letter-spacing:.5px}
+#logo-text p{font-size:.7rem;color:var(--muted)}
+#key-vault{display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap;
+  background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.25);
+  border-radius:8px;padding:8px 12px;min-width:0}
+#key-vault label{font-size:.72rem;color:var(--muted);white-space:nowrap}
+#key-file-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;
+  padding:5px 10px;font-size:.75rem;font-weight:600;white-space:nowrap;cursor:pointer}
+#key-file-btn:hover{background:#5a52e0}
+#key-status{font-size:.72rem;padding:3px 8px;border-radius:10px;font-weight:600;white-space:nowrap}
+.ks-ok{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.ks-no{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.25)}
+#pw-input{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:5px 8px;font-size:.8rem;width:140px}
+#vault-lock-btn{background:var(--accent2);color:#111;border:none;border-radius:6px;
+  padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer}
+#body{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 65px);overflow:hidden}
+@media(max-width:780px){#body{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:auto;overflow:visible}}
+#fleet-panel{background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden}
+#fleet-header{padding:14px 16px 10px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between}
+#fleet-header h2{font-size:.85rem;font-weight:700}
+#add-node-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;
+  padding:4px 10px;font-size:.75rem;font-weight:600;cursor:pointer}
+#add-node-form{padding:10px 14px;border-bottom:1px solid var(--border);
+  background:rgba(108,99,255,.06);display:none;flex-direction:column;gap:6px}
+#add-node-form.open{display:flex}
+#add-node-form input{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:6px 10px;font-size:.8rem}
+#add-node-form .row{display:flex;gap:6px}
+#add-node-form .row button{flex:1;padding:6px;font-size:.75rem;border:none;border-radius:6px;font-weight:600;cursor:pointer}
+.btn-save{background:var(--accent);color:#fff}
+.btn-cancel{background:var(--card);color:var(--muted)}
+#scan-btn{margin:8px 14px 0;width:calc(100% - 28px);
+  background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.3);
+  color:var(--accent2);border-radius:6px;padding:6px;font-size:.75rem;font-weight:600;cursor:pointer}
+#fleet-list{overflow-y:auto;flex:1;padding:6px 8px}
+.node-item{display:flex;align-items:center;gap:10px;padding:9px 10px;
+  border-radius:8px;cursor:pointer;transition:background .15s;margin-bottom:3px;
+  border:1px solid transparent}
+.node-item:hover{background:var(--card);border-color:var(--border)}
+.node-item.active{background:rgba(108,99,255,.15);border-color:rgba(108,99,255,.4)}
+.node-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.dot-ok{background:var(--success);box-shadow:0 0 6px rgba(34,197,94,.5)}
+.dot-err{background:var(--danger)}
+.dot-ping{background:var(--warning);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.node-meta{min-width:0;flex:1}
+.node-meta strong{font-size:.8rem;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-meta span{font-size:.68rem;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+.badge{font-size:.6rem;padding:1px 5px;border-radius:4px;font-weight:600}
+.b-gui{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.25)}
+.b-nogui{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+.b-tier{background:rgba(108,99,255,.15);color:#a78bfa;border:1px solid rgba(108,99,255,.25)}
+.b-tunnel{background:rgba(0,212,170,.1);color:var(--accent2);border:1px solid rgba(0,212,170,.25)}
+.node-del{background:none;border:none;color:var(--muted);font-size:.9rem;padding:2px;opacity:.5;cursor:pointer}
+.node-del:hover{color:var(--danger);opacity:1}
+#fleet-empty{color:var(--muted);font-size:.8rem;text-align:center;padding:20px 10px}
+#main-panel{display:flex;flex-direction:column;overflow:hidden}
+#tabs{display:flex;align-items:center;gap:2px;padding:8px 14px;
+  border-bottom:1px solid var(--border);background:var(--surface);overflow-x:auto;flex-shrink:0}
+.tab-btn{background:none;border:none;color:var(--muted);padding:6px 12px;
+  border-radius:6px;font-size:.78rem;font-weight:600;white-space:nowrap;transition:all .15s;cursor:pointer}
+.tab-btn:hover{background:var(--card);color:var(--text)}
+.tab-btn.active{background:rgba(108,99,255,.18);color:var(--accent)}
+#tab-content{overflow-y:auto;flex:1;padding:16px}
+#no-node{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:12px;color:var(--muted)}
+#no-node svg{width:60px;height:60px;opacity:.3}
+#no-node p{font-size:.9rem}
+.section{display:none}
+.section.active{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px;margin-bottom:14px}
+.card-title{font-size:.82rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.8px;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.stat-card .val{font-size:1.4rem;font-weight:700}
+.stat-card .lbl{font-size:.7rem;color:var(--muted);margin-top:2px}
+.stat-card.accent .val{color:var(--accent2)}
+.stat-card.warn .val{color:var(--warning)}
+.stat-card.danger .val{color:var(--danger)}
+.info-row{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem}
+.info-row:last-child{border:none}
+.info-row .lbl{color:var(--muted)}
+.info-row .val{color:var(--text);font-weight:500;text-align:right;max-width:65%}
+.ip-pill{background:rgba(108,99,255,.12);border:1px solid rgba(108,99,255,.25);
+  color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:.72rem;margin-left:4px;display:inline-block}
+.tag-ok{color:var(--success);font-weight:700}
+.tag-no{color:var(--danger);font-weight:700}
+.tag-warn{color:var(--warning);font-weight:700}
+.btn{border:none;border-radius:8px;padding:8px 16px;font-size:.8rem;font-weight:700;
+  cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover:not(:disabled){background:#5a52e0}
+.btn-success{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.btn-success:hover:not(:disabled){background:rgba(34,197,94,.25)}
+.btn-danger{background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.25)}
+.btn-danger:hover:not(:disabled){background:rgba(239,68,68,.2)}
+.btn-warn{background:rgba(245,158,11,.12);color:var(--warning);border:1px solid rgba(245,158,11,.25)}
+.btn-warn:hover:not(:disabled){background:rgba(245,158,11,.2)}
+.btn-ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover:not(:disabled){background:var(--card)}
+.btn-sm{padding:5px 10px;font-size:.74rem;border-radius:6px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+#terminal-output{background:#0a0d14;border:1px solid #1e2436;border-radius:8px;
+  padding:12px 14px;font-family:'Consolas','Courier New',monospace;
+  font-size:.78rem;line-height:1.6;color:#7eff83;min-height:200px;max-height:400px;
+  overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.term-input-row{display:flex;gap:8px;margin-top:10px;align-items:center}
+#term-input{flex:1;background:#0a0d14;border:1px solid var(--border);color:#7eff83;
+  border-radius:6px;padding:8px 12px;font-family:'Consolas','Courier New',monospace;font-size:.8rem}
+.term-run-btn{background:var(--accent2);color:#111;border:none;border-radius:6px;
+  padding:8px 16px;font-size:.8rem;font-weight:700;cursor:pointer}
+.term-clear-btn{background:var(--card);color:var(--muted);border:1px solid var(--border);
+  border-radius:6px;padding:8px 12px;font-size:.8rem;cursor:pointer}
+#sql-input{width:100%;background:#0a0d14;border:1px solid var(--border);color:#c9d1d9;
+  border-radius:8px;padding:10px 12px;font-family:'Consolas','Courier New',monospace;
+  font-size:.8rem;resize:vertical;min-height:80px}
+#sql-results{margin-top:12px;overflow-x:auto}
+#sql-results table{width:100%;border-collapse:collapse;font-size:.75rem}
+#sql-results th{background:var(--surface);color:var(--muted);padding:6px 10px;
+  text-align:left;border-bottom:1px solid var(--border);font-weight:600}
+#sql-results td{padding:6px 10px;border-bottom:1px solid rgba(42,49,72,.5);
+  max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sql-results tr:hover td{background:rgba(108,99,255,.05)}
+#sql-results .empty{color:var(--muted);text-align:center;padding:20px;font-size:.8rem}
+.tier-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:12px}
+.tier-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:10px 6px;text-align:center;cursor:pointer;transition:all .15s;font-size:.78rem;font-weight:700}
+.tier-btn:hover{border-color:var(--accent);background:rgba(108,99,255,.1);color:var(--accent)}
+.tier-btn.loading{opacity:.5;pointer-events:none}
+.autorenew-row{display:flex;align-items:center;gap:10px;padding:10px 0}
+.toggle{position:relative;width:40px;height:22px;display:inline-block}
+.toggle input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;border-radius:22px;background:#2a3148;cursor:pointer;transition:.2s}
+.slider::before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;
+  background:#7b8196;border-radius:50%;transition:.2s}
+.toggle input:checked+.slider{background:rgba(34,197,94,.3);border:1px solid #22c55e}
+.toggle input:checked+.slider::before{transform:translateX(18px);background:#22c55e}
+.mode-select{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:7px 10px;font-size:.8rem;width:100%;margin-bottom:8px}
+.update-url-input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:7px 10px;font-size:.8rem;margin-bottom:8px;display:none}
+.update-url-input.show{display:block}
+#tunnel-url-display{font-family:'Consolas','Courier New',monospace;font-size:.82rem;
+  background:#0a0d14;border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;color:var(--accent2);word-break:break-all;min-height:40px;margin-bottom:10px}
+.copy-btn{background:var(--surface);border:1px solid var(--border);
+  border-radius:6px;padding:5px 10px;font-size:.75rem;cursor:pointer}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+.mcp-config{background:#0a0d14;border:1px solid var(--border);border-radius:8px;
+  padding:14px;font-family:'Consolas','Courier New',monospace;font-size:.75rem;
+  color:#c9d1d9;white-space:pre;overflow-x:auto;margin-bottom:10px;line-height:1.6;max-height:300px;overflow-y:auto}
+.platform-tabs{display:flex;gap:6px;margin-bottom:12px}
+.pt-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);
+  border-radius:6px;padding:5px 12px;font-size:.75rem;cursor:pointer}
+.pt-btn.active{background:rgba(108,99,255,.15);border-color:var(--accent);color:var(--accent)}
+.alert{border-radius:8px;padding:10px 14px;font-size:.8rem;margin-bottom:10px;display:none}
+.alert.show{display:block}
+.alert-ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#22c55e}
+.alert-err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#ef4444}
+.alert-info{background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.3);color:#a78bfa}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.25);
+  border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.prog-bar{background:var(--surface);border-radius:4px;overflow:hidden;height:6px;margin:4px 0}
+.prog-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+@media(max-width:780px){#header{padding:10px 14px}#pw-input{width:120px}#fleet-panel{max-height:35vh}}
+</style>
+</head>
+<body>
+<div id="app">
+<header id="header">
+  <div id="logo">
+    <svg viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="20" fill="#1e2436"/>
+      <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
+      <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.3.0 &middot; Remote Fleet Manager</p></div>
+  </div>
+  <div id="key-vault">
+    <label>&#128273; Owner Key:</label>
+    <button id="key-file-btn" onclick="loadKeyFile()">Load .flokey</button>
+    <span id="key-status" class="ks-no">No key loaded</span>
+    <label style="margin-left:8px">Password:</label>
+    <input type="password" id="pw-input" value="Fl0220671190" placeholder="Owner password" autocomplete="current-password" />
+    <button id="vault-lock-btn" onclick="pingAll()">&#128260; Ping All</button>
+  </div>
+</header>
+<div id="body">
+  <aside id="fleet-panel">
+    <div id="fleet-header">
+      <h2>&#9889; Fleet Nodes</h2>
+      <button id="add-node-btn" onclick="toggleAddForm()">+ Add</button>
+    </div>
+    <div id="add-node-form">
+      <input id="node-name-in" placeholder="Friendly name (e.g. Main Cafe)" />
+      <input id="node-url-in" placeholder="URL (e.g. http://192.168.1.50:3009)" />
+      <div class="row">
+        <button class="btn-save" onclick="addNode()">Add Node</button>
+        <button class="btn-cancel" onclick="toggleAddForm()">Cancel</button>
+      </div>
+    </div>
+    <button id="scan-btn" onclick="scanLan()">&#128269; Scan LAN (192.168.x.x:3009)</button>
+    <div id="fleet-list"><div id="fleet-empty">Add nodes above or scan LAN to discover FloCafe installations.</div></div>
+  </aside>
+  <main id="main-panel">
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
+      <button class="tab-btn" data-tab="analytics" onclick="showTab('analytics')">Analytics</button>
+      <button class="tab-btn" data-tab="sql" onclick="showTab('sql')">SQL Explorer</button>
+      <button class="tab-btn" data-tab="terminal" onclick="showTab('terminal')">Terminal</button>
+      <button class="tab-btn" data-tab="appctrl" onclick="showTab('appctrl')">App Control</button>
+      <button class="tab-btn" data-tab="tunnel" onclick="showTab('tunnel')">Tunnel</button>
+      <button class="tab-btn" data-tab="license" onclick="showTab('license')">License</button>
+      <button class="tab-btn" data-tab="update" onclick="showTab('update')">Update</button>
+      <button class="tab-btn" data-tab="mcp" onclick="showTab('mcp')">MCP Bridge</button>
+    </div>
+    <div id="tab-content">
+      <div id="no-node">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <p>Select a node from the fleet list to begin.</p>
+      </div>
+      <div class="section" id="sec-overview">
+        <div id="overview-alert" class="alert"></div>
+        <div class="card"><div class="card-title"><span class="dot"></span> Node Status</div><div class="stat-grid" id="overview-stats"></div></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Network</div><div id="overview-net"></div></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--warning)"></span> System Resources</div><div id="overview-sys"></div></div>
+      </div>
+      <div class="section" id="sec-analytics">
+        <div id="analytics-alert" class="alert"></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Today</div><div class="stat-grid" id="analytics-today"></div></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span> Last 30 Days</div><div class="stat-grid" id="analytics-month"></div></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--warning)"></span> Operations</div><div id="analytics-ops"></div></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--danger)"></span> Low Stock</div><div id="analytics-stock"></div></div>
+      </div>
+      <div class="section" id="sec-sql">
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent)"></span> Remote SQLite Query</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <button class="btn btn-ghost btn-sm" onclick="setSql('SELECT date(created_at) as day,COUNT(*) as orders,SUM(total) as revenue FROM orders WHERE status!=\'cancelled\' GROUP BY day ORDER BY day DESC LIMIT 14')">Daily Revenue</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSql('SELECT name,stock_quantity,min_stock_alert FROM products WHERE track_inventory=1 AND stock_quantity&lt;=min_stock_alert')">Low Stock</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSql('SELECT * FROM cash_sessions WHERE status=\'open\' ORDER BY id DESC LIMIT 5')">Cash Sessions</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSql('SELECT name,tier,expires_at,valid FROM _flo_hardware_license ORDER BY id DESC LIMIT 1')">License State</button>
+          </div>
+          <textarea id="sql-input" placeholder="SELECT * FROM orders LIMIT 10;"></textarea>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="runSql()">Run Query</button>
+            <button class="btn btn-ghost" onclick="clearSql()">Clear</button>
+          </div>
+          <div id="sql-results"></div>
+        </div>
+      </div>
+      <div class="section" id="sec-terminal">
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--success)"></span> Remote Shell / PowerShell</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:10px">Owner-authenticated &mdash; PowerShell on Windows, /bin/bash on Linux.</p>
+          <div class="btn-row" style="margin-top:0;margin-bottom:10px">
+            <button class="btn btn-ghost btn-sm" onclick="runCmd('systeminfo || uname -a')">System Info</button>
+            <button class="btn btn-ghost btn-sm" onclick="runCmd('tasklist | findstr Flo || ps aux | grep flocafe')">FloCafe PID</button>
+            <button class="btn btn-ghost btn-sm" onclick="runCmd('df -h || wmic logicaldisk get size,freespace,caption')">Disk Space</button>
+            <button class="btn btn-ghost btn-sm" onclick="runCmd('netstat -an | findstr 3009 || ss -tlnp | grep 3009')">Port 3009</button>
+            <button class="btn btn-ghost btn-sm" onclick="runCmd('echo %USERNAME% || whoami')">Who Am I</button>
+          </div>
+          <div id="terminal-output"># FloCafe Remote Terminal -- Owner Auth Required
+</div>
+          <div class="term-input-row">
+            <input type="text" id="term-input" placeholder="Enter command..." onkeydown="if(event.key==='Enter')runCmdInput()" />
+            <button class="term-run-btn" onclick="runCmdInput()">Run</button>
+            <button class="term-clear-btn" onclick="clearTerm()">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div class="section" id="sec-appctrl">
+        <div id="appctrl-alert" class="alert"></div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--success)"></span> FloCafe GUI Lifecycle</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:14px">Start/Stop/Restart the FloCafe POS GUI &mdash; even when it is completely closed.</p>
+          <div class="btn-row">
+            <button class="btn btn-success" onclick="appControl('start')">Start FloCafe</button>
+            <button class="btn btn-danger" onclick="appControl('stop')">Stop FloCafe</button>
+            <button class="btn btn-warn" onclick="appControl('restart')">Restart FloCafe</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent)"></span> Database Maintenance</div>
+          <div class="btn-row">
+            <button class="btn btn-ghost" onclick="appControl('backup_db')">Backup DB (VACUUM INTO)</button>
+            <button class="btn btn-ghost" onclick="appControl('run_safe_fixes')">Run Safe Fixes</button>
+          </div>
+        </div>
+      </div>
+      <div class="section" id="sec-tunnel">
+        <div id="tunnel-alert" class="alert"></div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Zero-Cost Internet Tunnel</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">Free HTTPS tunnel via cloudflared or localhost.run (built-in SSH, no account needed).</p>
+          <div id="tunnel-url-display">No active tunnel. Press "Start Tunnel" to expose this node over the internet.</div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="tunnelStart('auto')">Start Tunnel (Auto)</button>
+            <button class="btn btn-ghost" onclick="tunnelStart('cloudflared')">cloudflared</button>
+            <button class="btn btn-ghost" onclick="tunnelStart('localhost.run')">localhost.run</button>
+            <button class="btn btn-danger" onclick="tunnelStop()">Stop</button>
+            <button class="copy-btn" id="tunnel-copy-btn" onclick="copyTunnelUrl()" style="display:none">Copy URL</button>
+          </div>
+        </div>
+      </div>
+      <div class="section" id="sec-license">
+        <div id="license-alert" class="alert"></div>
+        <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span> Current License State</div><div id="license-info"></div></div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--success)"></span> Activate / Switch Tier</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:10px">Select a tier to remotely activate or extend the license on this node.</p>
+          <div class="tier-grid">
+            <div class="tier-btn" onclick="activateTier('forever')">Forever</div>
+            <div class="tier-btn" onclick="activateTier('1y')">1 Year</div>
+            <div class="tier-btn" onclick="activateTier('6m')">6 Months</div>
+            <div class="tier-btn" onclick="activateTier('3m')">3 Months</div>
+            <div class="tier-btn" onclick="activateTier('1m')">1 Month</div>
+            <div class="tier-btn" onclick="activateTier('1w')">1 Week</div>
+            <div class="tier-btn" onclick="activateTier('3d')">3 Days</div>
+            <div class="tier-btn" onclick="activateTier('24h')">24 Hours</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--warning)"></span> Auto-Renewal Policy</div>
+          <div class="autorenew-row">
+            <label class="toggle"><input type="checkbox" id="autorenew-toggle" onchange="setAutoRenew(this.checked)"/><span class="slider"></span></label>
+            <span style="font-size:.82rem">Auto-Renew enabled</span>
+            <span style="font-size:.75rem;color:var(--muted);margin-left:4px">(Daemon auto-extends before expiry)</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--danger)"></span> Danger Zone</div>
+          <div class="btn-row">
+            <button class="btn btn-danger" onclick="if(confirm('REVOKE license on this node?'))revokeLicense()">Revoke &amp; Lock Node</button>
+          </div>
+        </div>
+      </div>
+      <div class="section" id="sec-update">
+        <div id="update-alert" class="alert"></div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent)"></span> Remote Software Update</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">Triggers a silent remote update/reinstall. A pre-update SQLite backup is created automatically.</p>
+          <label style="font-size:.78rem;color:var(--muted);display:block;margin-bottom:4px">Update Mode</label>
+          <select class="mode-select" id="update-mode" onchange="onUpdateModeChange()">
+            <option value="github_latest">GitHub Latest Release (Recommended)</option>
+            <option value="custom_url">Custom Installer URL</option>
+            <option value="git_pull_build">Git Pull + Build (Linux dev)</option>
+          </select>
+          <input type="text" id="update-url-input" class="update-url-input" placeholder="https://example.com/flocafe-4.3.0-win-x64.exe" />
+          <div class="btn-row">
+            <button class="btn btn-warn" onclick="triggerUpdate()">Trigger Silent Update</button>
+          </div>
+          <div class="prog-bar" id="update-prog" style="display:none"><div class="prog-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="section" id="sec-mcp">
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent)"></span> AI Agent MCP Configuration</div>
+          <p style="font-size:.78rem;color:var(--muted);margin-bottom:12px">Paste this into your AI agent config to connect it to <code>scripts/flocafe-owner-mcp.cjs</code>.</p>
+          <div class="platform-tabs">
+            <button class="pt-btn active" onclick="showMcpPlatform('antigravity',this)">Antigravity IDE</button>
+            <button class="pt-btn" onclick="showMcpPlatform('claude',this)">Claude Desktop</button>
+            <button class="pt-btn" onclick="showMcpPlatform('cursor',this)">Cursor</button>
+            <button class="pt-btn" onclick="showMcpPlatform('gemini',this)">Gemini CLI</button>
+          </div>
+          <div id="mcp-config-display" class="mcp-config"></div>
+          <button class="copy-btn" onclick="copyMcpConfig()">Copy Config</button>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Available MCP Tools (v4.3.0)</div>
+          <div id="mcp-tools-list"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</div>
+<input type="file" id="key-file-input" accept=".flokey,.json" style="display:none" onchange="onKeyFileSelected(event)" />
+<script>
+const state={nodes:[],activeNodeIdx:-1,ownerKey:null,activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
+const pw=()=>document.getElementById('pw-input').value.trim();
+function save(){try{localStorage.setItem('flo_nodes',JSON.stringify(state.nodes.map(n=>({name:n.name,url:n.url}))));if(state.ownerKey)localStorage.setItem('flo_owner_key',state.ownerKey);}catch{}}
+function load(){try{const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');ns.forEach(n=>addNodeRaw(n.name,n.url,false));}catch{}try{const k=localStorage.getItem('flo_owner_key');if(k){state.ownerKey=k;updateKeyStatus();}}catch{}if(!state.nodes.length){addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);save();}}
+function loadKeyFile(){document.getElementById('key-file-input').click();}
+function onKeyFileSelected(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{state.ownerKey=ev.target.result;updateKeyStatus();save();showAlert('overview-alert','ok','Key file loaded: '+f.name);};r.readAsText(f);e.target.value='';}
+function updateKeyStatus(){const el=document.getElementById('key-status');if(state.ownerKey){el.textContent='Key loaded';el.className='ks-ok';}else{el.textContent='No key loaded';el.className='ks-no';}}
+function authHeaders(){const h={'Content-Type':'application/json','x-owner-password':pw()};if(state.ownerKey)h['x-owner-master-key']=state.ownerKey;return h;}
+function toggleAddForm(){const f=document.getElementById('add-node-form');f.classList.toggle('open');if(f.classList.contains('open'))document.getElementById('node-name-in').focus();}
+function addNode(){const name=document.getElementById('node-name-in').value.trim();const url=document.getElementById('node-url-in').value.trim();if(!url)return alert('Please enter a node URL.');addNodeRaw(name||url,url,true);document.getElementById('node-name-in').value='';document.getElementById('node-url-in').value='';toggleAddForm();}
+function addNodeRaw(name,url,doSave){if(state.nodes.some(n=>n.url===url))return;state.nodes.push({name,url,status:'unknown',ping:null});renderFleet();if(doSave)save();pingNode(state.nodes.length-1);}
+function removeNode(idx){state.nodes.splice(idx,1);if(state.activeNodeIdx===idx){state.activeNodeIdx=-1;showNoNode();}else if(state.activeNodeIdx>idx)state.activeNodeIdx--;renderFleet();save();}
+function selectNode(idx){state.activeNodeIdx=idx;renderFleet();document.getElementById('no-node').style.display='none';document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));showTab(state.activeTab,false);loadTabData(state.activeTab);}
+function showNoNode(){document.getElementById('no-node').style.display='';document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));}
+function activeNode(){return state.nodes[state.activeNodeIdx]||null;}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderFleet(){
+  const list=document.getElementById('fleet-list');
+  const empty=document.getElementById('fleet-empty');
+  if(!state.nodes.length){empty.style.display='';list.innerHTML='';list.appendChild(empty);return;}
+  empty.style.display='none';list.innerHTML='';
+  state.nodes.forEach((n,i)=>{
+    const div=document.createElement('div');
+    div.className='node-item'+(i===state.activeNodeIdx?' active':'');
+    div.onclick=()=>selectNode(i);
+    const dc=n.status==='ok'?'dot-ok':n.status==='err'?'dot-err':'dot-ping';
+    const badges=[];
+    if(n.ping){badges.push(n.ping.flocafe_running?'<span class="badge b-gui">GUI ON</span>':'<span class="badge b-nogui">GUI OFF</span>');if(n.ping.license_tier)badges.push('<span class="badge b-tier">'+esc(n.ping.license_tier)+'</span>');if(n.ping.tunnel_url)badges.push('<span class="badge b-tunnel">Tunnel</span>');}
+    div.innerHTML='<span class="node-dot '+dc+'"></span><div class="node-meta"><strong>'+esc(n.name)+'</strong><span>'+esc(n.url)+'</span><div class="node-badges">'+badges.join('')+'</div></div><button class="node-del" onclick="event.stopPropagation();removeNode('+i+')" title="Remove">x</button>';
+    list.appendChild(div);
+  });
+}
+async function pingNode(idx){
+  const n=state.nodes[idx];if(!n)return;
+  n.status='ping';renderFleet();
+  try{const res=await fetch(n.url+'/api/sentinel/ping',{signal:AbortSignal.timeout(3000)});if(res.ok){n.status='ok';n.ping=await res.json();}else{n.status='err';n.ping=null;}}catch{n.status='err';n.ping=null;}
+  renderFleet();if(idx===state.activeNodeIdx&&state.activeTab==='overview')loadOverview();
+}
+function pingAll(){state.nodes.forEach((_,i)=>pingNode(i));}
+async function scanLan(){
+  const btn=document.getElementById('scan-btn');btn.textContent='Scanning...';btn.disabled=true;
+  let prefix='192.168.1';
+  if(state.nodes.length&&state.nodes[0].ping&&state.nodes[0].ping.lan_ips&&state.nodes[0].ping.lan_ips.length){const p=state.nodes[0].ping.lan_ips[0].split('.');if(p.length===4)prefix=p.slice(0,3).join('.');}
+  const checks=[];
+  for(let i=1;i<=254;i++){const url='http://'+prefix+'.'+i+':3009';if(state.nodes.some(n=>n.url===url))continue;checks.push(fetch(url+'/api/sentinel/ping',{signal:AbortSignal.timeout(1200)}).then(r=>r.ok?r.json().then(d=>({url,name:d.node_name||url,ping:d})):null).catch(()=>null));}
+  const results=await Promise.all(checks);
+  results.filter(Boolean).forEach(r=>addNodeRaw(r.name,r.url,true));
+  btn.textContent='Scan LAN ('+prefix+'.x:3009)';btn.disabled=false;
+}
+function showTab(tab,upd=true){if(upd)state.activeTab=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));const sec=document.getElementById('sec-'+tab);if(sec)sec.classList.add('active');if(state.activeNodeIdx>=0)loadTabData(tab);}
+function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'license':loadLicense();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
+async function apiFetch(baseUrl,ep,method,body,headers){const opts={method:method||'GET',headers:{'Content-Type':'application/json',...(headers||{})}};if(body)opts.body=JSON.stringify(body);return fetch(baseUrl.replace(/\/$/,'')+ep,opts);}
+async function ownerPost(ep,body){const n=activeNode();if(!n)throw new Error('No node');const res=await apiFetch(n.url,ep,'POST',body,authHeaders());return{res,data:await res.json()};}
+async function ownerGet(ep){const n=activeNode();if(!n)throw new Error('No node');const res=await apiFetch(n.url,ep,'GET',null,authHeaders());return{res,data:await res.json()};}
+function showAlert(id,type,msg,autohide=true){const el=document.getElementById(id);if(!el)return;el.textContent=msg;el.className='alert show alert-'+type;if(autohide)setTimeout(()=>{el.className='alert';},6000);}
+async function loadOverview(){
+  const n=activeNode();if(!n)return;
+  try{
+    const res=await fetch(n.url+'/api/sentinel/ping');
+    const d=res.ok?await res.json():null;
+    if(!d){showAlert('overview-alert','err','Node unreachable');return;}
+    n.ping=d;n.status='ok';renderFleet();
+    document.getElementById('overview-stats').innerHTML='<div class="stat-card '+(d.flocafe_running?'':'warn')+'"><div class="val">'+(d.flocafe_running?'Running':'Closed')+'</div><div class="lbl">FloCafe GUI</div></div>'+'<div class="stat-card '+(d.license_valid?'accent':'danger')+'"><div class="val">'+(d.license_tier||'--')+'</div><div class="lbl">License Tier</div></div>'+'<div class="stat-card"><div class="val">'+(d.os_platform||'--')+'</div><div class="lbl">Platform</div></div>'+'<div class="stat-card"><div class="val">'+fmtUptime(d.uptime_seconds)+'</div><div class="lbl">Uptime</div></div>'+'<div class="stat-card"><div class="val">'+(d.arch||'--')+'</div><div class="lbl">Arch</div></div>'+'<div class="stat-card '+(d.tunnel_url?'accent':'')+'"><div class="val">'+(d.tunnel_url?'Tunnel Active':'No Tunnel')+'</div><div class="lbl">Internet Tunnel</div></div>';
+    const ips=[...(d.lan_ips||[]),...(d.p2p_details||[]).map(p=>p.ip)].map(ip=>'<span class="ip-pill">'+ip+'</span>').join('');
+    document.getElementById('overview-net').innerHTML='<div class="info-row"><span class="lbl">Hostname</span><span class="val">'+esc(d.node_name||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">IPs</span><span class="val">'+(ips||'<span class="tag-warn">None</span>')+'</span></div>'+'<div class="info-row"><span class="lbl">Tunnel</span><span class="val">'+(d.tunnel_url?'<a href="'+esc(d.tunnel_url)+'" target="_blank" style="color:var(--accent2)">'+esc(d.tunnel_url)+'</a>':'--')+'</span></div>';
+    try{const dr=await apiFetch(n.url,'/api/sentinel/diagnostics','GET',null,authHeaders());if(dr.ok){const dd=await dr.json();const mem=dd.system&&dd.system.memory;document.getElementById('overview-sys').innerHTML='<div class="info-row"><span class="lbl">OS</span><span class="val">'+esc((dd.system&&dd.system.platform)||'')+'</span></div>'+'<div class="info-row"><span class="lbl">CPU Cores</span><span class="val">'+((dd.system&&dd.system.cpu_cores)||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">Memory</span><span class="val">'+(mem?pct(mem.used_percent)+'% used ('+fmtBytes(mem.total_bytes-mem.free_bytes)+' / '+fmtBytes(mem.total_bytes)+')':'--')+'</span></div>'+'<div class="info-row"><span class="lbl">DB Size</span><span class="val">'+fmtBytes(dd.sqlite&&dd.sqlite.db_size_bytes)+'</span></div>'+'<div class="info-row"><span class="lbl">DB OK</span><span class="val '+(dd.sqlite&&dd.sqlite.integrity==='ok'?'tag-ok':'tag-warn')+'">'+(dd.sqlite&&dd.sqlite.integrity||'--')+'</span></div>';}}catch{}
+  }catch(e){showAlert('overview-alert','err','Error: '+e.message);}
+}
+async function loadAnalytics(){
+  const n=activeNode();if(!n)return;
+  try{const{res,data}=await ownerGet('/api/sentinel/insights');if(!res.ok){showAlert('analytics-alert','err',data.error||'Failed');return;}
+  document.getElementById('analytics-today').innerHTML='<div class="stat-card accent"><div class="val">'+fmtCur(data.today&&data.today.revenue)+'</div><div class="lbl">Revenue Today</div></div>'+'<div class="stat-card"><div class="val">'+((data.today&&data.today.orders_count)||0)+'</div><div class="lbl">Orders Today</div></div>'+'<div class="stat-card"><div class="val">'+fmtCur(data.today&&data.today.avg_ticket)+'</div><div class="lbl">Avg Ticket</div></div>';
+  document.getElementById('analytics-month').innerHTML='<div class="stat-card accent"><div class="val">'+fmtCur(data.last_30_days&&data.last_30_days.revenue)+'</div><div class="lbl">Revenue (30d)</div></div>'+'<div class="stat-card"><div class="val">'+((data.last_30_days&&data.last_30_days.orders_count)||0)+'</div><div class="lbl">Orders (30d)</div></div>';
+  const ops=data.operations||{};
+  document.getElementById('analytics-ops').innerHTML='<div class="info-row"><span class="lbl">Open Tables</span><span class="val">'+(ops.open_tables_count||0)+'</span></div>'+'<div class="info-row"><span class="lbl">Active Staff</span><span class="val">'+(ops.active_staff_count||0)+'</span></div>'+'<div class="info-row"><span class="lbl">Low Stock</span><span class="val '+(ops.low_stock_count>0?'tag-warn':'tag-ok')+'">'+(ops.low_stock_count||0)+'</span></div>';
+  const stock=ops.low_stock_items||[];
+  document.getElementById('analytics-stock').innerHTML=stock.length?stock.map(s=>'<div class="info-row"><span class="lbl">'+esc(s.name)+'</span><span class="val tag-warn">Qty:'+s.stock_quantity+' Min:'+s.min_stock_alert+'</span></div>').join(''):'<p style="color:var(--success);font-size:.8rem">All stock OK</p>';
+  }catch(e){showAlert('analytics-alert','err',e.message);}
+}
+function clearSql(){document.getElementById('sql-input').value='';document.getElementById('sql-results').innerHTML='';}
+function setSql(q){document.getElementById('sql-input').value=q;}
+async function runSql(){
+  const q=document.getElementById('sql-input').value.trim();if(!q)return;
+  const n=activeNode();if(!n)return;
+  const out=document.getElementById('sql-results');
+  out.innerHTML='<div class="empty"><span class="spinner"></span> Running...</div>';
+  try{const{res,data}=await ownerPost('/api/sentinel/sql-query',{query:q});
+  if(!res.ok){out.innerHTML='<div class="empty" style="color:var(--danger)">'+esc(data.error||'Failed')+': '+esc(data.details||'')+'</div>';return;}
+  if(data.rows){if(!data.rows.length){out.innerHTML='<div class="empty">No rows.</div>';return;}const cols=Object.keys(data.rows[0]);out.innerHTML='<table><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+data.rows.map(r=>'<tr>'+cols.map(c=>'<td title="'+esc(String(r[c]??''))+'">'+esc(String(r[c]??''))+'</td>').join('')+'</tr>').join('')+'</tbody></table><p style="font-size:.7rem;color:var(--muted);margin-top:6px">'+data.count+' row(s)</p>';}
+  else out.innerHTML='<div class="empty" style="color:var(--success)">OK - '+( data.changes||0)+' changed</div>';
+  }catch(e){out.innerHTML='<div class="empty" style="color:var(--danger)">'+esc(e.message)+'</div>';}
+}
+function clearTerm(){document.getElementById('terminal-output').textContent='# FloCafe Remote Terminal\n';}
+async function runCmd(cmd){
+  const n=activeNode();if(!n)return;
+  const out=document.getElementById('terminal-output');
+  out.textContent+='$ '+cmd+'\n';out.scrollTop=out.scrollHeight;
+  try{const{res,data}=await ownerPost('/api/sentinel/exec-support',{command:cmd,timeoutMs:60000});
+  if(!res.ok)out.textContent+='[ERROR] '+(data.error||'Failed')+'\n';
+  else{if(data.stdout)out.textContent+=data.stdout;if(data.stderr)out.textContent+='[stderr] '+data.stderr;out.textContent+='\n[Exit: '+data.exitCode+' | '+data.durationMs+'ms]\n';}
+  }catch(e){out.textContent+='[NETWORK ERROR] '+e.message+'\n';}
+  out.scrollTop=out.scrollHeight;
+}
+function runCmdInput(){const inp=document.getElementById('term-input');const cmd=inp.value.trim();if(!cmd)return;state.termHistory.unshift(cmd);state.termHistIdx=-1;inp.value='';runCmd(cmd);}
+document.addEventListener('keydown',e=>{const inp=document.getElementById('term-input');if(document.activeElement!==inp)return;if(e.key==='ArrowUp'){state.termHistIdx=Math.min(state.termHistIdx+1,state.termHistory.length-1);inp.value=state.termHistory[state.termHistIdx]||'';e.preventDefault();}else if(e.key==='ArrowDown'){state.termHistIdx=Math.max(state.termHistIdx-1,-1);inp.value=state.termHistIdx>=0?state.termHistory[state.termHistIdx]:'';e.preventDefault();}});
+async function appControl(action){
+  const n=activeNode();if(!n)return;
+  showAlert('appctrl-alert','info','Sending '+action+'...');
+  try{const{res,data}=await ownerPost('/api/sentinel/app-control',{action});if(res.ok&&data.success){showAlert('appctrl-alert','ok',data.message||action+' OK');pingNode(state.activeNodeIdx);}else showAlert('appctrl-alert','err',data.error||'Failed');}catch(e){showAlert('appctrl-alert','err',e.message);}
+}
+async function loadTunnelStatus(){const n=activeNode();if(!n)return;try{const res=await fetch(n.url+'/api/sentinel/tunnel');const d=await res.json();updateTunnelDisplay(d.tunnel_url,d.provider);}catch{}}
+function updateTunnelDisplay(url,provider){const el=document.getElementById('tunnel-url-display');const cb=document.getElementById('tunnel-copy-btn');state.tunnelUrl=url;if(url){el.innerHTML='<a href="'+esc(url)+'" target="_blank" style="color:var(--accent2)">'+esc(url)+'</a><br><small style="color:var(--muted)">Provider: '+(provider||'auto')+'</small>';cb.style.display='';}else{el.textContent='No active tunnel.';cb.style.display='none';}}
+async function tunnelStart(provider){showAlert('tunnel-alert','info','Starting '+provider+' tunnel...',false);try{const{res,data}=await ownerPost('/api/sentinel/tunnel',{action:'start',provider});if(res.ok&&data.success){updateTunnelDisplay(data.tunnel_url,data.provider);showAlert('tunnel-alert','ok','Tunnel active: '+(data.tunnel_url||'pending'));pingNode(state.activeNodeIdx);}else showAlert('tunnel-alert','err',data.error||'Failed');}catch(e){showAlert('tunnel-alert','err',e.message);}}
+async function tunnelStop(){try{await ownerPost('/api/sentinel/tunnel',{action:'stop'});updateTunnelDisplay(null,null);showAlert('tunnel-alert','ok','Tunnel stopped');pingNode(state.activeNodeIdx);}catch(e){showAlert('tunnel-alert','err',e.message);}}
+function copyTunnelUrl(){if(state.tunnelUrl){navigator.clipboard.writeText(state.tunnelUrl);showAlert('tunnel-alert','ok','URL copied');}}
+async function loadLicense(){
+  const n=activeNode();if(!n)return;
+  try{const{res,data}=await ownerGet('/api/sentinel/diagnostics');if(!res.ok){document.getElementById('license-info').innerHTML='<p style="color:var(--danger)">Failed</p>';return;}
+  const lic=data.license||{};const arp=data.auto_renew_policy||{};
+  document.getElementById('license-info').innerHTML='<div class="info-row"><span class="lbl">Tier</span><span class="val">'+(lic.tier||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">Status</span><span class="val '+(lic.valid?'tag-ok':'tag-no')+'">'+(lic.valid?'Valid':'Invalid')+'</span></div>'+'<div class="info-row"><span class="lbl">Expires</span><span class="val">'+(lic.expires_at?new Date(lic.expires_at).toLocaleString():'Never (Forever)')+'</span></div>'+'<div class="info-row"><span class="lbl">HWID</span><span class="val" style="font-family:monospace;font-size:.72rem">'+esc(lic.hwid||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">Auto-Renew</span><span class="val">'+(arp.enabled?'Enabled':'Disabled')+'</span></div>';
+  document.getElementById('autorenew-toggle').checked=Boolean(arp.enabled);
+  }catch(e){showAlert('license-alert','err',e.message);}
+}
+async function activateTier(tier){
+  const n=activeNode();if(!n)return;
+  const btns=document.querySelectorAll('.tier-btn');btns.forEach(b=>b.classList.add('loading'));
+  showAlert('license-alert','info','Activating '+tier+'...');
+  try{const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'activate',tierKeyContent:'__tier_'+tier,ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});if(res.ok&&data.success){showAlert('license-alert','ok','License activated: '+tier);loadLicense();pingNode(state.activeNodeIdx);}else showAlert('license-alert','err',data.error||'Failed');}catch(e){showAlert('license-alert','err',e.message);}
+  btns.forEach(b=>b.classList.remove('loading'));
+}
+async function setAutoRenew(enabled){try{const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'set_auto_renew',autoRenewPolicy:{enabled,renew_tier:'forever',max_renewals:99},ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});showAlert('license-alert',res.ok?'ok':'err',res.ok?'Auto-renew '+(enabled?'enabled':'disabled'):(data.error||'Failed'));}catch(e){showAlert('license-alert','err',e.message);}}
+async function revokeLicense(){try{const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'revoke',ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});showAlert('license-alert',res.ok?'ok':'err',res.ok?'License revoked':(data.error||'Failed'));if(res.ok){loadLicense();pingNode(state.activeNodeIdx);}}catch(e){showAlert('license-alert','err',e.message);}}
+function onUpdateModeChange(){document.getElementById('update-url-input').classList.toggle('show',document.getElementById('update-mode').value==='custom_url');}
+async function triggerUpdate(){
+  const mode=document.getElementById('update-mode').value;const url=document.getElementById('update-url-input').value.trim();
+  if(mode==='custom_url'&&!url){showAlert('update-alert','err','Enter a custom URL');return;}
+  showAlert('update-alert','info','Triggering update...',false);
+  const prog=document.getElementById('update-prog');prog.style.display='block';prog.children[0].style.width='30%';
+  try{const{res,data}=await ownerPost('/api/sentinel/self-update',{update_mode:mode,target_url:url||undefined});prog.children[0].style.width='100%';if(res.ok&&data.success)showAlert('update-alert','ok',data.message);else showAlert('update-alert','err',data.error||'Failed');}catch(e){showAlert('update-alert','err',e.message);}
+  setTimeout(()=>{prog.style.display='none';prog.children[0].style.width='0%';},3000);
+}
+const MCP_TOOLS=[{n:'flocafe_discover_nodes',d:'Ping all configured FloCafe nodes.'},{n:'flocafe_node_diagnostics',d:'OS, hardware, SQLite diagnostics.'},{n:'flocafe_node_insights',d:'Live revenue, orders, cash, low stock.'},{n:'flocafe_node_license_update',d:'Activate/switch tier or revoke license.'},{n:'flocafe_node_control',d:'Start/stop/restart GUI, backup DB.'},{n:'flocafe_node_sql',d:'Run analytical SQL against remote SQLite.'},{n:'flocafe_node_exec',d:'Execute remote shell/PowerShell (owner-auth).'},{n:'flocafe_node_self_update',d:'Trigger remote silent update/reinstall.'},{n:'flocafe_node_tunnel',d:'Start/stop zero-cost internet tunnel.'}];
+const MCP_CONFIGS={antigravity:'# .gemini/config/mcp_config.json\n{\n  "mcpServers": {\n    "flocafe-owner": {\n      "command": "node",\n      "args": ["<path>/scripts/flocafe-owner-mcp.cjs"],\n      "env": { "FLOCAFE_OWNER_PASSWORD": "Fl0220671190" }\n    }\n  }\n}',claude:'# claude_desktop_config.json\n{\n  "mcpServers": {\n    "flocafe-owner": {\n      "command": "node",\n      "args": ["<path>/scripts/flocafe-owner-mcp.cjs"],\n      "env": { "FLOCAFE_OWNER_PASSWORD": "Fl0220671190" }\n    }\n  }\n}',cursor:'# .cursor/mcp.json\n{\n  "mcpServers": {\n    "flocafe-owner": {\n      "command": "node",\n      "args": ["<path>/scripts/flocafe-owner-mcp.cjs"],\n      "env": { "FLOCAFE_OWNER_PASSWORD": "Fl0220671190" }\n    }\n  }\n}',gemini:'# ~/.gemini/mcp_config.json\n{\n  "mcpServers": {\n    "flocafe-owner": {\n      "command": "node",\n      "args": ["<path>/scripts/flocafe-owner-mcp.cjs"],\n      "env": { "FLOCAFE_OWNER_PASSWORD": "Fl0220671190" }\n    }\n  }\n}'};
+let currentMcpPlat='antigravity';
+function showMcpPlatform(p,btn){currentMcpPlat=p;document.querySelectorAll('.pt-btn').forEach(b=>b.classList.toggle('active',b===btn));document.getElementById('mcp-config-display').textContent=MCP_CONFIGS[p]||'';}
+function renderMcp(){document.getElementById('mcp-config-display').textContent=MCP_CONFIGS[currentMcpPlat]||'';document.getElementById('mcp-tools-list').innerHTML=MCP_TOOLS.map(t=>'<div class="info-row"><span class="lbl" style="font-family:monospace;font-size:.75rem;color:var(--accent)">'+t.n+'</span><span class="val" style="font-size:.75rem">'+t.d+'</span></div>').join('');}
+function copyMcpConfig(){navigator.clipboard.writeText(document.getElementById('mcp-config-display').textContent);}
+function fmtCur(v){return v!=null?Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'--';}
+function fmtBytes(b){if(!b)return'--';if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';if(b<1073741824)return(b/1048576).toFixed(1)+'MB';return(b/1073741824).toFixed(2)+'GB';}
+function fmtUptime(s){if(!s)return'--';const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);return d?d+'d '+h+'h':h?h+'h '+m+'m':m+'m';}
+function pct(v){return v!=null?Number(v).toFixed(1):'--';}
+load();updateKeyStatus();renderMcp();
+setInterval(()=>{if(document.visibilityState==='visible')pingAll();},60000);
+setTimeout(pingAll,500);
+</script>
+</body>
+</html>

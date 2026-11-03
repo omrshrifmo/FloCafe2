@@ -1,0 +1,73 @@
+# Maintainer: Omar Shrif <https://github.com/omrshrifmo>
+pkgname=flocafe-owner-control
+pkgver=4.3.0
+pkgrel=1
+pkgdesc="FloOwner Control — Standalone remote fleet management for FloCafe POS (Windows/Linux/Android)"
+arch=('any')
+url="https://github.com/omrshrifmo/FloCafe2"
+license=('MIT')
+depends=('nodejs>=22.12.0')
+optdepends=(
+  'xdg-utils: Open in default browser via xdg-open'
+  'chromium: Browser for viewing the control dashboard'
+  'tailscale: Zero-cost P2P mesh for remote access'
+)
+source=("https://github.com/omrshrifmo/FloCafe2/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  local src="FloCafe2-${pkgver}"
+
+  install -d "${pkgdir}/opt/flocafe"
+  install -d "${pkgdir}/opt/flocafe/owner-system"
+  install -d "${pkgdir}/opt/flocafe/scripts"
+  install -d "${pkgdir}/usr/bin"
+  install -d "${pkgdir}/usr/share/applications"
+  install -d "${pkgdir}/usr/lib/systemd/user"
+
+  # HTML app (zero-dependency, works offline in any browser)
+  install -m 644 "${src}/owner-system/flo-owner-control.html" \
+    "${pkgdir}/opt/flocafe/owner-system/flo-owner-control.html"
+
+  # Launch script
+  install -m 755 "${src}/scripts/launch-owner-control.cjs" \
+    "${pkgdir}/opt/flocafe/scripts/launch-owner-control.cjs"
+
+  # .desktop launcher
+  install -m 644 "${src}/owner-system/flo-owner-control.desktop" \
+    "${pkgdir}/usr/share/applications/flo-owner-control.desktop"
+
+  # MCP server
+  install -m 755 "${src}/scripts/flocafe-owner-mcp.cjs" \
+    "${pkgdir}/opt/flocafe/scripts/flocafe-owner-mcp.cjs"
+
+  # /usr/bin wrapper
+  cat << 'EOF' > "${pkgdir}/usr/bin/flo-owner-control"
+#!/usr/bin/env bash
+exec node /opt/flocafe/scripts/launch-owner-control.cjs "$@"
+EOF
+  chmod +x "${pkgdir}/usr/bin/flo-owner-control"
+
+  cat << 'EOF' > "${pkgdir}/usr/bin/flocafe-owner-mcp"
+#!/usr/bin/env bash
+exec node /opt/flocafe/scripts/flocafe-owner-mcp.cjs "$@"
+EOF
+  chmod +x "${pkgdir}/usr/bin/flocafe-owner-mcp"
+
+  # Systemd user service (optional — keeps MCP server always running)
+  cat << 'EOF' > "${pkgdir}/usr/lib/systemd/user/flocafe-owner-mcp.service"
+[Unit]
+Description=FloCafe Owner MCP Server (stdio → AI agents)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/flocafe/scripts/flocafe-owner-mcp.cjs
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
+EOF
+}

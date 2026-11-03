@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, shell, po
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as http from 'http';
+import { spawn, exec } from 'child_process';
 
 import { Bonjour } from 'bonjour-service';
 import { getDatabase, initDatabase, closeDatabase, waitForDatabaseRequests, beginDatabaseShutdown, SchemaVersionMismatchError, now, withDatabaseRequest } from './db';
@@ -1195,6 +1197,125 @@ function showAbout(): void {
   });
 }
 
+/**
+ * Registers current-user OS boot persistence for the Sentinel daemon (Run key / systemd unit / autostart).
+ */
+export function registerSentinelBootPersistence(execPath: string, scriptPath: string): void {
+  const platform = os.platform();
+  if (platform === 'win32') {
+    const appDataDir = process.env.APPDATA ? path.join(process.env.APPDATA, 'flo-desktop') : path.join(os.homedir(), 'AppData', 'Roaming', 'flo-desktop');
+    if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
+    const wrapperCmd = path.join(appDataDir, 'run-sentinel.cmd');
+    const cmdContent = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nstart "" /B "${execPath}" "${scriptPath}"\r\n`;
+    fs.writeFileSync(wrapperCmd, cmdContent, 'utf8');
+
+    try {
+      exec(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "FloCafeSentinel" /t REG_SZ /d "\\"${wrapperCmd}\\"" /f`, () => {});
+    } catch {}
+  } else {
+    const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
+    const serviceFile = path.join(systemdDir, 'flocafe-sentinel.service');
+    const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+    const desktopFile = path.join(autostartDir, 'flocafe-sentinel.desktop');
+
+    try {
+      if (!fs.existsSync(systemdDir)) fs.mkdirSync(systemdDir, { recursive: true });
+      const unitContent = `[Unit]
+Description=FloCafe Sentinel Background OS Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart="${execPath}" "${scriptPath}"
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=ELECTRON_RUN_AS_NODE=1
+Environment=SENTINEL_PORT=3009
+
+[Install]
+WantedBy=default.target
+`;
+      fs.writeFileSync(serviceFile, unitContent, 'utf8');
+      exec('systemctl --user daemon-reload && systemctl --user enable flocafe-sentinel.service', () => {});
+    } catch {}
+
+    try {
+      if (!fs.existsSync(autostartDir)) fs.mkdirSync(autostartDir, { recursive: true });
+      const desktopContent = `[Desktop Entry]
+Type=Application
+Name=FloCafe Sentinel Daemon
+Exec=env ELECTRON_RUN_AS_NODE=1 "${execPath}" "${scriptPath}"
+Terminal=false
+X-GNOME-Autostart-enabled=true
+`;
+      fs.writeFileSync(desktopFile, desktopContent, 'utf8');
+    } catch {}
+  }
+}
+
+/**
+ * Ensures FloCafe Sentinel OS Daemon (:3009) is running as an independent detached process
+ * using ELECTRON_RUN_AS_NODE=1 and registers OS boot persistence.
+ */
+export async function ensureSentinelDaemonRunningAndInstalled(): Promise<void> {
+  if (process.env.NODE_ENV === 'test') return;
+
+  const sentinelPort = Number(process.env.SENTINEL_PORT || 3009);
+  const pingUrl = `http://127.0.0.1:${sentinelPort}/api/sentinel/ping`;
+
+  // 1. Check if port 3009 is already responding
+  let isAlive = false;
+  try {
+    const isResponding = await new Promise<boolean>((resolve) => {
+      const req = http.get(pingUrl, { timeout: 1500 }, (res) => {
+        resolve(res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+    isAlive = isResponding;
+  } catch {}
+
+  // 2. Resolve Sentinel script path
+  let sentinelEntryPath = path.resolve(__dirname, 'sentinel', 'sentinel-daemon.js');
+  if (app.isPackaged) {
+    const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'sentinel', 'sentinel-daemon.js');
+    if (fs.existsSync(unpacked)) {
+      sentinelEntryPath = unpacked;
+    }
+  }
+
+  // 3. If not responding, spawn detached OS process with ELECTRON_RUN_AS_NODE=1
+  if (!isAlive && fs.existsSync(sentinelEntryPath)) {
+    try {
+      const child = spawn(process.execPath, [sentinelEntryPath], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          FLOCAFE_GUI_EXEC_PATH: process.execPath,
+          FLOCAFE_USER_DATA_PATH: app.getPath('userData'),
+          SENTINEL_PORT: String(sentinelPort),
+        },
+      });
+      child.unref();
+      log.info(`[Sentinel] Spawned detached sentinel daemon (PID ${child.pid}) on port ${sentinelPort}`);
+    } catch (err: any) {
+      log.warn('[Sentinel] Failed to spawn detached daemon:', err.message);
+    }
+  }
+
+  // 4. Register current-user boot persistence
+  try {
+    registerSentinelBootPersistence(process.execPath, sentinelEntryPath);
+  } catch (err: any) {
+    log.warn('[Sentinel] Boot persistence registration note:', err.message);
+  }
+}
+
 async function initialize(): Promise<void> {
   runtimeState = 'starting';
   log.info('[Lifecycle] Runtime is starting');
@@ -1221,6 +1342,9 @@ async function initialize(): Promise<void> {
     console.log('[Flo] Starting Server App on port 3003...');
     await startServerApp();
     if (isShutdownRequested()) return;
+
+    // Ensure Sentinel OS Daemon (:3009) is running as an independent detached process
+    void ensureSentinelDaemonRunningAndInstalled();
 
     // Native E2E owns an offline fixture; optional LAN discovery must not
     // contend with a developer session or keep the test process alive.

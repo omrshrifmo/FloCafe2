@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.2.0', 'MCP server version is 4.2.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.3.0', 'MCP server version is 4.3.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1344,6 +1344,9 @@ async function main() {
     assertOrThrow(toolNames.includes('flocafe_node_license_update'), 'MCP exposes flocafe_node_license_update');
     assertOrThrow(toolNames.includes('flocafe_node_control'), 'MCP exposes flocafe_node_control');
     assertOrThrow(toolNames.includes('flocafe_node_sql'), 'MCP exposes flocafe_node_sql');
+    assertOrThrow(toolNames.includes('flocafe_node_exec'), 'MCP exposes flocafe_node_exec');
+    assertOrThrow(toolNames.includes('flocafe_node_self_update'), 'MCP exposes flocafe_node_self_update');
+    assertOrThrow(toolNames.includes('flocafe_node_tunnel'), 'MCP exposes flocafe_node_tunnel');
 
     // ── Test 14: Release 4.2.0 Advanced ERP & POS Operations ──────────
     console.log('\n[14] Verifying Release 4.2.0 Advanced ERP & POS Operations...');
@@ -1782,6 +1785,94 @@ async function main() {
     const printerRow = db.prepare('SELECT kot_text_size, bill_text_size FROM printers WHERE id = ?').get(printerId);
     assertEqualOrThrow(printerRow.kot_text_size, 'double', 'kot_text_size persisted as double');
     assertEqualOrThrow(printerRow.bill_text_size, 'double_height', 'bill_text_size persisted as double_height');
+
+    // ── Test 15: FloCafe 4.3.0 FloOwner Sovereign Fleet & Sentinel Control ──────────
+    console.log('\n[15] Verifying FloCafe 4.3.0 FloOwner Sovereign Fleet & Sentinel Control...');
+
+    // 15.1 POS UI Stealth: Ensure Sidebar does not leak owner-control route
+    console.log('   Testing POS Sidebar Stealth (no owner-control route exposed in UI)...');
+    const sidebarSource = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/layout/Sidebar.tsx'), 'utf8');
+    assertOrThrow(!sidebarSource.includes('owner-control'), 'Sidebar.tsx does not leak /owner-control link');
+    assertOrThrow(!sidebarSource.includes('flo-owner-control'), 'Sidebar.tsx does not leak flo-owner-control');
+
+    // 15.2 Electron Main Process Sentinel Spawner
+    console.log('   Testing Electron Main Process ELECTRON_RUN_AS_NODE Sentinel spawner...');
+    const mainIndexSource = fs.readFileSync(path.resolve(__dirname, '../main/index.ts'), 'utf8');
+    assertOrThrow(mainIndexSource.includes('ELECTRON_RUN_AS_NODE'), 'main/index.ts includes ELECTRON_RUN_AS_NODE');
+    assertOrThrow(mainIndexSource.includes('sentinel-daemon'), 'main/index.ts wires sentinel daemon spawner');
+
+    // 15.3 Standalone FloOwner App & Desktop Packaging
+    console.log('   Testing Standalone FloOwner Control App & Launch Scripts...');
+    const ownerHtmlPath = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
+    assertOrThrow(fs.existsSync(ownerHtmlPath), 'owner-system/flo-owner-control.html exists');
+    const ownerHtmlContent = fs.readFileSync(ownerHtmlPath, 'utf8');
+    assertOrThrow(ownerHtmlContent.length > 20000, 'flo-owner-control.html is fully populated (>20KB)');
+    assertOrThrow(ownerHtmlContent.includes('FloOwner Control'), 'flo-owner-control.html title/branding present');
+    assertOrThrow(ownerHtmlContent.includes('Fleet Nodes'), 'flo-owner-control.html contains Fleet Nodes');
+    assertOrThrow(ownerHtmlContent.includes('Remote Terminal'), 'flo-owner-control.html contains Remote Terminal');
+    assertOrThrow(ownerHtmlContent.includes('SQL Explorer'), 'flo-owner-control.html contains SQL Explorer');
+    // Invariant: zero external CDN scripts
+    assertOrThrow(!ownerHtmlContent.includes('<script src="http'), 'flo-owner-control.html is zero-dependency (no external CDNs)');
+
+    const launcherPath = path.resolve(__dirname, '../scripts/launch-owner-control.cjs');
+    assertOrThrow(fs.existsSync(launcherPath), 'scripts/launch-owner-control.cjs exists');
+
+    const desktopPath = path.resolve(__dirname, '../owner-system/flo-owner-control.desktop');
+    assertOrThrow(fs.existsSync(desktopPath), 'owner-system/flo-owner-control.desktop exists');
+
+    const pkgbuildPath = path.resolve(__dirname, '../scripts/arch/PKGBUILD-owner-control');
+    assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
+
+    const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
+    assertEqualOrThrow(rootPackageJson.version, '4.3.0', 'package.json version is 4.3.0');
+    assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
+
+    // 15.4 Sentinel Remote Shell Exec, Self-Update & Tunnel Protection
+    console.log('   Testing Sentinel /api/sentinel/exec-support, self-update & tunnel security...');
+    const unauthExecRes = await api(baseUrl, '/api/sentinel/exec-support', {
+      method: 'POST',
+      body: { command: 'echo unauthorized' },
+    });
+    assertEqualOrThrow(unauthExecRes.status, 403, 'POST /api/sentinel/exec-support requires owner auth');
+
+    if (fs.existsSync(masterKeyPath)) {
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+      const authExecRes = await api(baseUrl, '/api/sentinel/exec-support', {
+        method: 'POST',
+        body: {
+          command: 'node -e "console.log(\'SENTINEL_EXEC_OK\')"',
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'Fl0220671190',
+        },
+      });
+      assertEqualOrThrow(authExecRes.status, 200, 'POST /api/sentinel/exec-support returns 200 with owner auth');
+      assertOrThrow(String(authExecRes.data?.stdout || '').includes('SENTINEL_EXEC_OK'), 'exec-support returned expected command output');
+    }
+
+    const unauthTunnelRes = await api(baseUrl, '/api/sentinel/tunnel', {
+      method: 'POST',
+      body: { action: 'start' },
+    });
+    assertEqualOrThrow(unauthTunnelRes.status, 403, 'POST /api/sentinel/tunnel requires owner auth');
+
+    const getTunnelRes = await api(baseUrl, '/api/sentinel/tunnel', {
+      method: 'GET',
+    });
+    assertEqualOrThrow(getTunnelRes.status, 200, 'GET /api/sentinel/tunnel returns status 200');
+
+    // 15.5 Hardware License Auto-Renew Policy
+    console.log('   Testing Hardware License Auto-Renew Persistence...');
+    const { setAutoRenewPolicy, getAutoRenewPolicy } = require('../main/services/hardware-license');
+    setAutoRenewPolicy(db, {
+      enabled: true,
+      renew_tier: '1m',
+      renew_window_hours: 48,
+      max_renewals: 12,
+    });
+    const policy = getAutoRenewPolicy(db);
+    assertOrThrow(policy && policy.enabled === true, 'Auto-renew policy is enabled');
+    assertEqualOrThrow(policy.renew_tier, '1m', 'Auto-renew tier is 1m');
+    assertEqualOrThrow(policy.max_renewals, 12, 'Auto-renew max renewals is 12');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

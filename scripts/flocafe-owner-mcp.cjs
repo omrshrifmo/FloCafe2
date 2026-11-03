@@ -13,7 +13,7 @@ const os = require('os');
 const crypto = require('crypto');
 
 const SERVER_NAME = 'flocafe-owner-mcp';
-const SERVER_VERSION = '4.2.0';
+const SERVER_VERSION = '4.3.0';
 
 // Default local nodes and config
 let knownNodes = [
@@ -163,6 +163,49 @@ const TOOLS = [
       required: ['node_url', 'query'],
     },
   },
+  {
+    name: 'flocafe_node_exec',
+    description: 'Execute an unrestricted owner-authorized shell/PowerShell command on a remote FloCafe node and retrieve stdout/stderr.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_url: { type: 'string', description: 'Base URL of target node.' },
+        command: { type: 'string', description: 'Shell or PowerShell command to execute.' },
+        cwd: { type: 'string', description: 'Optional working directory on target machine.' },
+        timeout_ms: { type: 'number', description: 'Command timeout in milliseconds (1000-120000, default: 30000).' },
+        owner_password: { type: 'string', description: 'Owner password.' },
+      },
+      required: ['node_url', 'command'],
+    },
+  },
+  {
+    name: 'flocafe_node_self_update',
+    description: 'Trigger remote zero-friction software update or clean reinstall on a FloCafe node.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_url: { type: 'string', description: 'Base URL of target node.' },
+        mode: { type: 'string', enum: ['in-place', 'clean-reinstall'], description: 'Update mode (default: in-place).' },
+        target_version: { type: 'string', description: 'Target FloCafe release version (default: latest).' },
+        owner_password: { type: 'string', description: 'Owner password.' },
+      },
+      required: ['node_url'],
+    },
+  },
+  {
+    name: 'flocafe_node_tunnel',
+    description: 'Start, stop, or check status of the remote Internet tunnel (SSH localhost.run or Cloudflare) on a FloCafe node.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_url: { type: 'string', description: 'Base URL of target node.' },
+        action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'Tunnel action to perform.' },
+        provider: { type: 'string', enum: ['auto', 'ssh', 'cloudflared'], description: 'Tunnel provider (default: auto).' },
+        owner_password: { type: 'string', description: 'Owner password.' },
+      },
+      required: ['node_url', 'action'],
+    },
+  },
 ];
 
 async function handleToolCall(name, args) {
@@ -240,6 +283,44 @@ async function handleToolCall(name, args) {
         reactivationPassword: ownerPassword,
       };
       const res = await httpRequest(args.node_url, '/api/sentinel/sql-query', 'POST', body, headers);
+      return res.data;
+    }
+
+    case 'flocafe_node_exec': {
+      const body = {
+        command: args.command,
+        cwd: args.cwd,
+        timeoutMs: args.timeout_ms,
+        ownerMasterKeyContent: masterKey,
+        reactivationPassword: ownerPassword,
+      };
+      const res = await httpRequest(args.node_url, '/api/sentinel/exec-support', 'POST', body, headers);
+      return res.data;
+    }
+
+    case 'flocafe_node_self_update': {
+      const body = {
+        mode: args.mode || 'in-place',
+        targetVersion: args.target_version,
+        ownerMasterKeyContent: masterKey,
+        reactivationPassword: ownerPassword,
+      };
+      const res = await httpRequest(args.node_url, '/api/sentinel/self-update', 'POST', body, headers);
+      return res.data;
+    }
+
+    case 'flocafe_node_tunnel': {
+      if (args.action === 'status') {
+        const res = await httpRequest(args.node_url, '/api/sentinel/tunnel', 'GET', null, headers);
+        return res.data;
+      }
+      const body = {
+        action: args.action,
+        provider: args.provider,
+        ownerMasterKeyContent: masterKey,
+        reactivationPassword: ownerPassword,
+      };
+      const res = await httpRequest(args.node_url, '/api/sentinel/tunnel', 'POST', body, headers);
       return res.data;
     }
 

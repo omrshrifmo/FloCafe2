@@ -896,3 +896,67 @@ export function setAutoRenewPolicy(db: any, policy: AutoRenewPolicy | null): boo
   } catch {}
   return false;
 }
+
+export function checkAndApplyAutoRenew(db: any): { renewed: boolean; tier?: string; reason?: string; expires_at?: number | null } {
+  if (!db) return { renewed: false, reason: 'no_db' };
+  try {
+    initHardwareLicenseSchema(db);
+    const policy = getAutoRenewPolicy(db);
+    if (!policy || !policy.enabled) return { renewed: false, reason: 'policy_disabled' };
+
+    const remaining = policy.max_renewals !== undefined && policy.renewals_count !== undefined
+      ? policy.max_renewals - policy.renewals_count
+      : (policy as any).remaining_renewals ?? 999;
+    if (remaining <= 0) return { renewed: false, reason: 'max_renewals_reached' };
+
+    const license = verifyHardwareLicense(db);
+    const nowMs = Date.now();
+    const isExpiringSoon = typeof license.expires_at === 'number' && (license.expires_at - nowMs) <= 86_400_000;
+    const isExpired = !license.valid && license.reason === 'license_expired';
+
+    if (!isExpiringSoon && !isExpired) {
+      return { renewed: false, reason: 'not_expiring' };
+    }
+
+    const renewTier = (policy.renew_tier as LicenseTier) || '1m';
+    const durationMs = TIER_DURATIONS[renewTier] || 2_592_000_000;
+    const baseTime = (license.expires_at && license.expires_at > nowMs) ? license.expires_at : nowMs;
+    const newExpiresAt = baseTime + durationMs;
+
+    const currentHwid = getHardwareFingerprint();
+    const updatedPayload = {
+      hwid: currentHwid,
+      tier: renewTier,
+      activated_at: nowMs,
+      expires_at: newExpiresAt,
+      nonce: crypto.randomUUID(),
+      auto_renewed: true,
+    };
+    const canonicalPayload = JSON.stringify(updatedPayload);
+
+    db.prepare(`
+      UPDATE _flo_hardware_license
+      SET payload = ?, tier = ?, expires_at = ?, max_seen_timestamp = ?, updated_at = datetime('now')
+      WHERE id = 1
+    `).run(canonicalPayload, renewTier, newExpiresAt, nowMs);
+
+    const updatedCount = (policy.renewals_count || 0) + 1;
+    const updatedPolicy: AutoRenewPolicy = {
+      ...policy,
+      renewals_count: updatedCount,
+    };
+    (updatedPolicy as any).remaining_renewals = Math.max(0, remaining - 1);
+    (updatedPolicy as any).last_renewed_at = nowMs;
+    setAutoRenewPolicy(db, updatedPolicy);
+
+    db.prepare(`
+      INSERT INTO _flo_hardware_license_history (tier, hwid, activated_at, expires_at, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(renewTier, currentHwid, nowMs, newExpiresAt);
+
+    return { renewed: true, tier: renewTier, expires_at: newExpiresAt };
+  } catch (err: any) {
+    return { renewed: false, reason: err.message };
+  }
+}
+

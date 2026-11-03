@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=FloOwner Control
+GenericName=POS Fleet Manager
+Comment=Standalone remote management dashboard for FloCafe POS installations
+Exec=node /opt/flocafe/scripts/launch-owner-control.cjs
+Icon=/opt/flocafe/resources/icons/64x64.png
+Terminal=false
+Type=Application
+Categories=Office;Finance;
+Keywords=FloCafe;POS;remote;fleet;owner;
+StartupNotify=false
