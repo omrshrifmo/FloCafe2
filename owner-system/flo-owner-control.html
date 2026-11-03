@@ -362,6 +362,9 @@ input,textarea,select{font-family:var(--font)}
             <div class="tier-btn" onclick="activateTier('3d')">3 Days</div>
             <div class="tier-btn" onclick="activateTier('24h')">24 Hours</div>
           </div>
+          <div style="margin-top:12px;text-align:center">
+            <button class="btn btn-ghost btn-sm" onclick="loadTierFile()">Load Specific Tier .flokey File</button>
+          </div>
         </div>
         <div class="card">
           <div class="card-title"><span class="dot" style="background:var(--warning)"></span> Auto-Renewal Policy</div>
@@ -419,15 +422,41 @@ input,textarea,select{font-family:var(--font)}
 </div>
 </div>
 <input type="file" id="key-file-input" accept=".flokey,.json" style="display:none" onchange="onKeyFileSelected(event)" />
+<input type="file" id="tier-file-input" accept=".flokey,.json" style="display:none" onchange="onTierFileSelected(event)" />
 <script>
 const state={nodes:[],activeNodeIdx:-1,ownerKey:null,activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
 const pw=()=>document.getElementById('pw-input').value.trim();
+function toBase64Utf8(str) {
+  try { return btoa(unescape(encodeURIComponent(str))); } catch { return ''; }
+}
 function save(){try{localStorage.setItem('flo_nodes',JSON.stringify(state.nodes.map(n=>({name:n.name,url:n.url}))));if(state.ownerKey)localStorage.setItem('flo_owner_key',state.ownerKey);}catch{}}
 function load(){try{const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');ns.forEach(n=>addNodeRaw(n.name,n.url,false));}catch{}try{const k=localStorage.getItem('flo_owner_key');if(k){state.ownerKey=k;updateKeyStatus();}}catch{}if(!state.nodes.length){addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);save();}}
 function loadKeyFile(){document.getElementById('key-file-input').click();}
+function loadTierFile(){document.getElementById('tier-file-input').click();}
+function onTierFileSelected(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    showAlert('license-alert','info','Activating with key file: '+f.name);
+    try{
+      const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'activate',tierKeyContent:ev.target.result});
+      if(res.ok&&data.success){
+        showAlert('license-alert','ok','License activated from '+f.name);
+        loadLicense();
+        pingNode(state.activeNodeIdx);
+      }else showAlert('license-alert','err',data.error||'Failed');
+    }catch(err){showAlert('license-alert','err',err.message);}
+  };
+  r.readAsText(f);
+  e.target.value='';
+}
 function onKeyFileSelected(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{state.ownerKey=ev.target.result;updateKeyStatus();save();showAlert('overview-alert','ok','Key file loaded: '+f.name);};r.readAsText(f);e.target.value='';}
 function updateKeyStatus(){const el=document.getElementById('key-status');if(state.ownerKey){el.textContent='Key loaded';el.className='ks-ok';}else{el.textContent='No key loaded';el.className='ks-no';}}
-function authHeaders(){const h={'Content-Type':'application/json','x-owner-password':pw()};if(state.ownerKey)h['x-owner-master-key']=state.ownerKey;return h;}
+function authHeaders(){
+  const h={'Content-Type':'application/json','x-owner-password':pw()};
+  if(state.ownerKey)h['x-owner-master-key']=toBase64Utf8(state.ownerKey);
+  return h;
+}
 function toggleAddForm(){const f=document.getElementById('add-node-form');f.classList.toggle('open');if(f.classList.contains('open'))document.getElementById('node-name-in').focus();}
 function addNode(){const name=document.getElementById('node-name-in').value.trim();const url=document.getElementById('node-url-in').value.trim();if(!url)return alert('Please enter a node URL.');addNodeRaw(name||url,url,true);document.getElementById('node-name-in').value='';document.getElementById('node-url-in').value='';toggleAddForm();}
 function addNodeRaw(name,url,doSave){if(state.nodes.some(n=>n.url===url))return;state.nodes.push({name,url,status:'unknown',ping:null});renderFleet();if(doSave)save();pingNode(state.nodes.length-1);}
@@ -472,7 +501,14 @@ async function scanLan(){
 function showTab(tab,upd=true){if(upd)state.activeTab=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));const sec=document.getElementById('sec-'+tab);if(sec)sec.classList.add('active');if(state.activeNodeIdx>=0)loadTabData(tab);}
 function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'license':loadLicense();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
 async function apiFetch(baseUrl,ep,method,body,headers){const opts={method:method||'GET',headers:{'Content-Type':'application/json',...(headers||{})}};if(body)opts.body=JSON.stringify(body);return fetch(baseUrl.replace(/\/$/,'')+ep,opts);}
-async function ownerPost(ep,body){const n=activeNode();if(!n)throw new Error('No node');const res=await apiFetch(n.url,ep,'POST',body,authHeaders());return{res,data:await res.json()};}
+async function ownerPost(ep,body){
+  const n=activeNode();if(!n)throw new Error('No node');
+  const payload={...(body||{})};
+  if(state.ownerKey&&!payload.ownerMasterKeyContent)payload.ownerMasterKeyContent=state.ownerKey;
+  if(pw()&&!payload.reactivationPassword)payload.reactivationPassword=pw();
+  const res=await apiFetch(n.url,ep,'POST',payload,authHeaders());
+  return{res,data:await res.json()};
+}
 async function ownerGet(ep){const n=activeNode();if(!n)throw new Error('No node');const res=await apiFetch(n.url,ep,'GET',null,authHeaders());return{res,data:await res.json()};}
 function showAlert(id,type,msg,autohide=true){const el=document.getElementById(id);if(!el)return;el.textContent=msg;el.className='alert show alert-'+type;if(autohide)setTimeout(()=>{el.className='alert';},6000);}
 async function loadOverview(){

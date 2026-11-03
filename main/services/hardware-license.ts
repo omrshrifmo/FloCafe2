@@ -112,6 +112,17 @@ MCowBQYDK2VwAyEAd+X3rKeF50DeQinSd1BgCng+cAnJ2C/vqLZu7c2avHc=
 export const REACTIVATION_PASSWORD_SALT = '2e213237f422524e1ddbe09c8682cc04';
 export const REACTIVATION_PASSWORD_HASH = 'ce531f792c2a3a6eda85dd7660e776d73282c4d24a8fca442aef36903f1184761878ed9d6041a86556d4f2f224463ed203953c4a2fa0be787bb6c239a334bdbd';
 
+export function verifyReactivationPassword(password: string): boolean {
+  if (!password || typeof password !== 'string') return false;
+  try {
+    const enteredHash = crypto.scryptSync(password, REACTIVATION_PASSWORD_SALT, 64);
+    const targetHash = Buffer.from(REACTIVATION_PASSWORD_HASH, 'hex');
+    return enteredHash.length === targetHash.length && crypto.timingSafeEqual(enteredHash, targetHash);
+  } catch {
+    return false;
+  }
+}
+
 let cachedHwid: string | null = null;
 
 export function clearCachedHwidForTest(): void {
@@ -396,22 +407,34 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     };
   }
 
-  // 1. Verify Cryptographic Signature
-  const publicKey = TIER_PUBLIC_KEYS[record.tier];
-  if (!publicKey) {
-    return { valid: false, reason: 'invalid_signature', hwid: currentHwid };
+  // 1. Verify Cryptographic Signature (Tier Public Key OR Owner Master Public Key)
+  const tierPublicKey = TIER_PUBLIC_KEYS[record.tier];
+  let isSigValid = false;
+
+  if (tierPublicKey) {
+    try {
+      isSigValid = crypto.verify(
+        null,
+        Buffer.from(record.payload, 'utf8'),
+        tierPublicKey,
+        Buffer.from(record.signature, 'base64'),
+      );
+    } catch {
+      isSigValid = false;
+    }
   }
 
-  let isSigValid = false;
-  try {
-    isSigValid = crypto.verify(
-      null,
-      Buffer.from(record.payload, 'utf8'),
-      publicKey,
-      Buffer.from(record.signature, 'base64'),
-    );
-  } catch {
-    isSigValid = false;
+  if (!isSigValid && OWNER_MASTER_PUBLIC_KEY) {
+    try {
+      isSigValid = crypto.verify(
+        null,
+        Buffer.from(record.payload, 'utf8'),
+        OWNER_MASTER_PUBLIC_KEY,
+        Buffer.from(record.signature, 'base64'),
+      );
+    } catch {
+      isSigValid = false;
+    }
   }
 
   if (!isSigValid) {
@@ -503,6 +526,105 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
 export function activateWithKeyFile(db: any, params: ActivateKeyParams): ActivateResult {
   const currentHwid = getHardwareFingerprint();
   if (db) initHardwareLicenseSchema(db);
+
+  // Direct 1-Click Tier Activation via Owner Master Key Signature
+  if (typeof params.tierKeyContent === 'string' && params.tierKeyContent.startsWith('__tier_')) {
+    const requestedTier = params.tierKeyContent.replace(/^__tier_/, '') as LicenseTier;
+    if (!(requestedTier in TIER_DURATIONS)) {
+      return { success: false, error: `Unrecognized license tier: "${requestedTier}".` };
+    }
+
+    if (!params.reactivationPassword || !verifyReactivationPassword(params.reactivationPassword)) {
+      return { success: false, error: 'Invalid Owner Re-Activation Password.' };
+    }
+
+    if (!params.ownerMasterKeyContent) {
+      return {
+        success: false,
+        requires_owner_override: true,
+        status: 'requires_owner_override',
+        error: 'Owner Master Key required for direct tier activation.',
+      } as any;
+    }
+
+    let masterJson: any = params.ownerMasterKeyContent;
+    if (typeof masterJson === 'string') {
+      try {
+        masterJson = JSON.parse(masterJson);
+      } catch {
+        return { success: false, error: 'Invalid Owner Master Key file format.' };
+      }
+    }
+
+    if (!masterJson?.private_key_pem) {
+      return { success: false, error: 'Owner Master Key does not contain a valid private key.' };
+    }
+
+    try {
+      const masterChallenge = Buffer.from(`flocafe-owner-master-verify-${Date.now()}`);
+      const masterSig = crypto.sign(null, masterChallenge, masterJson.private_key_pem);
+      const isMasterValid = crypto.verify(null, masterChallenge, OWNER_MASTER_PUBLIC_KEY, masterSig);
+      if (!isMasterValid) {
+        return { success: false, error: 'Cryptographic mismatch: Provided key is not the authentic Owner Master Key.' };
+      }
+    } catch (err: any) {
+      return { success: false, error: `Owner Master Key validation failed: ${err.message}` };
+    }
+
+    const duration_ms = TIER_DURATIONS[requestedTier];
+    const activated_at = Date.now();
+    const expires_at = duration_ms !== null ? activated_at + duration_ms : null;
+
+    const payloadObj = {
+      hwid: currentHwid,
+      tier: requestedTier,
+      activated_at,
+      expires_at,
+      signed_by: 'owner_reactivate_master',
+      nonce: crypto.randomUUID(),
+    };
+
+    const canonicalPayload = JSON.stringify(payloadObj);
+    const signature = crypto.sign(null, Buffer.from(canonicalPayload, 'utf8'), masterJson.private_key_pem).toString('base64');
+
+    const record: StoredLicenseRecord = {
+      payload: canonicalPayload,
+      signature,
+      tier: requestedTier,
+      hwid: currentHwid,
+      activated_at,
+      expires_at,
+      max_seen_timestamp: activated_at,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (db) {
+      db.prepare(`
+        INSERT OR REPLACE INTO _flo_hardware_license (id, payload, signature, tier, hwid, activated_at, expires_at, max_seen_timestamp, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        record.payload,
+        record.signature,
+        record.tier,
+        record.hwid,
+        record.activated_at,
+        record.expires_at,
+        record.max_seen_timestamp,
+      );
+
+      db.prepare(`
+        INSERT INTO _flo_hardware_license_history (tier, hwid, activated_at, expires_at, created_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+      `).run(record.tier, record.hwid, record.activated_at, record.expires_at);
+    }
+
+    writeTombstoneFiles(record);
+
+    return {
+      success: true,
+      license: verifyHardwareLicense(db),
+    };
+  }
 
   let tierKeyJson: any = params.tierKeyContent;
   if (typeof tierKeyJson === 'string') {

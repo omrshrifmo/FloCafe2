@@ -1874,6 +1874,40 @@ async function main() {
     assertEqualOrThrow(policy.renew_tier, '1m', 'Auto-renew tier is 1m');
     assertEqualOrThrow(policy.max_renewals, 12, 'Auto-renew max renewals is 12');
 
+    // 15.6 Remote License Activation via '__tier_' + tier Owner-Master-Signed Pattern
+    console.log('   Testing Remote License Activation with __tier_1m...');
+    if (fs.existsSync(masterKeyPath)) {
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+      const tierActivateRes = await api(baseUrl, '/api/sentinel/remote-license', {
+        method: 'POST',
+        body: {
+          action: 'activate',
+          tierKeyContent: '__tier_1m',
+          ownerMasterKeyContent: masterKeyContent,
+          reactivationPassword: 'Fl0220671190',
+        },
+      });
+      assertEqualOrThrow(tierActivateRes.status, 200, 'POST /api/sentinel/remote-license with __tier_1m returns 200');
+      assertOrThrow(tierActivateRes.data?.license?.valid === true, 'Activated license valid is true');
+      assertEqualOrThrow(tierActivateRes.data?.license?.tier, '1m', 'Activated license tier is 1m');
+    }
+
+    // 15.7 Sentinel CORS Preflight
+    console.log('   Testing OPTIONS /api/sentinel/ping CORS Preflight...');
+    const optionsPingRes = await api(baseUrl, '/api/sentinel/ping', {
+      method: 'OPTIONS',
+    });
+    assertEqualOrThrow(optionsPingRes.status, 204, 'OPTIONS /api/sentinel/ping returns 204');
+    assertEqualOrThrow(
+      optionsPingRes.headers.get('access-control-allow-origin'),
+      '*',
+      'OPTIONS returns Access-Control-Allow-Origin: *'
+    );
+    assertOrThrow(
+      optionsPingRes.headers.get('access-control-allow-headers')?.includes('x-owner-master-key'),
+      'OPTIONS returns Access-Control-Allow-Headers including x-owner-master-key'
+    );
+
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
   } finally {

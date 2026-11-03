@@ -19,6 +19,17 @@ import {
 
 export const sentinelRoutes = Router();
 
+sentinelRoutes.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-owner-password, x-owner-master-key');
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 // Fallback DB instance for standalone daemon mode (:3009)
 let activeSentinelDb: any = null;
 

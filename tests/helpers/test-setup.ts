@@ -457,7 +457,7 @@ async function api(
     body?: any;
     headers?: Record<string, string>;
   } = {}
-): Promise<{ status: number; data: any }> {
+): Promise<{ status: number; data: any; headers: any }> {
   const fetchOptions: any = {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   };
@@ -465,8 +465,16 @@ async function api(
   if (options.body !== undefined) fetchOptions.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
 
   const response = await (globalThis as any).fetch(baseUrl + urlPath, fetchOptions);
-  const data = await response.json();
-  return { status: response.status, data };
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  return { status: response.status, data, headers: response.headers };
 }
 
 // ── Exports ──────────────────────────────────────────────────────────────────
