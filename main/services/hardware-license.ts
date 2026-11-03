@@ -275,6 +275,10 @@ export function initHardwareLicenseSchema(db: any): void {
       created_at TEXT NOT NULL
     )
   `).run();
+
+  try {
+    db.prepare(`ALTER TABLE _flo_hardware_license ADD COLUMN auto_renew_policy TEXT`).run();
+  } catch {}
 }
 
 function readAnchorFromFile(filePath: string): StoredLicenseRecord | null {
@@ -793,3 +797,102 @@ export function autoSeedDevOrTestLicense(db: any): void {
   }
 }
 
+export function verifyOwnerCredentials(params: {
+  reactivationPassword?: string;
+  ownerMasterKeyContent?: string | Record<string, unknown>;
+  ownerSignature?: string;
+  ownerChallenge?: string;
+}): { success: boolean; error?: string } {
+  if (!params.reactivationPassword) {
+    return { success: false, error: 'Owner Password is required.' };
+  }
+
+  // 1. Password verification (scrypt against salt and hash)
+  try {
+    const enteredHash = crypto.scryptSync(params.reactivationPassword, REACTIVATION_PASSWORD_SALT, 64);
+    const targetHash = Buffer.from(REACTIVATION_PASSWORD_HASH, 'hex');
+    if (enteredHash.length !== targetHash.length || !crypto.timingSafeEqual(enteredHash, targetHash)) {
+      return { success: false, error: 'Invalid Owner Password.' };
+    }
+  } catch {
+    return { success: false, error: 'Password verification failed.' };
+  }
+
+  // 2. Owner Master Key verification (either raw key file content or cryptographic signature)
+  let keyValidated = false;
+
+  if (params.ownerMasterKeyContent) {
+    let masterJson: any = params.ownerMasterKeyContent;
+    if (typeof masterJson === 'string') {
+      try {
+        masterJson = JSON.parse(masterJson);
+      } catch {
+        return { success: false, error: 'Invalid Owner Master Key file format.' };
+      }
+    }
+
+    if (!masterJson?.private_key_pem) {
+      return { success: false, error: 'Owner Master Key does not contain a valid private key.' };
+    }
+
+    try {
+      const challenge = Buffer.from(`flocafe-owner-verify-${Date.now()}`);
+      const sig = crypto.sign(null, challenge, masterJson.private_key_pem);
+      if (crypto.verify(null, challenge, OWNER_MASTER_PUBLIC_KEY, sig)) {
+        keyValidated = true;
+      } else {
+        return { success: false, error: 'Cryptographic mismatch: Provided key is not the authentic Owner Master Key.' };
+      }
+    } catch (err: any) {
+      return { success: false, error: `Owner Master Key validation failed: ${err.message}` };
+    }
+  } else if (params.ownerSignature && params.ownerChallenge) {
+    try {
+      const sigBuf = Buffer.from(params.ownerSignature, 'base64');
+      const challengeBuf = Buffer.from(params.ownerChallenge, 'utf8');
+      if (crypto.verify(null, challengeBuf, OWNER_MASTER_PUBLIC_KEY, sigBuf)) {
+        keyValidated = true;
+      } else {
+        return { success: false, error: 'Invalid Owner signature.' };
+      }
+    } catch (err: any) {
+      return { success: false, error: `Signature verification failed: ${err.message}` };
+    }
+  }
+
+  if (!keyValidated) {
+    return { success: false, error: 'Owner Master Key file or valid cryptographic signature required.' };
+  }
+
+  return { success: true };
+}
+
+export interface AutoRenewPolicy {
+  enabled: boolean;
+  renew_tier: string;
+  max_renewals: number;
+  renewals_count?: number;
+}
+
+export function getAutoRenewPolicy(db: any): AutoRenewPolicy | null {
+  if (!db) return null;
+  try {
+    initHardwareLicenseSchema(db);
+    const row = db.prepare('SELECT auto_renew_policy FROM _flo_hardware_license WHERE id = 1').get() as any;
+    if (row?.auto_renew_policy) {
+      return JSON.parse(row.auto_renew_policy);
+    }
+  } catch {}
+  return null;
+}
+
+export function setAutoRenewPolicy(db: any, policy: AutoRenewPolicy | null): boolean {
+  if (!db) return false;
+  try {
+    initHardwareLicenseSchema(db);
+    const serialized = policy ? JSON.stringify(policy) : null;
+    db.prepare('UPDATE _flo_hardware_license SET auto_renew_policy = ? WHERE id = 1').run(serialized);
+    return true;
+  } catch {}
+  return false;
+}

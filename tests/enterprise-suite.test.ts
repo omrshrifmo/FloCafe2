@@ -1206,6 +1206,128 @@ async function main() {
       assertEqualOrThrow(restoreForever.success, true, 'Restored forever license');
     }
 
+    // ── Test 13: Sovereign Independence, OS Sentinel Daemon & MCP Server ──────
+    console.log('\n--- Test 13: Sovereign Independence, OS Sentinel Daemon & MCP Server ---');
+
+    // 13.1 Verify zero upstream flopos.com or posthog telemetry in runtime service
+    console.log('   Testing sovereign telemetry sink...');
+    const { TELEMETRY_URL } = require('../main/services/telemetry');
+    assertOrThrow(
+      TELEMETRY_URL.includes('3009') && TELEMETRY_URL.includes('/api/sentinel/telemetry-sink'),
+      'Telemetry points strictly to sovereign local sink, not flopos.com'
+    );
+    assertOrThrow(!TELEMETRY_URL.includes('flopos.com'), 'Zero flopos.com in TELEMETRY_URL');
+    assertOrThrow(!TELEMETRY_URL.includes('posthog'), 'Zero posthog in TELEMETRY_URL');
+
+    // 13.2 Verify GET /api/sentinel/ping public beacon
+    console.log('   Testing GET /api/sentinel/ping...');
+    const pingRes = await api(baseUrl, '/api/sentinel/ping', { method: 'GET' });
+    assertEqualOrThrow(pingRes.status, 200, 'Sentinel ping returns 200');
+    assertEqualOrThrow(pingRes.data.status, 'ok', 'Ping status is ok');
+    assertEqualOrThrow(pingRes.data.flocafe_running, true, 'flocafe_running is true');
+    assertOrThrow(typeof pingRes.data.hwid === 'string' && pingRes.data.hwid.startsWith('FLOHW-'), 'Ping returns valid HWID');
+    assertOrThrow(Array.isArray(pingRes.data.lan_ips), 'Ping returns lan_ips array');
+
+    // 13.3 Verify Owner Cryptographic Authentication on Sentinel endpoints
+    console.log('   Testing Owner Cryptographic Auth on Sentinel endpoints...');
+    const unauthDiagRes = await api(baseUrl, '/api/sentinel/diagnostics', { method: 'GET' });
+    assertEqualOrThrow(unauthDiagRes.status, 403, 'Diagnostics without owner credentials returns 403');
+    assertEqualOrThrow(unauthDiagRes.data.error, 'FORBIDDEN_OWNER_AUTH_REQUIRED', 'Error code is FORBIDDEN_OWNER_AUTH_REQUIRED');
+
+    const wrongPwDiagRes = await api(baseUrl, '/api/sentinel/diagnostics', {
+      method: 'GET',
+      headers: {
+        'x-owner-password': 'wrong-password',
+      },
+    });
+    assertEqualOrThrow(wrongPwDiagRes.status, 403, 'Diagnostics with wrong password returns 403');
+
+    if (fs.existsSync(masterKeyPath)) {
+      const masterKeyContent = fs.readFileSync(masterKeyPath, 'utf8');
+      const base64MasterKey = Buffer.from(masterKeyContent, 'utf8').toString('base64');
+
+      // Valid diagnostics with owner headers
+      const validDiagRes = await api(baseUrl, '/api/sentinel/diagnostics', {
+        method: 'GET',
+        headers: {
+          'x-owner-password': 'Fl0220671190',
+          'x-owner-master-key': base64MasterKey,
+        },
+      });
+      assertEqualOrThrow(validDiagRes.status, 200, 'Diagnostics with owner credentials returns 200');
+      assertEqualOrThrow(validDiagRes.data.status, 'ok', 'Diagnostics status is ok');
+      assertOrThrow(typeof validDiagRes.data.system?.cpu_cores === 'number', 'Diagnostics contains CPU cores');
+      assertOrThrow(typeof validDiagRes.data.sqlite?.integrity === 'string', 'Diagnostics contains SQLite integrity');
+
+      // Valid insights
+      const validInsightsRes = await api(baseUrl, '/api/sentinel/insights', {
+        method: 'GET',
+        headers: {
+          'x-owner-password': 'Fl0220671190',
+          'x-owner-master-key': base64MasterKey,
+        },
+      });
+      assertEqualOrThrow(validInsightsRes.status, 200, 'Insights with owner credentials returns 200');
+      assertEqualOrThrow(validInsightsRes.data.status, 'ok', 'Insights status is ok');
+      assertOrThrow(typeof validInsightsRes.data.today?.revenue === 'number', 'Insights contains today revenue');
+
+      // App Control
+      const appControlRes = await api(baseUrl, '/api/sentinel/app-control', {
+        method: 'POST',
+        headers: {
+          'x-owner-password': 'Fl0220671190',
+          'x-owner-master-key': base64MasterKey,
+        },
+        body: { action: 'run_safe_fixes' },
+      });
+      assertEqualOrThrow(appControlRes.status, 200, 'App control run_safe_fixes returns 200');
+      assertEqualOrThrow(appControlRes.data.success, true, 'App control succeeded');
+
+      // Remote License Update
+      if (fs.existsSync(keyPath1w)) {
+        const key1wContent = fs.readFileSync(keyPath1w, 'utf8');
+        const remoteLicRes = await api(baseUrl, '/api/sentinel/remote-license', {
+          method: 'POST',
+          headers: {
+            'x-owner-password': 'Fl0220671190',
+            'x-owner-master-key': base64MasterKey,
+          },
+          body: {
+            action: 'activate',
+            tierKeyContent: key1wContent,
+            ownerMasterKeyContent: masterKeyContent,
+            reactivationPassword: 'Fl0220671190',
+            autoRenewPolicy: { enabled: true, renew_tier: '1w', max_renewals: 5 },
+          },
+        });
+        assertEqualOrThrow(remoteLicRes.status, 200, 'Remote license activation returns 200');
+        assertEqualOrThrow(remoteLicRes.data.license?.tier, '1w', 'Remote license switched to 1w tier');
+        assertEqualOrThrow(remoteLicRes.data.auto_renew_policy?.enabled, true, 'Auto-renew policy saved');
+      }
+    }
+
+    // 13.4 Verify Model Context Protocol (MCP) Server
+    console.log('   Testing scripts/flocafe-owner-mcp.cjs JSON-RPC 2.0 initialize & tools/list...');
+    const mcpScriptPath = path.resolve(__dirname, '../scripts/flocafe-owner-mcp.cjs');
+    assertOrThrow(fs.existsSync(mcpScriptPath), 'scripts/flocafe-owner-mcp.cjs exists');
+
+    const initJson = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+    const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
+    const parsedInit = JSON.parse(initOutput.trim());
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.1.0', 'MCP server version is 4.1.0');
+
+    const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
+    const parsedTools = JSON.parse(toolsOutput.trim());
+    const toolNames = parsedTools.result?.tools?.map((t: any) => t.name) || [];
+    assertOrThrow(toolNames.includes('flocafe_discover_nodes'), 'MCP exposes flocafe_discover_nodes');
+    assertOrThrow(toolNames.includes('flocafe_node_diagnostics'), 'MCP exposes flocafe_node_diagnostics');
+    assertOrThrow(toolNames.includes('flocafe_node_insights'), 'MCP exposes flocafe_node_insights');
+    assertOrThrow(toolNames.includes('flocafe_node_license_update'), 'MCP exposes flocafe_node_license_update');
+    assertOrThrow(toolNames.includes('flocafe_node_control'), 'MCP exposes flocafe_node_control');
+    assertOrThrow(toolNames.includes('flocafe_node_sql'), 'MCP exposes flocafe_node_sql');
+
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
   } finally {

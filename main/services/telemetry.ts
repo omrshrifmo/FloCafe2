@@ -5,7 +5,9 @@ import { readCountryProvenance } from './country-provenance';
 import log from 'electron-log';
 import { ensureTelemetryAnonId, isTelemetryEnabled, getSettingValue, parseDbTimestamp, upsertTelemetryLastPing } from '../db';
 
-export const TELEMETRY_URL = 'https://telemetry.flopos.com/collect';
+// External third-party telemetry to flopos.com is completely severed.
+// Only local sentinel sink or explicitly configured custom endpoints can be used.
+export const TELEMETRY_URL = process.env.FLO_TELEMETRY_URL || 'http://127.0.0.1:3009/api/sentinel/telemetry-sink';
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const DAILY_PING_INTERVAL_MS = 60 * 60_000; // check hourly, send at most once/24h

@@ -9,7 +9,7 @@ import { getDatabase, now, parseItemJson, attachEffectiveAddons, ensureCloudIden
 import { getTenantCurrency } from './refund';
 import { getCurrencyMinorUnitFactor } from '../countries';
 
-export const DEFAULT_CLOUD_SERVER_URL = 'https://blue.flopos.com/';
+export const DEFAULT_CLOUD_SERVER_URL = 'http://127.0.0.1:3009/';
 
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 const OUTBOX_INTERVAL_MS = 15_000;

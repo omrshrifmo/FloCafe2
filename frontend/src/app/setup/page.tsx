@@ -49,9 +49,7 @@ const SELECTABLE_LANGUAGES: Language[] = (Object.keys(LANGUAGES) as Language[]).
   (lang) => LANGUAGES[lang].selectable,
 );
 
-// Mirrors main/services/cloud-sync.ts DEFAULT_CLOUD_SERVER_URL — kept in sync
-// manually since the frontend can't import backend TS modules directly.
-const DEFAULT_CLOUD_SERVER_URL = 'https://blue.flopos.com/';
+const DEFAULT_CLOUD_SERVER_URL = 'http://127.0.0.1:3009/';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUSPECT_EMAIL_TLDS = new Set(['example', 'invalid', 'lcaol', 'local', 'localhost', 'test']);
 
@@ -732,15 +730,15 @@ export default function SetupPage() {
                     />
                     <span>
                       {t('termsIntro')}{' '}
-                      <a href="https://flopos.com/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      <a href="https://github.com/omrshrifmo/FloCafe2#readme" target="_blank" rel="noopener noreferrer" className="text-primary underline">
                         {t('terms')}
                       </a>
                       ,{' '}
-                      <a href="https://flopos.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      <a href="https://github.com/omrshrifmo/FloCafe2#readme" target="_blank" rel="noopener noreferrer" className="text-primary underline">
                         {t('privacy')}
                       </a>
                       , {t('termsAnd')}{' '}
-                      <a href="https://flopos.com/disclaimer" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      <a href="https://github.com/omrshrifmo/FloCafe2#readme" target="_blank" rel="noopener noreferrer" className="text-primary underline">
                         {t('disclaimer')}
                       </a>
                       .

@@ -1,6 +1,6 @@
 {
   "name": "flo-desktop",
-  "version": "4.0.12",
+  "version": "4.1.0",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
@@ -10,6 +10,8 @@
     "clean": "node kill-ports.js 3001 3002 3003",
     "checkpoint:backup": "bash scripts/backup-checkpoint.sh",
     "checkpoint:restore": "bash scripts/restore-checkpoint.sh",
+    "sentinel": "node scripts/flocafe-sentinel.cjs",
+    "mcp:owner": "node scripts/flocafe-owner-mcp.cjs",
     "predev": "",
     "dev": "npm run clean && npm run build:frontend && npm run build && electron .",
     "dev:restart": "bash scripts/dev/restart.sh",
@@ -267,13 +269,13 @@
     "name": "Flo",
     "email": "support@flo.local"
   },
-  "homepage": "https://flopos.com",
+  "homepage": "https://github.com/omrshrifmo/FloCafe2",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe.git"
+    "url": "https://github.com/omrshrifmo/FloCafe2.git"
   },
   "bugs": {
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe/issues"
+    "url": "https://github.com/omrshrifmo/FloCafe2/issues"
   },
   "license": "MIT",
   "overrides": {
@@ -349,8 +351,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "FreeOpenSourcePOS",
-      "repo": "FloCafe",
+      "owner": "omrshrifmo",
+      "repo": "FloCafe2",
       "releaseType": "release",
       "channel": "latest"
     },

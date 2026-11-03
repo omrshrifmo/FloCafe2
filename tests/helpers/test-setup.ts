@@ -192,6 +192,7 @@ function createApp(routeModules: Record<string, any>, options?: { authRole?: str
     if (!req.path.startsWith('/api')) { next(); return; }
     if (req.path === '/api/health') { next(); return; }
     if (req.path === '/api/license' || req.path.startsWith('/api/license/')) { next(); return; }
+    if (req.path === '/api/sentinel' || req.path.startsWith('/api/sentinel/')) { next(); return; }
     if (req.path.startsWith('/api/auth') && !req.path.includes('/api/auth/me')) { next(); return; }
 
     const authHeader = req.headers.authorization;

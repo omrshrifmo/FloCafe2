@@ -1,0 +1,48 @@
+# Maintainer: Omar Shrif <https://github.com/omrshrifmo>
+pkgname=flocafe-sentinel
+pkgver=4.1.0
+pkgrel=1
+pkgdesc="FloCafe Sovereign Offline-First POS & Sentinel OS Daemon"
+arch=('x86_64')
+url="https://github.com/omrshrifmo/FloCafe2"
+license=('MIT')
+depends=('nodejs>=22.12.0')
+optdepends=(
+  'cups: Thermal and receipt printing'
+  'tailscale: Zero-cost P2P mesh owner remote access'
+  'wireguard-tools: WireGuard P2P VPN support'
+)
+source=("https://github.com/omrshrifmo/FloCafe2/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  install -d "${pkgdir}/opt/flocafe"
+  install -d "${pkgdir}/usr/bin"
+  install -d "${pkgdir}/usr/lib/systemd/user"
+
+  # Systemd User Unit
+  cat << 'EOF' > "${pkgdir}/usr/lib/systemd/user/flocafe-sentinel.service"
+[Unit]
+Description=FloCafe Sentinel Background OS Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/flocafe
+ExecStart=/usr/bin/node /opt/flocafe/scripts/flocafe-sentinel.cjs
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=SENTINEL_PORT=3009
+
+[Install]
+WantedBy=default.target
+EOF
+
+  # Binary symlink wrapper
+  cat << 'EOF' > "${pkgdir}/usr/bin/flocafe-sentinel"
+#!/usr/bin/env bash
+exec /usr/bin/node /opt/flocafe/scripts/flocafe-sentinel.cjs "$@"
+EOF
+  chmod +x "${pkgdir}/usr/bin/flocafe-sentinel"
+}

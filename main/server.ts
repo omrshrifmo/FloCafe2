@@ -40,6 +40,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   if (req.path === '/api/auth' || req.path.startsWith('/api/auth/')) { next(); return; }
   // License routes handle unauthenticated hardware activation and status
   if (req.path === '/api/license' || req.path.startsWith('/api/license/')) { next(); return; }
+  // Sentinel routes enforce cryptographic zero-trust owner signature/token auth
+  if (req.path === '/api/sentinel' || req.path.startsWith('/api/sentinel/')) { next(); return; }
   // Allow unauthenticated GET requests for product images (so <img> tags work)
   if (req.path.startsWith('/api/products/') && req.path.endsWith('/image') && req.method === 'GET') { next(); return; }
   // Allow unauthenticated GET requests for receipt logo (so <img> tags work)

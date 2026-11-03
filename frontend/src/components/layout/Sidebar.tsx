@@ -27,6 +27,10 @@ import {
   ShieldCheck,
   UserCheck,
   Sparkles,
+  Radio,
+  Building2,
+  Smartphone,
+  QrCode,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslations, type AppConfig } from 'use-intl';
@@ -88,6 +92,10 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers.view', businessTypes: null },
   { href: '/staff', labelKey: 'staff', icon: UserCog, permission: 'staff.view', businessTypes: null },
   { href: '/hrm', label: 'HRM & Payroll', icon: UserCheck, permission: 'hrm.payroll.view', businessTypes: null },
+  { href: '/owner-control', label: 'Owner Fleet', icon: Radio, permission: 'settings.manage', businessTypes: null },
+  { href: '/floadmin', label: 'FloAdmin', icon: Building2, permission: 'settings.manage', businessTypes: null },
+  { href: '/florev', label: 'FloRev Live', icon: Smartphone, permission: 'dashboard.view', businessTypes: null },
+  { href: '/orderflo', label: 'OrderFlo Hub', icon: QrCode, permission: 'orders.create', businessTypes: null },
   { href: '/owner-assist', label: 'Owner Assist', icon: Sparkles, permission: 'owner.assist.view', businessTypes: null },
   { href: '/settings', labelKey: 'settings', icon: Settings, permission: 'settings.view', businessTypes: null },
 ];

@@ -319,7 +319,7 @@ export function withDatabaseMaintenanceLock<T>(operation: (signal: AbortSignal) 
   });
 }
 
-const DEFAULT_CLOUD_SERVER_URL = 'https://blue.flopos.com/';
+const DEFAULT_CLOUD_SERVER_URL = 'http://127.0.0.1:3009/';
 
 function randomSecret(): string {
   return crypto.randomBytes(32).toString('base64')

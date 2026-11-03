@@ -1,10 +1,10 @@
 {
-  "name": "Flo",
-  "short_name": "Flo",
-  "description": "Smart Point of Sale for restaurants, salons, and retail",
+  "name": "FloCafe Sovereign POS & Owner Fleet",
+  "short_name": "FloCafe",
+  "description": "Offline-First Restaurant & Cafe POS, Sentinel Daemon & Owner Remote Fleet Companion",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#09090b",
   "theme_color": "#3248FF",
   "orientation": "any",
   "icons": [
@@ -19,6 +19,32 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "FloRev Companion",
+      "short_name": "FloRev",
+      "description": "Live mobile business companion for Android",
+      "url": "/florev"
+    },
+    {
+      "name": "Owner Control Fleet",
+      "short_name": "Owner Control",
+      "description": "Zero-Cost Remote Fleet & Sentinel Command",
+      "url": "/owner-control"
+    },
+    {
+      "name": "OrderFlo Hub",
+      "short_name": "OrderFlo",
+      "description": "Self-Hosted QR & Kiosk Ordering",
+      "url": "/orderflo"
+    },
+    {
+      "name": "POS Terminal",
+      "short_name": "POS",
+      "description": "Open Cashier & Order Terminal",
+      "url": "/pos"
     }
   ]
 }
