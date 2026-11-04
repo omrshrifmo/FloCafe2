@@ -1,6 +1,6 @@
 # Maintainer: Omar Shrif <https://github.com/omrshrifmo>
 pkgname=flocafe-owner-control
-pkgver=4.3.0
+pkgver=4.4.0
 pkgrel=1
 pkgdesc="FloOwner Control — Standalone remote fleet management for FloCafe POS (Windows/Linux/Android)"
 arch=('any')
@@ -44,7 +44,13 @@ package() {
   # /usr/bin wrapper
   cat << 'EOF' > "${pkgdir}/usr/bin/flo-owner-control"
 #!/usr/bin/env bash
-exec node /opt/flocafe/scripts/launch-owner-control.cjs "$@"
+if command -v flocafe >/dev/null 2>&1; then
+  exec flocafe --owner-app "$@"
+elif [ -f /opt/flocafe/scripts/launch-owner-control.cjs ]; then
+  exec /usr/bin/node /opt/flocafe/scripts/launch-owner-control.cjs "$@"
+else
+  xdg-open /opt/flocafe/owner-system/flo-owner-control.html 2>/dev/null || true
+fi
 EOF
   chmod +x "${pkgdir}/usr/bin/flo-owner-control"
 

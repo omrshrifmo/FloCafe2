@@ -1197,16 +1197,30 @@ function showAbout(): void {
   });
 }
 
+function resolveSentinelNodePath(): string {
+  const resPath = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..', '..');
+  const asarModules = path.join(resPath, 'app.asar', 'node_modules');
+  const unpackedModules = path.join(resPath, 'app.asar.unpacked', 'node_modules');
+  const devModules = path.resolve(__dirname, '..', '..', 'node_modules');
+  const delimiter = path.delimiter;
+  return [asarModules, unpackedModules, devModules].join(delimiter);
+}
+
 /**
  * Registers current-user OS boot persistence for the Sentinel daemon (Run key / systemd unit / autostart).
  */
 export function registerSentinelBootPersistence(execPath: string, scriptPath: string): void {
   const platform = os.platform();
+  const resPath = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..', '..');
+  const asarModules = path.join(resPath, 'app.asar', 'node_modules');
+  const unpackedModules = path.join(resPath, 'app.asar.unpacked', 'node_modules');
+
   if (platform === 'win32') {
     const appDataDir = process.env.APPDATA ? path.join(process.env.APPDATA, 'flo-desktop') : path.join(os.homedir(), 'AppData', 'Roaming', 'flo-desktop');
     if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
     const wrapperCmd = path.join(appDataDir, 'run-sentinel.cmd');
-    const cmdContent = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nstart "" /B "${execPath}" "${scriptPath}"\r\n`;
+    const logPath = path.join(appDataDir, 'sentinel-daemon.log');
+    const cmdContent = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nset NODE_PATH=${asarModules};${unpackedModules};%NODE_PATH%\r\nstart "" /B "${execPath}" "${scriptPath}" >> "${logPath}" 2>&1\r\n`;
     fs.writeFileSync(wrapperCmd, cmdContent, 'utf8');
 
     try {
@@ -1217,6 +1231,7 @@ export function registerSentinelBootPersistence(execPath: string, scriptPath: st
     const serviceFile = path.join(systemdDir, 'flocafe-sentinel.service');
     const autostartDir = path.join(os.homedir(), '.config', 'autostart');
     const desktopFile = path.join(autostartDir, 'flocafe-sentinel.desktop');
+    const logPath = path.join(os.homedir(), '.config', 'flo-desktop', 'sentinel-daemon.log');
 
     try {
       if (!fs.existsSync(systemdDir)) fs.mkdirSync(systemdDir, { recursive: true });
@@ -1231,7 +1246,10 @@ Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=ELECTRON_RUN_AS_NODE=1
+Environment=NODE_PATH="${asarModules}:${unpackedModules}"
 Environment=SENTINEL_PORT=3009
+StandardOutput=append:${logPath}
+StandardError=append:${logPath}
 
 [Install]
 WantedBy=default.target
@@ -1245,13 +1263,55 @@ WantedBy=default.target
       const desktopContent = `[Desktop Entry]
 Type=Application
 Name=FloCafe Sentinel Daemon
-Exec=env ELECTRON_RUN_AS_NODE=1 "${execPath}" "${scriptPath}"
+Exec=env ELECTRON_RUN_AS_NODE=1 NODE_PATH="${asarModules}:${unpackedModules}" "${execPath}" "${scriptPath}"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 `;
       fs.writeFileSync(desktopFile, desktopContent, 'utf8');
     } catch {}
   }
+}
+
+export function isOwnerAppMode(): boolean {
+  return process.argv.includes('--owner-app') || process.env.FLOCAFE_OWNER_APP === '1';
+}
+
+let ownerAppWindow: BrowserWindow | null = null;
+
+export function createOwnerAppWindow(): BrowserWindow {
+  if (ownerAppWindow && !ownerAppWindow.isDestroyed()) {
+    ownerAppWindow.focus();
+    return ownerAppWindow;
+  }
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 840,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'FloOwner Control System v4.4.0',
+    backgroundColor: '#0f172a',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  let ownerHtmlPath = path.resolve(__dirname, '..', '..', 'owner-system', 'flo-owner-control.html');
+  if (app.isPackaged) {
+    const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'owner-system', 'flo-owner-control.html');
+    if (fs.existsSync(unpacked)) {
+      ownerHtmlPath = unpacked;
+    }
+  }
+
+  win.loadFile(ownerHtmlPath);
+  ownerAppWindow = win;
+  win.on('closed', () => {
+    ownerAppWindow = null;
+  });
+  return win;
 }
 
 /**
@@ -1288,14 +1348,25 @@ export async function ensureSentinelDaemonRunningAndInstalled(): Promise<void> {
 
   // 3. If not responding, spawn detached OS process with ELECTRON_RUN_AS_NODE=1
   if (!isAlive && fs.existsSync(sentinelEntryPath)) {
+    const logPath = path.join(app.getPath('userData'), 'sentinel-daemon.log');
+    let logFd: number | 'ignore' = 'ignore';
+    try {
+      const logDir = path.dirname(logPath);
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+      logFd = fs.openSync(logPath, 'a');
+    } catch {}
+
+    const nodePath = resolveSentinelNodePath();
+
     try {
       const child = spawn(process.execPath, [sentinelEntryPath], {
         detached: true,
-        stdio: 'ignore',
+        stdio: typeof logFd === 'number' ? ['ignore', logFd, logFd] : 'ignore',
         windowsHide: true,
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
+          NODE_PATH: nodePath,
           FLOCAFE_GUI_EXEC_PATH: process.execPath,
           FLOCAFE_USER_DATA_PATH: app.getPath('userData'),
           SENTINEL_PORT: String(sentinelPort),
@@ -1459,8 +1530,13 @@ async function initialize(): Promise<void> {
       }
       return { success: true };
     });
-    console.log('[Flo] Creating window...');
-    createWindow();
+    if (isOwnerAppMode()) {
+      console.log('[Flo] Opening FloOwner Control standalone app window...');
+      createOwnerAppWindow();
+    } else {
+      console.log('[Flo] Creating window...');
+      createWindow();
+    }
     registerPowerMonitorRecovery();
     registerChildProcessCrashTelemetry();
     createTray();
@@ -1551,7 +1627,13 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  void handleMainWindowActivation();
+  if (isOwnerAppMode()) {
+    if (!ownerAppWindow || ownerAppWindow.isDestroyed()) {
+      createOwnerAppWindow();
+    }
+  } else {
+    void handleMainWindowActivation();
+  }
 });
 
 if (process.env.NODE_ENV === 'test' && process.env.FLO_E2E_PID_FILE) {

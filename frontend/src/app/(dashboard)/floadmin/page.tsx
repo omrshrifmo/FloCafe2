@@ -49,22 +49,77 @@ interface InventoryItemRecord {
 
 export default function FloAdminPage() {
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState<FloAdminStats>({
-    revenueToday: 0,
-    ordersToday: 0,
-    revenueMonth: 0,
-    ordersMonth: 0,
-    inventoryValue: 0,
-    totalProducts: 0,
-    lowStockCount: 0,
-    activeStaffCount: 0,
+  const [stats, setStats] = useState<FloAdminStats>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_floadmin_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.stats) return parsed.stats;
+        }
+      } catch {}
+    }
+    return {
+      revenueToday: 0,
+      ordersToday: 0,
+      revenueMonth: 0,
+      ordersMonth: 0,
+      inventoryValue: 0,
+      totalProducts: 0,
+      lowStockCount: 0,
+      activeStaffCount: 0,
+    };
   });
-  const [recentOrders, setRecentOrders] = useState<OrderRecord[]>([]);
-  const [lowStockItems, setLowStockItems] = useState<InventoryItemRecord[]>([]);
+  const [recentOrders, setRecentOrders] = useState<OrderRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_floadmin_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.recentOrders) return parsed.recentOrders;
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const [lowStockItems, setLowStockItems] = useState<InventoryItemRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_floadmin_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.lowStockItems) return parsed.lowStockItems;
+        }
+      } catch {}
+    }
+    return [];
+  });
 
   const loadData = async () => {
     setLoading(true);
     try {
+      // Try dedicated sovereign back-office route first
+      try {
+        const sovRes = await api.get('/api/floadmin/stats');
+        if (sovRes.data && sovRes.data.status === 'ok') {
+          const s = sovRes.data.stats;
+          const rOrders = (sovRes.data.recentOrders || []) as OrderRecord[];
+          const lStock = (sovRes.data.lowStockItems || []) as InventoryItemRecord[];
+          setStats(s);
+          setRecentOrders(rOrders);
+          setLowStockItems(lStock);
+          try {
+            localStorage.setItem('flocafe_floadmin_cache', JSON.stringify({
+              stats: s,
+              recentOrders: rOrders,
+              lowStockItems: lStock,
+            }));
+          } catch {}
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
       const [ordersRes, inventoryRes, staffRes] = await Promise.allSettled([
         api.get('/api/orders?limit=20'),
         api.get('/api/inventory/items'),
@@ -92,7 +147,7 @@ export default function FloAdminPage() {
       const totalRev = orders.filter((o) => o.status !== 'cancelled').reduce((sum, o) => sum + Number(o.total || 0), 0);
       const invVal = items.reduce((sum, i) => sum + (Number(i.quantity || 0) * Number(i.cost_price || 0)), 0);
 
-      setStats({
+      const computedStats = {
         revenueToday: todayRev,
         ordersToday: todayOrders.length,
         revenueMonth: totalRev,
@@ -101,7 +156,16 @@ export default function FloAdminPage() {
         totalProducts: items.length,
         lowStockCount: items.filter((i) => (i.quantity || 0) <= (i.min_quantity || i.min_stock_alert || 5)).length,
         activeStaffCount: staffCount,
-      });
+      };
+
+      setStats(computedStats);
+      try {
+        localStorage.setItem('flocafe_floadmin_cache', JSON.stringify({
+          stats: computedStats,
+          recentOrders: orders.slice(0, 8),
+          lowStockItems: items.filter((i) => (i.quantity || 0) <= (i.min_quantity || i.min_stock_alert || 5)).slice(0, 5),
+        }));
+      } catch {}
     } catch (err) {
       console.error('[FloAdmin] Failed to load data:', err);
     } finally {

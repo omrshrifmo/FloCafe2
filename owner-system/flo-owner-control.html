@@ -7,7 +7,8 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>FloOwner Control System v4.3.0</title>
+<title>FloOwner Control System v4.4.0</title>
+<link rel="manifest" href="/owner-app/manifest.json" />
 <meta name="description" content="Standalone remote fleet management for FloCafe POS — Windows, Linux, Android." />
 <style>
 :root {
@@ -242,6 +243,7 @@ input,textarea,select{font-family:var(--font)}
       </div>
     </div>
     <button id="scan-btn" onclick="scanLan()">&#128269; Scan LAN (192.168.x.x:3009)</button>
+    <button id="discover-fleet-btn" onclick="autoDiscoverFleet()" style="margin-top:6px;width:100%;padding:7px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-weight:600;font-size:.78rem;cursor:pointer">&#127760; Auto-Discover Worldwide Internet &amp; LAN Nodes</button>
     <div id="fleet-list"><div id="fleet-empty">Add nodes above or scan LAN to discover FloCafe installations.</div></div>
   </aside>
   <main id="main-panel">
@@ -607,6 +609,44 @@ function fmtCur(v){return v!=null?Number(v).toLocaleString(undefined,{minimumFra
 function fmtBytes(b){if(!b)return'--';if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';if(b<1073741824)return(b/1048576).toFixed(1)+'MB';return(b/1073741824).toFixed(2)+'GB';}
 function fmtUptime(s){if(!s)return'--';const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);return d?d+'d '+h+'h':h?h+'h '+m+'m':m+'m';}
 function pct(v){return v!=null?Number(v).toFixed(1):'--';}
+async function autoDiscoverFleet() {
+  const btn = document.getElementById('discover-fleet-btn');
+  const origText = btn ? btn.innerHTML : '';
+  if (btn) btn.innerHTML = '&#9203; Discovering Fleet...';
+  let addedCount = 0;
+
+  for (const n of state.nodes) {
+    try {
+      const res = await fetch(n.url + '/api/sentinel/discover-fleet', { headers: authHeaders() });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.nodes && Array.isArray(d.nodes)) {
+          for (const node of d.nodes) {
+            const remoteUrl = node.tunnel_url || (node.p2p_ips && node.p2p_ips[0] ? 'http://' + node.p2p_ips[0] + ':3009' : (node.lan_ips && node.lan_ips[0] ? 'http://' + node.lan_ips[0] + ':3009' : null));
+            if (remoteUrl && !state.nodes.some(existing => existing.url === remoteUrl)) {
+              addNodeRaw((node.node_name || 'Node') + ' (' + (node.hwid ? node.hwid.slice(0, 8) : 'Remote') + ')', remoteUrl, false);
+              addedCount++;
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  save();
+  renderFleet();
+  if (btn) {
+    btn.innerHTML = addedCount > 0 ? '&#10004; Added ' + addedCount + ' Node(s)' : '&#10004; Fleet Up to Date';
+    setTimeout(() => { btn.innerHTML = origText; }, 3000);
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/owner-app/sw.js').catch(() => {});
+  });
+}
+
 load();updateKeyStatus();renderMcp();
 setInterval(()=>{if(document.visibilityState==='visible')pingAll();},60000);
 setTimeout(pingAll,500);

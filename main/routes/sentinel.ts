@@ -5,6 +5,7 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import { exec, execSync, spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
 import { getDatabase } from '../db';
 import {
   verifyHardwareLicense,
@@ -15,6 +16,7 @@ import {
   getAutoRenewPolicy,
   setAutoRenewPolicy,
   AutoRenewPolicy,
+  OWNER_MASTER_PUBLIC_KEY,
 } from '../services/hardware-license';
 
 export const sentinelRoutes = Router();
@@ -81,6 +83,7 @@ export function getDatabaseSafe(): any {
 let activeTunnelProcess: ChildProcess | null = null;
 let activeTunnelUrl: string | null = null;
 let activeTunnelProvider: string | null = null;
+let autoReconnectTunnel = false;
 
 export function getActiveTunnelUrl(): string | null {
   return activeTunnelUrl;
@@ -91,6 +94,7 @@ export function setActiveTunnelUrl(url: string | null): void {
 }
 
 export function stopTunnel(): boolean {
+  autoReconnectTunnel = false;
   if (activeTunnelProcess) {
     try {
       activeTunnelProcess.kill('SIGTERM');
@@ -104,6 +108,7 @@ export function stopTunnel(): boolean {
 
 export async function startTunnel(provider = 'auto', port = Number(process.env.SENTINEL_PORT || 3009)): Promise<{ url: string | null; provider: string }> {
   stopTunnel();
+  autoReconnectTunnel = true;
 
   let chosenProvider = provider;
   if (chosenProvider === 'auto') {
@@ -124,6 +129,9 @@ export async function startTunnel(provider = 'auto', port = Number(process.env.S
       if (!resolved) {
         resolved = true;
         activeTunnelUrl = url;
+        if (url) {
+          void publishFleetBeacon();
+        }
         resolve({ url, provider: chosenProvider });
       }
     };
@@ -155,6 +163,11 @@ export async function startTunnel(provider = 'auto', port = Number(process.env.S
           if (activeTunnelProcess === proc) {
             activeTunnelProcess = null;
             activeTunnelUrl = null;
+            if (autoReconnectTunnel && process.env.NODE_ENV !== 'test') {
+              setTimeout(() => {
+                if (autoReconnectTunnel) void startTunnel(chosenProvider, port);
+              }, 10000);
+            }
           }
           finish(null);
         });
@@ -188,6 +201,11 @@ export async function startTunnel(provider = 'auto', port = Number(process.env.S
           if (activeTunnelProcess === proc) {
             activeTunnelProcess = null;
             activeTunnelUrl = null;
+            if (autoReconnectTunnel && process.env.NODE_ENV !== 'test') {
+              setTimeout(() => {
+                if (autoReconnectTunnel) void startTunnel(chosenProvider, port);
+              }, 10000);
+            }
           }
           finish(null);
         });
@@ -196,6 +214,136 @@ export async function startTunnel(provider = 'auto', port = Number(process.env.S
       clearTimeout(timeout);
       finish(null);
     }
+  });
+}
+
+// ── Zero-Cost Encrypted Rendezvous Beacon (ntfy.sh pub/sub) ───────────────────
+
+export function getFleetRendezvousTopic(): string {
+  return 'flocafe_sov_' + crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 20);
+}
+
+export function encryptFleetBeacon(payload: any, password = 'Fl0220671190'): string {
+  const salt = crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 16);
+  const key = crypto.scryptSync(password, salt, 32);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return JSON.stringify({
+    iv: iv.toString('hex'),
+    tag: tag.toString('hex'),
+    data: encrypted.toString('hex'),
+  });
+}
+
+export function decryptFleetBeacon(encryptedStr: string | any, password = 'Fl0220671190'): any {
+  try {
+    const salt = crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 16);
+    const key = crypto.scryptSync(password, salt, 32);
+    const parsed = typeof encryptedStr === 'string' ? JSON.parse(encryptedStr) : encryptedStr;
+    if (!parsed || !parsed.iv || !parsed.tag || !parsed.data) return null;
+    const iv = Buffer.from(parsed.iv, 'hex');
+    const tag = Buffer.from(parsed.tag, 'hex');
+    const data = Buffer.from(parsed.data, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+    return JSON.parse(decrypted);
+  } catch {
+    return null;
+  }
+}
+
+export async function publishFleetBeacon(customPayload?: any): Promise<void> {
+  if (process.env.NODE_ENV === 'test' && !process.env.TEST_RENDEZVOUS_FORCE) return;
+  try {
+    const db = getDatabaseSafe();
+    const license = verifyHardwareLicense(db);
+    const hwid = getHardwareFingerprint();
+    const net = getNetworkInfo();
+    let version = '4.4.0';
+    try {
+      const pkgPath = path.resolve(__dirname, '../../package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.version) version = pkg.version;
+      }
+    } catch {}
+
+    const payload = customPayload || {
+      hwid,
+      node_name: os.hostname(),
+      os_platform: os.platform(),
+      flocafe_version: version,
+      flocafe_running: true,
+      license_tier: license.tier || 'unactivated',
+      license_valid: Boolean(license.valid),
+      license_expires_at: license.expires_at || null,
+      lan_ips: net.lanIps,
+      p2p_ips: net.p2pDetails?.map((d: any) => d.ip) || (net.p2pIp ? [net.p2pIp] : []),
+      tunnel_url: activeTunnelUrl,
+      sentinel_port: 3009,
+      timestamp: Date.now(),
+    };
+
+    const encryptedBeacon = encryptFleetBeacon(payload);
+    const topic = getFleetRendezvousTopic();
+    const url = `https://ntfy.sh/${topic}`;
+
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Title': 'FloCafe Beacon',
+        'Priority': 'low',
+      },
+      timeout: 5000,
+    });
+    req.on('error', () => {});
+    req.on('timeout', () => { req.destroy(); });
+    req.write(encryptedBeacon);
+    req.end();
+  } catch {}
+}
+
+export async function discoverFleetNodes(password = 'Fl0220671190'): Promise<any[]> {
+  const topic = getFleetRendezvousTopic();
+  const url = `https://ntfy.sh/${topic}/json?poll=1&since=24h`;
+
+  return new Promise((resolve) => {
+    const req = https.get(url, { timeout: 8000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const lines = data.split('\n').filter(Boolean);
+          const nodesByHwid: Record<string, any> = {};
+
+          for (const line of lines) {
+            try {
+              const msg = JSON.parse(line);
+              if (msg.event === 'message' && msg.message) {
+                const decrypted = decryptFleetBeacon(msg.message, password);
+                if (decrypted && decrypted.hwid) {
+                  const existing = nodesByHwid[decrypted.hwid];
+                  if (!existing || (decrypted.timestamp && decrypted.timestamp > (existing.timestamp || 0))) {
+                    nodesByHwid[decrypted.hwid] = decrypted;
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          resolve(Object.values(nodesByHwid));
+        } catch {
+          resolve([]);
+        }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.on('timeout', () => { req.destroy(); resolve([]); });
   });
 }
 
@@ -837,6 +985,7 @@ sentinelRoutes.post('/remote-license', requireOwnerAuth, (req: Request, res: Res
       if (autoRenewPolicy) {
         setAutoRenewPolicy(db, autoRenewPolicy as AutoRenewPolicy);
       }
+      void publishFleetBeacon();
       return res.json({
         success: true,
         action: 'activate',
@@ -857,4 +1006,50 @@ sentinelRoutes.post('/remote-license', requireOwnerAuth, (req: Request, res: Res
 // 10. POST /api/sentinel/telemetry-sink - Sovereign local sink for telemetry
 sentinelRoutes.post('/telemetry-sink', (_req: Request, res: Response) => {
   res.json({ status: 'ok', received: true });
+});
+
+// 11. GET /api/sentinel/discover-fleet - Query discovered remote nodes via encrypted rendezvous
+sentinelRoutes.get('/discover-fleet', requireOwnerAuth, async (req: Request, res: Response) => {
+  try {
+    const password = (req.headers['x-owner-password'] as string) || (req.query?.password as string) || 'Fl0220671190';
+    const nodes = await discoverFleetNodes(String(password));
+    res.json({ status: 'ok', count: nodes.length, nodes });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 12. PWA Serving for Owner Control
+sentinelRoutes.get('/owner-app', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  let ownerHtmlPath = path.resolve(__dirname, '../../owner-system/flo-owner-control.html');
+  if (fs.existsSync(ownerHtmlPath)) return res.sendFile(ownerHtmlPath);
+  if (process.resourcesPath) {
+    const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked', 'owner-system', 'flo-owner-control.html');
+    if (fs.existsSync(unpacked)) return res.sendFile(unpacked);
+  }
+  res.send('<!DOCTYPE html><html><body><h1>FloOwner Control</h1></body></html>');
+});
+
+sentinelRoutes.get('/owner-app/manifest.json', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.json({
+    name: 'FloOwner Control System',
+    short_name: 'FloOwner',
+    description: 'FloOwner Sovereign Multi-Node Control & Remote Fleet Operations',
+    start_url: '/owner-app',
+    scope: '/owner-app',
+    display: 'standalone',
+    background_color: '#0f172a',
+    theme_color: '#1e293b',
+    icons: [
+      { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+    ],
+  });
+});
+
+sentinelRoutes.get('/owner-app/sw.js', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`const CACHE_NAME='flo-owner-cache-v4.4.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
 });

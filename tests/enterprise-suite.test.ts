@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.3.0', 'MCP server version is 4.3.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.4.0', 'MCP server version is 4.4.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.3.0', 'package.json version is 4.3.0');
+    assertEqualOrThrow(rootPackageJson.version, '4.4.0', 'package.json version is 4.4.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // 15.4 Sentinel Remote Shell Exec, Self-Update & Tunnel Protection
@@ -1907,6 +1907,114 @@ async function main() {
       optionsPingRes.headers.get('access-control-allow-headers')?.includes('x-owner-master-key'),
       'OPTIONS returns Access-Control-Allow-Headers including x-owner-master-key'
     );
+
+    // ── Section 16: v4.4.0 Sovereign Suites, PWA, asarUnpack & Encrypted Beacon ─
+    console.log('\n[16] Verifying v4.4.0 Features: asarUnpack, Sovereign Suites, PWA & Rendezvous Beacon...');
+
+    // 16.1 Verify package.json build.asarUnpack contains dist/**
+    const pkgPath = path.resolve(__dirname, '../package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    assertOrThrow(
+      Array.isArray(pkg.build?.asarUnpack) && pkg.build.asarUnpack.includes('dist/**'),
+      'package.json build.asarUnpack includes dist/** for 24/7 background daemon module resolution'
+    );
+
+    // 16.2 Verify /api/floadmin routes
+    const floadminStatsRes = await api(baseUrl, '/api/floadmin/stats', { headers: authHeader });
+    assertEqualOrThrow(floadminStatsRes.status, 200, 'GET /api/floadmin/stats returns 200');
+    assertEqualOrThrow(floadminStatsRes.data?.status, 'ok', 'FloAdmin stats status is ok');
+    assertOrThrow(typeof floadminStatsRes.data?.stats === 'object', 'FloAdmin stats contains stats object');
+
+    const floadminOverviewRes = await api(baseUrl, '/api/floadmin/overview', { headers: authHeader });
+    assertEqualOrThrow(floadminOverviewRes.status, 200, 'GET /api/floadmin/overview returns 200');
+
+    // 16.3 Verify /api/florev routes
+    const florevStatsRes = await api(baseUrl, '/api/florev/stats', { headers: authHeader });
+    assertEqualOrThrow(florevStatsRes.status, 200, 'GET /api/florev/stats returns 200');
+    assertEqualOrThrow(florevStatsRes.data?.status, 'ok', 'FloRev stats status is ok');
+
+    const florevLiveRes = await api(baseUrl, '/api/florev/live', { headers: authHeader });
+    assertEqualOrThrow(florevLiveRes.status, 200, 'GET /api/florev/live returns 200');
+    assertEqualOrThrow(florevLiveRes.data?.status, 'ok', 'FloRev live status is ok');
+    assertOrThrow('todaySales' in (florevLiveRes.data || {}), 'FloRev live response includes todaySales');
+
+    // 16.4 Verify /api/orderflo routes
+    const orderfloTablesRes = await api(baseUrl, '/api/orderflo/tables');
+    assertEqualOrThrow(orderfloTablesRes.status, 200, 'GET /api/orderflo/tables returns 200');
+    assertOrThrow(Array.isArray(orderfloTablesRes.data), 'OrderFlo tables is an array');
+
+    const orderfloMenuRes = await api(baseUrl, '/api/orderflo/menu');
+    assertEqualOrThrow(orderfloMenuRes.status, 200, 'GET /api/orderflo/menu returns 200');
+    assertOrThrow(Array.isArray(orderfloMenuRes.data?.products), 'OrderFlo menu products is an array');
+
+    const orderfloQueueRes = await api(baseUrl, '/api/orderflo/queue');
+    assertEqualOrThrow(orderfloQueueRes.status, 200, 'GET /api/orderflo/queue returns 200');
+    assertOrThrow(Array.isArray(orderfloQueueRes.data), 'OrderFlo queue is an array');
+
+    // Create self-service order via POST /api/orderflo/orders
+    const sampleTable = db.prepare('SELECT id FROM tables LIMIT 1').get() as any;
+    const sampleTableId = sampleTable ? sampleTable.id : null;
+    const sampleProduct = db.prepare('SELECT id FROM products LIMIT 1').get() as any;
+    const sampleProductId = sampleProduct ? sampleProduct.id : 'prod-espresso';
+
+    const orderCreateRes = await api(baseUrl, '/api/orderflo/orders', {
+      method: 'POST',
+      body: {
+        order_type: 'dine_in',
+        table_id: sampleTableId,
+        items: [
+          {
+            product_id: sampleProductId,
+            product_name: 'Espresso Single',
+            quantity: 2,
+            unit_price: 3.50,
+          },
+        ],
+      },
+    });
+    assertEqualOrThrow(orderCreateRes.status, 201, 'POST /api/orderflo/orders returns 201 Created');
+    assertOrThrow(Boolean(orderCreateRes.data?.order?.id), 'Created order contains an ID');
+
+    // 16.5 Sentinel PWA Serving
+    const pwaAppRes = await api(baseUrl, '/api/sentinel/owner-app');
+    assertEqualOrThrow(pwaAppRes.status, 200, 'GET /api/sentinel/owner-app returns 200');
+    assertOrThrow(typeof pwaAppRes.data === 'string' && pwaAppRes.data.includes('FloOwner Control System'), 'PWA HTML contains app title');
+
+    const pwaManifestRes = await api(baseUrl, '/api/sentinel/owner-app/manifest.json');
+    assertEqualOrThrow(pwaManifestRes.status, 200, 'GET /api/sentinel/owner-app/manifest.json returns 200');
+
+    const pwaSwRes = await api(baseUrl, '/api/sentinel/owner-app/sw.js');
+    assertEqualOrThrow(pwaSwRes.status, 200, 'GET /api/sentinel/owner-app/sw.js returns 200');
+
+    // 16.6 Encrypted Rendezvous Beacon round-trip
+    const { encryptFleetBeacon, decryptFleetBeacon } = require('../main/routes/sentinel');
+    const sampleBeaconPayload = {
+      hwid: 'TEST-HWID-440',
+      node_name: 'Test Node',
+      os_platform: 'linux',
+      flocafe_version: '4.4.0',
+      flocafe_running: true,
+      license_tier: 'enterprise',
+      license_valid: true,
+      license_expires_at: '2027-01-01',
+      lan_ips: ['192.168.1.100'],
+      p2p_ips: ['100.64.0.1'],
+      tunnel_url: 'https://test-node-440.loca.lt',
+      sentinel_port: 3009,
+      timestamp: Date.now(),
+    };
+
+    const encryptedBeacon = encryptFleetBeacon(sampleBeaconPayload);
+    assertOrThrow(typeof encryptedBeacon === 'string' && encryptedBeacon.length > 32, 'Encrypted beacon produces non-empty string');
+
+    const decryptedBeacon = decryptFleetBeacon(encryptedBeacon, 'Fl0220671190');
+    assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered');
+    assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-440', 'Decrypted beacon matches hwid');
+    assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-440.loca.lt', 'Decrypted beacon matches tunnel_url');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.4.0', 'Decrypted beacon matches flocafe_version');
+
+    const badDecrypt = decryptFleetBeacon(encryptedBeacon, 'WrongPassword!');
+    assertEqualOrThrow(badDecrypt, null, 'Decrypt with incorrect password cleanly returns null');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

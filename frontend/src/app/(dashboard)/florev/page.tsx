@@ -38,20 +38,51 @@ interface CashSessionItem {
 export default function FloRevPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [metrics, setMetrics] = useState({
-    todaySales: 0,
-    ordersCount: 0,
-    avgOrderValue: 0,
-    openTables: 0,
-    kdsQueueLength: 0,
-    cashDrawerExpected: 0,
-    activeShiftOpen: false,
-    alertsCount: 0,
+  const [metrics, setMetrics] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_florev_cache');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return {
+      todaySales: 0,
+      ordersCount: 0,
+      avgOrderValue: 0,
+      openTables: 0,
+      kdsQueueLength: 0,
+      cashDrawerExpected: 0,
+      activeShiftOpen: false,
+      alertsCount: 0,
+    };
   });
 
   const loadMetrics = async () => {
     setLoading(true);
     try {
+      // Try dedicated sovereign route first
+      try {
+        const sovRes = await api.get('/api/florev/live');
+        if (sovRes.data && sovRes.data.status === 'ok') {
+          const m = {
+            todaySales: Number(sovRes.data.todaySales || 0),
+            ordersCount: Number(sovRes.data.ordersCount || 0),
+            avgOrderValue: Number(sovRes.data.avgOrderValue || 0),
+            openTables: Number(sovRes.data.openTables || 0),
+            kdsQueueLength: Number(sovRes.data.kdsQueueLength || 0),
+            cashDrawerExpected: Number(sovRes.data.cashDrawerExpected || 0),
+            activeShiftOpen: Boolean(sovRes.data.activeShiftOpen),
+            alertsCount: Number(sovRes.data.alertsCount || 0),
+          };
+          setMetrics(m);
+          try {
+            localStorage.setItem('flocafe_florev_cache', JSON.stringify(m));
+          } catch {}
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
       const [ordersRes, tablesRes, sessionRes] = await Promise.allSettled([
         api.get('/api/orders?limit=50'),
         api.get('/api/tables'),
@@ -80,7 +111,7 @@ export default function FloRevPage() {
       const kdsOrders = orders.filter((o) => ['pending', 'preparing'].includes(o.status));
       const occupiedTables = tables.filter((t) => t.status === 'occupied').length;
 
-      setMetrics({
+      const computedMetrics = {
         todaySales: sales,
         ordersCount: todayOrders.length,
         avgOrderValue: todayOrders.length > 0 ? sales / todayOrders.length : 0,
@@ -89,7 +120,12 @@ export default function FloRevPage() {
         cashDrawerExpected: currentSession ? Number(currentSession.expected_balance || currentSession.opening_balance || 0) : 0,
         activeShiftOpen: Boolean(currentSession),
         alertsCount: 0,
-      });
+      };
+
+      setMetrics(computedMetrics);
+      try {
+        localStorage.setItem('flocafe_florev_cache', JSON.stringify(computedMetrics));
+      } catch {}
     } catch (err) {
       console.warn('[FloRev] Metric fetch note:', err);
     } finally {
@@ -101,7 +137,7 @@ export default function FloRevPage() {
     const timer = setTimeout(() => {
       void loadMetrics();
     }, 0);
-    const interval = setInterval(loadMetrics, 5000);
+    const interval = setInterval(loadMetrics, 10000);
     return () => {
       clearTimeout(timer);
       clearInterval(interval);

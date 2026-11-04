@@ -39,21 +39,81 @@ interface OrderRecord {
 
 export default function OrderFloPage() {
   const [loading, setLoading] = useState(false);
-  const [tables, setTables] = useState<TableRecord[]>([]);
-  const [pendingOrders, setPendingOrders] = useState<OrderRecord[]>([]);
+  const [tables, setTables] = useState<TableRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_orderflo_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.tables)) return parsed.tables;
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const [pendingOrders, setPendingOrders] = useState<OrderRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('flocafe_orderflo_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.pendingOrders)) return parsed.pendingOrders;
+        }
+      } catch {}
+    }
+    return [];
+  });
   const [selectedTable, setSelectedTable] = useState<TableRecord | null>(null);
   const [copiedTableId, setCopiedTableId] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
+      // Try dedicated sovereign orderflo routes first
+      try {
+        const [tablesSov, queueSov] = await Promise.allSettled([
+          api.get('/api/orderflo/tables'),
+          api.get('/api/orderflo/queue'),
+        ]);
+
+        let loadedTables: TableRecord[] = [];
+        let loadedOrders: OrderRecord[] = [];
+
+        if (tablesSov.status === 'fulfilled' && Array.isArray(tablesSov.value.data)) {
+          loadedTables = tablesSov.value.data as TableRecord[];
+          setTables(loadedTables);
+          if (loadedTables.length > 0) {
+            setSelectedTable((prev) => prev || loadedTables[0]);
+          }
+        }
+
+        if (queueSov.status === 'fulfilled' && Array.isArray(queueSov.value.data)) {
+          loadedOrders = queueSov.value.data as OrderRecord[];
+          setPendingOrders(loadedOrders);
+        }
+
+        if (loadedTables.length > 0 || loadedOrders.length > 0) {
+          try {
+            localStorage.setItem('flocafe_orderflo_cache', JSON.stringify({
+              tables: loadedTables,
+              pendingOrders: loadedOrders,
+            }));
+          } catch {}
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
       const [tablesRes, ordersRes] = await Promise.allSettled([
         api.get('/api/tables'),
         api.get('/api/orders?status=pending&limit=30'),
       ]);
 
+      let tbls: TableRecord[] = [];
+      let ords: OrderRecord[] = [];
+
       if (tablesRes.status === 'fulfilled') {
-        const tbls = (tablesRes.value.data || []) as TableRecord[];
+        tbls = (tablesRes.value.data || []) as TableRecord[];
         setTables(tbls);
         if (tbls.length > 0) {
           setSelectedTable((prev) => prev || tbls[0]);
@@ -61,9 +121,16 @@ export default function OrderFloPage() {
       }
 
       if (ordersRes.status === 'fulfilled') {
-        const ords = (ordersRes.value.data?.orders || ordersRes.value.data || []) as OrderRecord[];
+        ords = (ordersRes.value.data?.orders || ordersRes.value.data || []) as OrderRecord[];
         setPendingOrders(ords);
       }
+
+      try {
+        localStorage.setItem('flocafe_orderflo_cache', JSON.stringify({
+          tables: tbls,
+          pendingOrders: ords,
+        }));
+      } catch {}
     } catch (err) {
       console.warn('[OrderFlo] Load note:', err);
     } finally {

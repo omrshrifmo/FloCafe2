@@ -78,12 +78,50 @@ const inlineCustomerLookupRateLimit = expressRateLimit({ windowMs: 60 * 1000, li
 
 import { licenseRoutes } from './license';
 import { sentinelRoutes } from './sentinel';
+import { floadminRoutes, florevRoutes, orderfloRoutes } from './sovereign-suites';
 import { verifyHardwareLicense } from '../services/hardware-license';
+import fs from 'fs';
+import path from 'path';
 
 export function registerRoutes(app: Express): void {
   // License & Sentinel routes (exempt from auth and license gate)
   app.use('/api/license', licenseRoutes);
   app.use('/api/sentinel', sentinelRoutes);
+
+  // Standalone PWA Owner App
+  const ownerHtmlPath = path.resolve(__dirname, '../../owner-system/flo-owner-control.html');
+  app.get('/owner-app', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (fs.existsSync(ownerHtmlPath)) {
+      res.sendFile(ownerHtmlPath);
+    } else {
+      res.send('<!DOCTYPE html><html><body><h1>FloOwner Control</h1></body></html>');
+    }
+  });
+  app.get('/owner-app/manifest.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.json({
+      name: 'FloOwner Control System',
+      short_name: 'FloOwner',
+      start_url: '/owner-app',
+      display: 'standalone',
+      background_color: '#0f172a',
+      theme_color: '#1e293b',
+      icons: [
+        { src: '/assets/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/assets/icon-512.png', sizes: '512x512', type: 'image/png' },
+      ],
+    });
+  });
+  app.get('/owner-app/sw.js', (_req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.send(`const CACHE_NAME='flo-owner-cache-v4.4.0';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(['/owner-app','/owner-app/manifest.json'])).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+  });
+
+  // Sovereign Suites (FloAdmin, FloRev, OrderFlo)
+  app.use('/api/floadmin', floadminRoutes);
+  app.use('/api/florev', florevRoutes);
+  app.use('/api/orderflo', orderfloRoutes);
 
   // Global hardware license enforcement across /api/*
   app.use((req, res, next) => {
