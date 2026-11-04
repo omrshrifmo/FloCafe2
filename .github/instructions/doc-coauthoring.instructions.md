@@ -4,7 +4,7 @@ description: "Guide users through a structured workflow for co-authoring documen
 applyTo:
   - **/*.md
   - **/docs/**
-deployedAt: "2026-11-03T22:30:44.812Z"
+deployedAt: "2026-11-04T16:39:08.184Z"
 ---
 
 # doc-coauthoring

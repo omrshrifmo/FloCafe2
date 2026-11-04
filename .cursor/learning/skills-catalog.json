@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-02T13:23:09.728Z",
+  "generatedAt": "2026-11-04T16:38:34.350Z",
   "workspacePath": "/home/omrshrifmo/FloCafe2",
   "branch": "main",
   "skills": [
@@ -234,7 +234,8 @@
       "isRelevant": true,
       "matchedGlobs": [
         "**/*.ps1",
-        "**/*.sh"
+        "**/*.sh",
+        "**/*.bat"
       ],
       "installedInWorkspace": true,
       "availableInGlobal": false,
