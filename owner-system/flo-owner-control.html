@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>FloOwner Control System v4.4.0</title>
+<title>FloOwner Control System v4.4.1</title>
 <link rel="manifest" href="/owner-app/manifest.json" />
 <meta name="description" content="Standalone remote fleet management for FloCafe POS — Windows, Linux, Android." />
 <style>
@@ -217,7 +217,7 @@ input,textarea,select{font-family:var(--font)}
       <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
       <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
-    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.3.0 &middot; Remote Fleet Manager</p></div>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.4.1 &middot; Remote Fleet Manager</p></div>
   </div>
   <div id="key-vault">
     <label>&#128273; Owner Key:</label>
@@ -243,7 +243,7 @@ input,textarea,select{font-family:var(--font)}
       </div>
     </div>
     <button id="scan-btn" onclick="scanLan()">&#128269; Scan LAN (192.168.x.x:3009)</button>
-    <button id="discover-fleet-btn" onclick="autoDiscoverFleet()" style="margin-top:6px;width:100%;padding:7px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-weight:600;font-size:.78rem;cursor:pointer">&#127760; Auto-Discover Worldwide Internet &amp; LAN Nodes</button>
+    <button id="discover-fleet-btn" onclick="discoverWorldwideNodes()" style="margin-top:6px;width:100%;padding:7px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-weight:600;font-size:.78rem;cursor:pointer">&#127760; Auto-Discover Worldwide Internet &amp; LAN Nodes</button>
     <div id="fleet-list"><div id="fleet-empty">Add nodes above or scan LAN to discover FloCafe installations.</div></div>
   </aside>
   <main id="main-panel">
@@ -609,12 +609,85 @@ function fmtCur(v){return v!=null?Number(v).toLocaleString(undefined,{minimumFra
 function fmtBytes(b){if(!b)return'--';if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';if(b<1073741824)return(b/1048576).toFixed(1)+'MB';return(b/1073741824).toFixed(2)+'GB';}
 function fmtUptime(s){if(!s)return'--';const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);return d?d+'d '+h+'h':h?h+'h '+m+'m':m+'m';}
 function pct(v){return v!=null?Number(v).toFixed(1):'--';}
-async function autoDiscoverFleet() {
+const OWNER_MASTER_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAd+X3rKeF50DeQinSd1BgCng+cAnJ2C/vqLZu7c2avHc=
+-----END PUBLIC KEY-----`;
+
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+  }
+  return bytes;
+}
+
+async function decryptBeaconWebCrypto(encryptedBeacon, cryptoKey) {
+  try {
+    const parsed = typeof encryptedBeacon === 'string' ? JSON.parse(encryptedBeacon) : encryptedBeacon;
+    if (!parsed || !parsed.iv || !parsed.tag || !parsed.data) return null;
+    const iv = hexToBytes(parsed.iv);
+    const tag = hexToBytes(parsed.tag);
+    const data = hexToBytes(parsed.data);
+    const combined = new Uint8Array(data.length + tag.length);
+    combined.set(data, 0);
+    combined.set(tag, data.length);
+    const decryptedBuf = await window.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      combined
+    );
+    const decryptedStr = new TextDecoder().decode(decryptedBuf);
+    return JSON.parse(decryptedStr);
+  } catch {
+    return null;
+  }
+}
+
+async function discoverWorldwideNodes() {
   const btn = document.getElementById('discover-fleet-btn');
   const origText = btn ? btn.innerHTML : '';
-  if (btn) btn.innerHTML = '&#9203; Discovering Fleet...';
+  if (!pw() && !state.ownerKey) {
+    alert('Please enter the Owner Password (Fl0220671190) or load owner-reactivate-master.flokey first to discover worldwide fleet nodes.');
+    return;
+  }
+  if (btn) btn.innerHTML = '&#9203; Discovering Worldwide Fleet...';
   let addedCount = 0;
+  const nodesByHwid = {};
 
+  // 1. In-browser direct fetch & WebCrypto AES-256-GCM decrypt from ntfy.sh
+  try {
+    const enc = new TextEncoder();
+    const pubKey = OWNER_MASTER_PUBKEY.trim();
+    const topicHashBuf = await window.crypto.subtle.digest('SHA-256', enc.encode(pubKey));
+    const topicHashHex = Array.from(new Uint8Array(topicHashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const topic = 'flocafe_sov_' + topicHashHex.slice(0, 20);
+
+    const keyMatBuf = await window.crypto.subtle.digest('SHA-256', enc.encode('flocafe-sovereign-v4:' + pubKey));
+    const cryptoKey = await window.crypto.subtle.importKey('raw', keyMatBuf, { name: 'AES-GCM' }, false, ['decrypt']);
+
+    const ntfyRes = await fetch(`https://ntfy.sh/${topic}/json?poll=1&since=24h`, { cache: 'no-store' });
+    if (ntfyRes.ok) {
+      const text = await ntfyRes.text();
+      const lines = text.split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const msg = JSON.parse(line);
+          if (msg.event === 'message' && msg.message) {
+            const node = await decryptBeaconWebCrypto(msg.message, cryptoKey);
+            if (node && node.hwid) {
+              if (!nodesByHwid[node.hwid] || (node.timestamp && node.timestamp > (nodesByHwid[node.hwid].timestamp || 0))) {
+                nodesByHwid[node.hwid] = node;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.warn('[FloOwner] In-browser worldwide discovery warning:', err);
+  }
+
+  // 2. Also query /api/sentinel/discover-fleet on any reachable node
   for (const n of state.nodes) {
     try {
       const res = await fetch(n.url + '/api/sentinel/discover-fleet', { headers: authHeaders() });
@@ -622,10 +695,10 @@ async function autoDiscoverFleet() {
         const d = await res.json();
         if (d.nodes && Array.isArray(d.nodes)) {
           for (const node of d.nodes) {
-            const remoteUrl = node.tunnel_url || (node.p2p_ips && node.p2p_ips[0] ? 'http://' + node.p2p_ips[0] + ':3009' : (node.lan_ips && node.lan_ips[0] ? 'http://' + node.lan_ips[0] + ':3009' : null));
-            if (remoteUrl && !state.nodes.some(existing => existing.url === remoteUrl)) {
-              addNodeRaw((node.node_name || 'Node') + ' (' + (node.hwid ? node.hwid.slice(0, 8) : 'Remote') + ')', remoteUrl, false);
-              addedCount++;
+            if (node && node.hwid) {
+              if (!nodesByHwid[node.hwid] || (node.timestamp && node.timestamp > (nodesByHwid[node.hwid].timestamp || 0))) {
+                nodesByHwid[node.hwid] = node;
+              }
             }
           }
         }
@@ -633,13 +706,38 @@ async function autoDiscoverFleet() {
     } catch {}
   }
 
+  // 3. For every discovered remote FloCafe installation, add or update in state.nodes
+  for (const node of Object.values(nodesByHwid)) {
+    const remoteUrl = node.tunnel_url || (node.p2p_ips && node.p2p_ips[0] ? 'http://' + node.p2p_ips[0] + ':3009' : (node.lan_ips && node.lan_ips[0] ? 'http://' + node.lan_ips[0] + ':3009' : null));
+    if (!remoteUrl) continue;
+
+    const friendlyName = (node.node_name || 'FloCafe Node') + ' (' + (node.hwid ? node.hwid.slice(0, 8) : 'Remote') + ')';
+    const existingIdx = state.nodes.findIndex(existing => (node.hwid && existing.hwid === node.hwid) || existing.url === remoteUrl);
+    if (existingIdx >= 0) {
+      state.nodes[existingIdx].url = remoteUrl;
+      state.nodes[existingIdx].name = friendlyName;
+      if (node.hwid) state.nodes[existingIdx].hwid = node.hwid;
+    } else {
+      state.nodes.push({
+        name: friendlyName,
+        url: remoteUrl,
+        hwid: node.hwid,
+        status: 'unknown',
+        ping: null,
+      });
+      addedCount++;
+    }
+  }
+
   save();
   renderFleet();
+  pingAll();
   if (btn) {
     btn.innerHTML = addedCount > 0 ? '&#10004; Added ' + addedCount + ' Node(s)' : '&#10004; Fleet Up to Date';
     setTimeout(() => { btn.innerHTML = origText; }, 3000);
   }
 }
+const autoDiscoverFleet = discoverWorldwideNodes;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

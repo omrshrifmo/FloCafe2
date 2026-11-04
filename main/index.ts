@@ -1218,20 +1218,38 @@ export function registerSentinelBootPersistence(execPath: string, scriptPath: st
   if (platform === 'win32') {
     const appDataDir = process.env.APPDATA ? path.join(process.env.APPDATA, 'flo-desktop') : path.join(os.homedir(), 'AppData', 'Roaming', 'flo-desktop');
     if (!fs.existsSync(appDataDir)) fs.mkdirSync(appDataDir, { recursive: true });
+    let userDataPath = appDataDir;
+    try {
+      if (app && typeof app.getPath === 'function') userDataPath = app.getPath('userData');
+    } catch {}
     const wrapperCmd = path.join(appDataDir, 'run-sentinel.cmd');
     const logPath = path.join(appDataDir, 'sentinel-daemon.log');
-    const cmdContent = `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nset NODE_PATH=${asarModules};${unpackedModules};%NODE_PATH%\r\nstart "" /B "${execPath}" "${scriptPath}" >> "${logPath}" 2>&1\r\n`;
+    const cmdContent = `@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\nset "NODE_PATH=${asarModules};${unpackedModules}"\r\nset "FLOCAFE_GUI_EXEC_PATH=${execPath}"\r\nset "FLOCAFE_USER_DATA_PATH=${userDataPath}"\r\nstart "" /B "${execPath}" "${scriptPath}" >> "${logPath}" 2>&1\r\n`;
     fs.writeFileSync(wrapperCmd, cmdContent, 'utf8');
 
     try {
       exec(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "FloCafeSentinel" /t REG_SZ /d "\\"${wrapperCmd}\\"" /f`, () => {});
     } catch {}
   } else {
+    const configDir = path.join(os.homedir(), '.config', 'flo-desktop');
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    let userDataPath = configDir;
+    try {
+      if (app && typeof app.getPath === 'function') userDataPath = app.getPath('userData');
+    } catch {}
+    const runScriptPath = path.join(configDir, 'run-sentinel.sh');
+    const logPath = path.join(configDir, 'sentinel-daemon.log');
+
+    const shContent = `#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexport NODE_PATH="${asarModules}:${unpackedModules}"\nexport FLOCAFE_GUI_EXEC_PATH="${execPath}"\nexport FLOCAFE_USER_DATA_PATH="${userDataPath}"\nexec "${execPath}" "${scriptPath}" >> "${logPath}" 2>&1\n`;
+    fs.writeFileSync(runScriptPath, shContent, { mode: 0o755 });
+    try {
+      fs.chmodSync(runScriptPath, 0o755);
+    } catch {}
+
     const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
     const serviceFile = path.join(systemdDir, 'flocafe-sentinel.service');
     const autostartDir = path.join(os.homedir(), '.config', 'autostart');
     const desktopFile = path.join(autostartDir, 'flocafe-sentinel.desktop');
-    const logPath = path.join(os.homedir(), '.config', 'flo-desktop', 'sentinel-daemon.log');
 
     try {
       if (!fs.existsSync(systemdDir)) fs.mkdirSync(systemdDir, { recursive: true });
@@ -1241,15 +1259,11 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart="${execPath}" "${scriptPath}"
+ExecStart="${runScriptPath}"
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=ELECTRON_RUN_AS_NODE=1
-Environment=NODE_PATH="${asarModules}:${unpackedModules}"
 Environment=SENTINEL_PORT=3009
-StandardOutput=append:${logPath}
-StandardError=append:${logPath}
 
 [Install]
 WantedBy=default.target
@@ -1263,7 +1277,7 @@ WantedBy=default.target
       const desktopContent = `[Desktop Entry]
 Type=Application
 Name=FloCafe Sentinel Daemon
-Exec=env ELECTRON_RUN_AS_NODE=1 NODE_PATH="${asarModules}:${unpackedModules}" "${execPath}" "${scriptPath}"
+Exec="${runScriptPath}"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 `;
@@ -1289,7 +1303,7 @@ export function createOwnerAppWindow(): BrowserWindow {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: 'FloOwner Control System v4.4.0',
+    title: 'FloOwner Control System v4.4.1',
     backgroundColor: '#0f172a',
     autoHideMenuBar: true,
     webPreferences: {

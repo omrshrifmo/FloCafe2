@@ -96,7 +96,7 @@ export default function OwnerControlPage() {
   const [newNodeName, setNewNodeName] = useState('');
 
   // Owner Vault
-  const [ownerPassword, setOwnerPassword] = useState('Fl0220671190');
+  const [ownerPassword, setOwnerPassword] = useState('');
   const [ownerMasterKeyJson, setOwnerMasterKeyJson] = useState<Record<string, unknown> | null>(null);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const masterKeyInputRef = useRef<HTMLInputElement>(null);

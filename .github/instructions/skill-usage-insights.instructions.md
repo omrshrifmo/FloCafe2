@@ -4,7 +4,7 @@ description: "Analyze recorded skill usage in this project (.claude/learning/run
 applyTo:
   - **/.claude/learning/runs.jsonl
   - **/.claude/skills/**
-deployedAt: "2026-11-04T16:39:08.188Z"
+deployedAt: "2026-11-04T17:50:50.430Z"
 ---
 
 # skill-usage-insights

@@ -32,6 +32,13 @@ export {
 };
 
 export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3009)) {
+  process.on('unhandledRejection', (err) => {
+    console.error('[FloCafe Sentinel] Unhandled rejection (kept alive):', err);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[FloCafe Sentinel] Uncaught exception (kept alive):', err);
+  });
+
   const app = express();
   app.use(cors());
   app.use((_req, res, next) => {
@@ -79,16 +86,18 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
   // Auto-Start Internet Tunnel and Fleet Rendezvous Beacons (outside test)
   let beaconTimer: any = null;
   if (process.env.NODE_ENV !== 'test') {
-    void startTunnel('auto', port).then((result) => {
-      if (result.url) {
-        console.log(`[Sentinel] Outbound Internet Tunnel active: ${result.url}`);
-        void publishFleetBeacon();
-      }
-    });
+    startTunnel('auto', port)
+      .then((result) => {
+        if (result.url) {
+          console.log(`[Sentinel] Outbound Internet Tunnel active: ${result.url}`);
+          publishFleetBeacon().catch((err) => console.warn('[FloCafe Sentinel] Background task warning:', err));
+        }
+      })
+      .catch((err) => console.warn('[FloCafe Sentinel] Background task warning:', err));
 
-    void publishFleetBeacon();
+    publishFleetBeacon().catch((err) => console.warn('[FloCafe Sentinel] Background task warning:', err));
     beaconTimer = setInterval(() => {
-      void publishFleetBeacon();
+      publishFleetBeacon().catch((err) => console.warn('[FloCafe Sentinel] Background task warning:', err));
     }, 2 * 60 * 1000);
   }
 
@@ -127,14 +136,14 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
 
   app.get('/owner-app/sw.js', (_req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
-    res.send(`const CACHE_NAME='flo-owner-cache-v4.4.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+    res.send(`const CACHE_NAME='flo-owner-cache-v4.4.1';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
   });
 
   // Friendly root and direct endpoints
   app.get('/', (_req, res) => {
     res.json({
       service: 'flocafe-sentinel',
-      version: '4.4.0',
+      version: '4.4.1',
       port,
       status: 'active',
       tunnel_url: getActiveTunnelUrl(),

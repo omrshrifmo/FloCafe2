@@ -220,12 +220,15 @@ export async function startTunnel(provider = 'auto', port = Number(process.env.S
 // ── Zero-Cost Encrypted Rendezvous Beacon (ntfy.sh pub/sub) ───────────────────
 
 export function getFleetRendezvousTopic(): string {
-  return 'flocafe_sov_' + crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 20);
+  return 'flocafe_sov_' + crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY.trim()).digest('hex').slice(0, 20);
 }
 
-export function encryptFleetBeacon(payload: any, password = 'Fl0220671190'): string {
-  const salt = crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 16);
-  const key = crypto.scryptSync(password, salt, 32);
+function getFleetEncryptionKey(): Buffer {
+  return crypto.createHash('sha256').update('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim()).digest();
+}
+
+export function encryptFleetBeacon(payload: any): string {
+  const key = getFleetEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
@@ -238,10 +241,9 @@ export function encryptFleetBeacon(payload: any, password = 'Fl0220671190'): str
   });
 }
 
-export function decryptFleetBeacon(encryptedStr: string | any, password = 'Fl0220671190'): any {
+export function decryptFleetBeacon(encryptedStr: string | any): any {
   try {
-    const salt = crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY).digest('hex').slice(0, 16);
-    const key = crypto.scryptSync(password, salt, 32);
+    const key = getFleetEncryptionKey();
     const parsed = typeof encryptedStr === 'string' ? JSON.parse(encryptedStr) : encryptedStr;
     if (!parsed || !parsed.iv || !parsed.tag || !parsed.data) return null;
     const iv = Buffer.from(parsed.iv, 'hex');
@@ -263,7 +265,7 @@ export async function publishFleetBeacon(customPayload?: any): Promise<void> {
     const license = verifyHardwareLicense(db);
     const hwid = getHardwareFingerprint();
     const net = getNetworkInfo();
-    let version = '4.4.0';
+    let version = '4.4.1';
     try {
       const pkgPath = path.resolve(__dirname, '../../package.json');
       if (fs.existsSync(pkgPath)) {
@@ -308,7 +310,7 @@ export async function publishFleetBeacon(customPayload?: any): Promise<void> {
   } catch {}
 }
 
-export async function discoverFleetNodes(password = 'Fl0220671190'): Promise<any[]> {
+export async function discoverFleetNodes(): Promise<any[]> {
   const topic = getFleetRendezvousTopic();
   const url = `https://ntfy.sh/${topic}/json?poll=1&since=24h`;
 
@@ -325,7 +327,7 @@ export async function discoverFleetNodes(password = 'Fl0220671190'): Promise<any
             try {
               const msg = JSON.parse(line);
               if (msg.event === 'message' && msg.message) {
-                const decrypted = decryptFleetBeacon(msg.message, password);
+                const decrypted = decryptFleetBeacon(msg.message);
                 if (decrypted && decrypted.hwid) {
                   const existing = nodesByHwid[decrypted.hwid];
                   if (!existing || (decrypted.timestamp && decrypted.timestamp > (existing.timestamp || 0))) {
@@ -1009,10 +1011,9 @@ sentinelRoutes.post('/telemetry-sink', (_req: Request, res: Response) => {
 });
 
 // 11. GET /api/sentinel/discover-fleet - Query discovered remote nodes via encrypted rendezvous
-sentinelRoutes.get('/discover-fleet', requireOwnerAuth, async (req: Request, res: Response) => {
+sentinelRoutes.get('/discover-fleet', requireOwnerAuth, async (_req: Request, res: Response) => {
   try {
-    const password = (req.headers['x-owner-password'] as string) || (req.query?.password as string) || 'Fl0220671190';
-    const nodes = await discoverFleetNodes(String(password));
+    const nodes = await discoverFleetNodes();
     res.json({ status: 'ok', count: nodes.length, nodes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1051,5 +1052,5 @@ sentinelRoutes.get('/owner-app/manifest.json', (_req: Request, res: Response) =>
 
 sentinelRoutes.get('/owner-app/sw.js', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/javascript');
-  res.send(`const CACHE_NAME='flo-owner-cache-v4.4.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+  res.send(`const CACHE_NAME='flo-owner-cache-v4.4.1';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
 });

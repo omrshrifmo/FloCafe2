@@ -108,7 +108,7 @@ export const OWNER_MASTER_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAd+X3rKeF50DeQinSd1BgCng+cAnJ2C/vqLZu7c2avHc=
 -----END PUBLIC KEY-----`;
 
-// Salted Scrypt Verifier for Re-Activation Password (never stores plaintext Fl0220671190)
+// Salted Scrypt Verifier for Re-Activation Password (never stores plaintext password)
 export const REACTIVATION_PASSWORD_SALT = '2e213237f422524e1ddbe09c8682cc04';
 export const REACTIVATION_PASSWORD_HASH = 'ce531f792c2a3a6eda85dd7660e776d73282c4d24a8fca442aef36903f1184761878ed9d6041a86556d4f2f224463ed203953c4a2fa0be787bb6c239a334bdbd';
 
