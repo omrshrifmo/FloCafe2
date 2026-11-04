@@ -115,7 +115,7 @@ export function registerRoutes(app: Express): void {
   });
   app.get('/owner-app/sw.js', (_req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
-    res.send(`const CACHE_NAME='flo-owner-cache-v4.4.1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(['/owner-app','/owner-app/manifest.json'])).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+    res.send(`const CACHE_NAME='flo-owner-cache-v4.5.0';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(['/owner-app','/owner-app/manifest.json'])).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
   });
 
   // Sovereign Suites (FloAdmin, FloRev, OrderFlo)

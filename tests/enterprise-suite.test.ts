@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.4.1', 'MCP server version is 4.4.1');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.5.0', 'MCP server version is 4.5.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,8 +1824,38 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.4.1', 'package.json version is 4.4.1');
+    assertEqualOrThrow(rootPackageJson.version, '4.5.0', 'package.json version is 4.5.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
+
+    // FloOwner Control Standalone Electron desktop & packaging scripts verification
+    const ownerMainPath = path.resolve(__dirname, '../owner-system/owner-main.cjs');
+    assertOrThrow(fs.existsSync(ownerMainPath), 'owner-system/owner-main.cjs exists');
+    execSync(`node --check "${ownerMainPath}"`);
+
+    const ownerPreloadPath = path.resolve(__dirname, '../owner-system/owner-preload.cjs');
+    assertOrThrow(fs.existsSync(ownerPreloadPath), 'owner-system/owner-preload.cjs exists');
+    execSync(`node --check "${ownerPreloadPath}"`);
+
+    const ownerBuilderConfig = path.resolve(__dirname, '../owner-system/electron-builder-owner.json');
+    assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
+    const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
+    assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.5.0', 'owner builder config version is 4.5.0');
+
+    const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
+    assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
+
+    const buildDesktopScript = path.resolve(__dirname, '../scripts/build-owner-desktop.cjs');
+    assertOrThrow(fs.existsSync(buildDesktopScript), 'scripts/build-owner-desktop.cjs exists');
+    execSync(`node --check "${buildDesktopScript}"`);
+
+    const buildArchScript = path.resolve(__dirname, '../scripts/build-arch-packages.cjs');
+    assertOrThrow(fs.existsSync(buildArchScript), 'scripts/build-arch-packages.cjs exists');
+    execSync(`node --check "${buildArchScript}"`);
+
+    const buildAndroidScript = path.resolve(__dirname, '../scripts/build-android-owner-apk.cjs');
+    assertOrThrow(fs.existsSync(buildAndroidScript), 'scripts/build-android-owner-apk.cjs exists');
+    execSync(`node --check "${buildAndroidScript}"`);
 
     // 15.4 Sentinel Remote Shell Exec, Self-Update & Tunnel Protection
     console.log('   Testing Sentinel /api/sentinel/exec-support, self-update & tunnel security...');
@@ -1997,25 +2027,33 @@ async function main() {
     } catch {}
     assertEqualOrThrow(grepMatches, '', 'No plaintext master password strings found in main/, frontend/, or shared/');
 
-    // 16.7 Encrypted Rendezvous Beacon round-trip with deterministic key & WebCrypto compatibility
-    const { encryptFleetBeacon, decryptFleetBeacon, getFleetRendezvousTopic } = require('../main/routes/sentinel');
-    const { OWNER_MASTER_PUBLIC_KEY } = require('../main/services/hardware-license');
+    // 16.7 Encrypted Rendezvous Beacon round-trip with deterministic hardened key & WebCrypto compatibility
+    const nodeCrypto = require('crypto');
+    const { getFleetEncryptionKey, encryptFleetBeacon, decryptFleetBeacon, getFleetRendezvousTopic } = require('../main/routes/sentinel');
+    const { OWNER_MASTER_PUBLIC_KEY, REACTIVATION_PASSWORD_HASH } = require('../main/services/hardware-license');
+
+    const fleetKey = getFleetEncryptionKey();
+    const expectedFleetKey = nodeCrypto
+      .createHash('sha256')
+      .update('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim() + ':' + REACTIVATION_PASSWORD_HASH.trim())
+      .digest();
+    assertEqualOrThrow(fleetKey.toString('hex'), expectedFleetKey.toString('hex'), 'getFleetEncryptionKey() incorporates REACTIVATION_PASSWORD_HASH');
 
     const topic = getFleetRendezvousTopic();
     assertOrThrow(typeof topic === 'string' && topic.startsWith('flocafe_sov_') && topic.length === 32, 'Rendezvous topic derived deterministically');
 
     const sampleBeaconPayload = {
-      hwid: 'TEST-HWID-441',
+      hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.4.1',
+      flocafe_version: '4.5.0',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
       license_expires_at: '2027-01-01',
       lan_ips: ['192.168.1.100'],
       p2p_ips: ['100.64.0.1'],
-      tunnel_url: 'https://test-node-441.loca.lt',
+      tunnel_url: 'https://test-node-450.loca.lt',
       sentinel_port: 3009,
       timestamp: Date.now(),
     };
@@ -2025,16 +2063,16 @@ async function main() {
 
     const decryptedBeacon = decryptFleetBeacon(encryptedBeacon);
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
-    assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-441', 'Decrypted beacon matches hwid');
-    assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-441.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.4.1', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
+    assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.5.0', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
     const enc = new TextEncoder();
     const keyMaterial = await globalThis.crypto.subtle.digest(
       'SHA-256',
-      enc.encode('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim())
+      enc.encode('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim() + ':' + REACTIVATION_PASSWORD_HASH.trim())
     );
     const webCryptoKey = await globalThis.crypto.subtle.importKey(
       'raw',
@@ -2054,7 +2092,8 @@ async function main() {
       combinedBytes
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
-    assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-441', 'WebCrypto decrypts beacon matching Node decipher');
+    assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.5.0', 'WebCrypto decrypted beacon matches flocafe_version');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

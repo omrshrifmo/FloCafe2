@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.omrshrifmo.floownercontrol",
+  "productName": "FloOwner Control System",
+  "directories": {
+    "output": "release"
+  },
+  "extraMetadata": {
+    "name": "flo-owner-control",
+    "version": "4.5.0",
+    "main": "owner-system/owner-main.cjs",
+    "description": "FloOwner Control System - Standalone remote fleet manager for FloCafe POS"
+  },
+  "asar": true,
+  "files": [
+    "owner-system/**/*",
+    "scripts/flocafe-owner-mcp.cjs",
+    "assets/icon-512.png",
+    "assets/icon.ico"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon.ico",
+    "artifactName": "FloOwner-Control-${version}-win-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FloOwner Control System"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon-512.png",
+    "category": "Network",
+    "executableName": "flo-owner-control",
+    "artifactName": "FloOwner-Control-${version}-linux-x86_64.${ext}",
+    "desktop": {
+      "entry": {
+        "Name": "FloOwner Control System",
+        "Comment": "Standalone remote fleet management for FloCafe POS",
+        "GenericName": "POS Fleet Manager",
+        "Keywords": "pos;fleet;remote;owner;sentinel;",
+        "StartupWMClass": "flo-owner-control"
+      }
+    }
+  }
+}

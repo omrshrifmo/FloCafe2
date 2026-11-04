@@ -1303,7 +1303,7 @@ export function createOwnerAppWindow(): BrowserWindow {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: 'FloOwner Control System v4.4.1',
+    title: 'FloOwner Control System v4.5.0',
     backgroundColor: '#0f172a',
     autoHideMenuBar: true,
     webPreferences: {

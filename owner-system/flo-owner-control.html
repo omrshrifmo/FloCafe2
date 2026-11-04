@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>FloOwner Control System v4.4.1</title>
+<title>FloOwner Control System v4.5.0</title>
 <link rel="manifest" href="/owner-app/manifest.json" />
-<meta name="description" content="Standalone remote fleet management for FloCafe POS — Windows, Linux, Android." />
+<meta name="description" content="Standalone native remote fleet management for FloCafe POS — Windows, Linux, Android." />
 <style>
 :root {
   --bg:#0f1117;--surface:#161b27;--card:#1e2436;--border:#2a3148;
@@ -217,7 +217,7 @@ input,textarea,select{font-family:var(--font)}
       <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
       <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
-    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.4.1 &middot; Remote Fleet Manager</p></div>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.5.0 &middot; Standalone Native Fleet Manager</p></div>
   </div>
   <div id="key-vault">
     <label>&#128273; Owner Key:</label>
@@ -415,7 +415,7 @@ input,textarea,select{font-family:var(--font)}
           <button class="copy-btn" onclick="copyMcpConfig()">Copy Config</button>
         </div>
         <div class="card">
-          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Available MCP Tools (v4.3.0)</div>
+          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Available MCP Tools (v4.5.0)</div>
           <div id="mcp-tools-list"></div>
         </div>
       </div>
@@ -426,13 +426,30 @@ input,textarea,select{font-family:var(--font)}
 <input type="file" id="key-file-input" accept=".flokey,.json" style="display:none" onchange="onKeyFileSelected(event)" />
 <input type="file" id="tier-file-input" accept=".flokey,.json" style="display:none" onchange="onTierFileSelected(event)" />
 <script>
-const state={nodes:[],activeNodeIdx:-1,ownerKey:null,activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
+const state={nodes:[],activeNodeIdx:-1,ownerKey:null,localKeys:[],activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
 const pw=()=>document.getElementById('pw-input').value.trim();
 function toBase64Utf8(str) {
   try { return btoa(unescape(encodeURIComponent(str))); } catch { return ''; }
 }
 function save(){try{localStorage.setItem('flo_nodes',JSON.stringify(state.nodes.map(n=>({name:n.name,url:n.url}))));if(state.ownerKey)localStorage.setItem('flo_owner_key',state.ownerKey);}catch{}}
-function load(){try{const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');ns.forEach(n=>addNodeRaw(n.name,n.url,false));}catch{}try{const k=localStorage.getItem('flo_owner_key');if(k){state.ownerKey=k;updateKeyStatus();}}catch{}if(!state.nodes.length){addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);save();}}
+async function autoLoadElectronKeys() {
+  if (!window.electronAPI || typeof window.electronAPI.listLocalKeys !== 'function') return;
+  try {
+    const keys = await window.electronAPI.listLocalKeys();
+    if (Array.isArray(keys) && keys.length > 0) {
+      state.localKeys = keys;
+      const masterKey = keys.find(k => (k.name && k.name.includes('master')) || (k.data && k.data.key_type === 'owner_master'));
+      if (masterKey) {
+        state.ownerKey = typeof masterKey.content === 'string' ? masterKey.content : JSON.stringify(masterKey.content, null, 2);
+        save();
+        updateKeyStatus();
+      }
+    }
+  } catch (e) {
+    console.warn('[FloOwner] Auto-load local keys error:', e);
+  }
+}
+function load(){try{const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');ns.forEach(n=>addNodeRaw(n.name,n.url,false));}catch{}try{const k=localStorage.getItem('flo_owner_key');if(k){state.ownerKey=k;updateKeyStatus();}}catch{}if(!state.nodes.length){addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);save();}autoLoadElectronKeys();}
 function loadKeyFile(){document.getElementById('key-file-input').click();}
 function loadTierFile(){document.getElementById('tier-file-input').click();}
 function onTierFileSelected(e){
@@ -612,6 +629,129 @@ function pct(v){return v!=null?Number(v).toFixed(1):'--';}
 const OWNER_MASTER_PUBKEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAd+X3rKeF50DeQinSd1BgCng+cAnJ2C/vqLZu7c2avHc=
 -----END PUBLIC KEY-----`;
+const REACTIVATION_PASSWORD_SALT = '2e213237f422524e1ddbe09c8682cc04';
+const REACTIVATION_PASSWORD_HASH = 'ce531f792c2a3a6eda85dd7660e776d73282c4d24a8fca442aef36903f1184761878ed9d6041a86556d4f2f224463ed203953c4a2fa0be787bb6c239a334bdbd';
+
+async function scryptWebCrypto(password, saltHex, dkLen = 64, N = 16384, r = 8, p = 1) {
+  const enc = new TextEncoder();
+  const salt = new Uint8Array(saltHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+  const passKey = await window.crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  
+  const bBits = await window.crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    hash: 'SHA-256',
+    salt: salt,
+    iterations: 1
+  }, passKey, p * 128 * r * 8);
+  
+  const B = new Uint8Array(bBits);
+  const B32 = new Uint32Array(B.buffer, B.byteOffset, B.byteLength / 4);
+
+  function salsa20_8(B_in) {
+    const x = new Uint32Array(16);
+    for (let i = 0; i < 16; i++) x[i] = B_in[i];
+    for (let i = 0; i < 8; i += 2) {
+      x[4] ^= ((x[0] + x[12]) << 7) | ((x[0] + x[12]) >>> 25);
+      x[8] ^= ((x[4] + x[0]) << 9) | ((x[4] + x[0]) >>> 23);
+      x[12] ^= ((x[8] + x[4]) << 13) | ((x[8] + x[4]) >>> 19);
+      x[0] ^= ((x[12] + x[8]) << 18) | ((x[12] + x[8]) >>> 14);
+
+      x[9] ^= ((x[5] + x[1]) << 7) | ((x[5] + x[1]) >>> 25);
+      x[13] ^= ((x[9] + x[5]) << 9) | ((x[9] + x[5]) >>> 23);
+      x[1] ^= ((x[13] + x[9]) << 13) | ((x[13] + x[9]) >>> 19);
+      x[5] ^= ((x[1] + x[13]) << 18) | ((x[1] + x[13]) >>> 14);
+
+      x[14] ^= ((x[10] + x[6]) << 7) | ((x[10] + x[6]) >>> 25);
+      x[2] ^= ((x[14] + x[10]) << 9) | ((x[14] + x[10]) >>> 23);
+      x[6] ^= ((x[2] + x[14]) << 13) | ((x[2] + x[14]) >>> 19);
+      x[10] ^= ((x[6] + x[2]) << 18) | ((x[6] + x[2]) >>> 14);
+
+      x[3] ^= ((x[15] + x[11]) << 7) | ((x[15] + x[11]) >>> 25);
+      x[7] ^= ((x[3] + x[15]) << 9) | ((x[3] + x[15]) >>> 23);
+      x[11] ^= ((x[7] + x[3]) << 13) | ((x[7] + x[3]) >>> 19);
+      x[15] ^= ((x[11] + x[7]) << 18) | ((x[11] + x[7]) >>> 14);
+
+      x[1] ^= ((x[0] + x[3]) << 7) | ((x[0] + x[3]) >>> 25);
+      x[2] ^= ((x[1] + x[0]) << 9) | ((x[1] + x[0]) >>> 23);
+      x[3] ^= ((x[2] + x[1]) << 13) | ((x[2] + x[1]) >>> 19);
+      x[0] ^= ((x[3] + x[2]) << 18) | ((x[3] + x[2]) >>> 14);
+
+      x[6] ^= ((x[5] + x[4]) << 7) | ((x[5] + x[4]) >>> 25);
+      x[7] ^= ((x[6] + x[5]) << 9) | ((x[6] + x[5]) >>> 23);
+      x[4] ^= ((x[7] + x[6]) << 13) | ((x[7] + x[6]) >>> 19);
+      x[5] ^= ((x[4] + x[7]) << 18) | ((x[4] + x[7]) >>> 14);
+
+      x[11] ^= ((x[10] + x[9]) << 7) | ((x[10] + x[9]) >>> 25);
+      x[8] ^= ((x[11] + x[10]) << 9) | ((x[11] + x[10]) >>> 23);
+      x[9] ^= ((x[8] + x[11]) << 13) | ((x[8] + x[11]) >>> 19);
+      x[10] ^= ((x[9] + x[8]) << 18) | ((x[9] + x[8]) >>> 14);
+
+      x[12] ^= ((x[15] + x[14]) << 7) | ((x[15] + x[14]) >>> 25);
+      x[13] ^= ((x[12] + x[15]) << 9) | ((x[12] + x[15]) >>> 23);
+      x[14] ^= ((x[13] + x[12]) << 13) | ((x[13] + x[12]) >>> 19);
+      x[15] ^= ((x[14] + x[13]) << 18) | ((x[14] + x[13]) >>> 14);
+    }
+    for (let i = 0; i < 16; i++) B_in[i] += x[i];
+  }
+
+  function blockmix_salsa8(Bin32, Bout32) {
+    const X = new Uint32Array(16);
+    for (let i = 0; i < 16; i++) X[i] = Bin32[16 * (2 * r - 1) + i];
+    for (let i = 0; i < 2 * r; i++) {
+      for (let j = 0; j < 16; j++) X[j] ^= Bin32[16 * i + j];
+      salsa20_8(X);
+      const destOffset = (i % 2 === 0 ? (i / 2) : (r + Math.floor(i / 2))) * 16;
+      for (let j = 0; j < 16; j++) Bout32[destOffset + j] = X[j];
+    }
+  }
+
+  const wordsPerBlock = 32 * r;
+  const V = new Uint32Array(N * wordsPerBlock);
+  let X32 = new Uint32Array(wordsPerBlock);
+  let Y32 = new Uint32Array(wordsPerBlock);
+
+  for (let i = 0; i < wordsPerBlock; i++) X32[i] = B32[i];
+
+  for (let i = 0; i < N; i++) {
+    V.set(X32, i * wordsPerBlock);
+    blockmix_salsa8(X32, Y32);
+    const tmp = X32; X32 = Y32; Y32 = tmp;
+  }
+
+  for (let i = 0; i < N; i++) {
+    const j = (X32[wordsPerBlock - 16] & (N - 1));
+    const offset = j * wordsPerBlock;
+    for (let k = 0; k < wordsPerBlock; k++) X32[k] ^= V[offset + k];
+    blockmix_salsa8(X32, Y32);
+    const tmp = X32; X32 = Y32; Y32 = tmp;
+  }
+
+  for (let i = 0; i < wordsPerBlock; i++) B32[i] = X32[i];
+
+  const finalBits = await window.crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    hash: 'SHA-256',
+    salt: B,
+    iterations: 1
+  }, passKey, dkLen * 8);
+
+  const hashBytes = new Uint8Array(finalBits);
+  return Array.from(hashBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyOwnerPassword(password) {
+  if (!password) return false;
+  if (window.electronAPI && typeof window.electronAPI.verifyPassword === 'function') {
+    return await window.electronAPI.verifyPassword(password);
+  }
+  try {
+    const computedHash = await scryptWebCrypto(password, REACTIVATION_PASSWORD_SALT, 64);
+    return computedHash === REACTIVATION_PASSWORD_HASH;
+  } catch (e) {
+    console.warn('[FloOwner] Password verification fallback:', e);
+    return false;
+  }
+}
 
 function hexToBytes(hex) {
   const bytes = new Uint8Array(hex.length / 2);
@@ -646,10 +786,23 @@ async function decryptBeaconWebCrypto(encryptedBeacon, cryptoKey) {
 async function discoverWorldwideNodes() {
   const btn = document.getElementById('discover-fleet-btn');
   const origText = btn ? btn.innerHTML : '';
-  if (!pw() && !state.ownerKey) {
+  const password = pw();
+  if (!password && !state.ownerKey) {
     alert('Please enter the Owner Password (Fl0220671190) or load owner-reactivate-master.flokey first to discover worldwide fleet nodes.');
     return;
   }
+  if (btn) btn.innerHTML = '&#9203; Verifying Owner Credentials...';
+
+  let isVerified = false;
+  if (password) {
+    isVerified = await verifyOwnerPassword(password);
+    if (!isVerified && !state.ownerKey) {
+      alert('Invalid Owner Password. Worldwide beacon decryption requires verified owner authorization.');
+      if (btn) btn.innerHTML = origText;
+      return;
+    }
+  }
+
   if (btn) btn.innerHTML = '&#9203; Discovering Worldwide Fleet...';
   let addedCount = 0;
   const nodesByHwid = {};
@@ -662,7 +815,10 @@ async function discoverWorldwideNodes() {
     const topicHashHex = Array.from(new Uint8Array(topicHashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
     const topic = 'flocafe_sov_' + topicHashHex.slice(0, 20);
 
-    const keyMatBuf = await window.crypto.subtle.digest('SHA-256', enc.encode('flocafe-sovereign-v4:' + pubKey));
+    const keyMatBuf = await window.crypto.subtle.digest(
+      'SHA-256',
+      enc.encode('flocafe-sovereign-v4:' + pubKey + ':' + REACTIVATION_PASSWORD_HASH.trim())
+    );
     const cryptoKey = await window.crypto.subtle.importKey('raw', keyMatBuf, { name: 'AES-GCM' }, false, ['decrypt']);
 
     const ntfyRes = await fetch(`https://ntfy.sh/${topic}/json?poll=1&since=24h`, { cache: 'no-store' });

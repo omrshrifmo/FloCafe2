@@ -136,14 +136,14 @@ export function startSentinelDaemon(port = Number(process.env.SENTINEL_PORT || 3
 
   app.get('/owner-app/sw.js', (_req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
-    res.send(`const CACHE_NAME='flo-owner-cache-v4.4.1';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+    res.send(`const CACHE_NAME='flo-owner-cache-v4.5.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
   });
 
   // Friendly root and direct endpoints
   app.get('/', (_req, res) => {
     res.json({
       service: 'flocafe-sentinel',
-      version: '4.4.1',
+      version: '4.5.0',
       port,
       status: 'active',
       tunnel_url: getActiveTunnelUrl(),

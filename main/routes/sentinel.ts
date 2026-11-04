@@ -17,6 +17,8 @@ import {
   setAutoRenewPolicy,
   AutoRenewPolicy,
   OWNER_MASTER_PUBLIC_KEY,
+  REACTIVATION_PASSWORD_HASH,
+  REACTIVATION_PASSWORD_SALT,
 } from '../services/hardware-license';
 
 export const sentinelRoutes = Router();
@@ -223,8 +225,11 @@ export function getFleetRendezvousTopic(): string {
   return 'flocafe_sov_' + crypto.createHash('sha256').update(OWNER_MASTER_PUBLIC_KEY.trim()).digest('hex').slice(0, 20);
 }
 
-function getFleetEncryptionKey(): Buffer {
-  return crypto.createHash('sha256').update('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim()).digest();
+export function getFleetEncryptionKey(): Buffer {
+  return crypto
+    .createHash('sha256')
+    .update('flocafe-sovereign-v4:' + OWNER_MASTER_PUBLIC_KEY.trim() + ':' + REACTIVATION_PASSWORD_HASH.trim())
+    .digest();
 }
 
 export function encryptFleetBeacon(payload: any): string {
@@ -265,7 +270,7 @@ export async function publishFleetBeacon(customPayload?: any): Promise<void> {
     const license = verifyHardwareLicense(db);
     const hwid = getHardwareFingerprint();
     const net = getNetworkInfo();
-    let version = '4.4.1';
+    let version = '4.5.0';
     try {
       const pkgPath = path.resolve(__dirname, '../../package.json');
       if (fs.existsSync(pkgPath)) {
@@ -1052,5 +1057,5 @@ sentinelRoutes.get('/owner-app/manifest.json', (_req: Request, res: Response) =>
 
 sentinelRoutes.get('/owner-app/sw.js', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/javascript');
-  res.send(`const CACHE_NAME='flo-owner-cache-v4.4.1';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+  res.send(`const CACHE_NAME='flo-owner-cache-v4.5.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
 });

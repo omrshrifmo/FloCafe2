@@ -161,7 +161,7 @@ floadminRoutes.post('/sync-catalog', asyncHandler(async (req: Request, res: Resp
   const products = db.prepare('SELECT * FROM products WHERE is_active = 1').all();
   res.json({
     status: 'ok',
-    version: '4.4.1',
+    version: '4.5.0',
     exported_at: new Date().toISOString(),
     catalog: { categories, products },
   });
