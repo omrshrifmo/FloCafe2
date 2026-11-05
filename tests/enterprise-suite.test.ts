@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.5.0', 'MCP server version is 4.5.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.6.0', 'MCP server version is 4.6.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.5.0', 'package.json version is 4.5.0');
+    assertEqualOrThrow(rootPackageJson.version, '4.6.0', 'package.json version is 4.6.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.5.0', 'owner builder config version is 4.5.0');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.6.0', 'owner builder config version is 4.6.0');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.5.0',
+      flocafe_version: '4.6.0',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.5.0', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.6.0', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,7 +2093,113 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.5.0', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.6.0', 'WebCrypto decrypted beacon matches flocafe_version');
+
+    // ── Test 17: v4.6.0 Operating System Pillars Verification ──────────────────
+    console.log('\n[17] Verifying FloCafe v4.6.0 Operating System Pillars...');
+
+    // 17.1 Schema tables exist: v112 migration
+    const winbackTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_winback_vouchers'").get();
+    assertOrThrow(Boolean(winbackTable), 'customer_winback_vouchers table exists');
+    const eodLogsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='multibranch_eod_sync_logs'").get();
+    assertOrThrow(Boolean(eodLogsTable), 'multibranch_eod_sync_logs table exists');
+    const creditNotesTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='supplier_credit_notes'").get();
+    assertOrThrow(Boolean(creditNotesTable), 'supplier_credit_notes table exists');
+
+    // 17.2 Customer Top Favorites API
+    const testCustId = 'cust-test-fav-1';
+    db.prepare(`
+      INSERT OR REPLACE INTO customers (id, name, phone, created_at, updated_at)
+      VALUES (?, 'Favorite Customer', '+201009998888', datetime('now'), datetime('now'))
+    `).run(testCustId);
+
+    // Create an order for this customer with prod-espresso
+    const favOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        customer_id: testCustId,
+        type: 'takeaway',
+        items: [{ product_id: 'prod-espresso', quantity: 2, unit_price: 120 }],
+      },
+    });
+    assertEqualOrThrow(favOrderRes.status, 201, 'Fav order created');
+
+    const custFavRes = await api(baseUrl, `/api/customers/${testCustId}/favorites`, {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(custFavRes.status, 200, 'GET /api/customers/:id/favorites 200 OK');
+    assertOrThrow(Array.isArray(custFavRes.data.favorites), 'Favorites array returned');
+    assertOrThrow(custFavRes.data.favorites.length >= 1, 'Top favorite product returned');
+    assertEqualOrThrow(custFavRes.data.favorites[0].product_id, 'prod-espresso', 'Favorite product matches prod-espresso');
+
+    // 17.3 HACCP CCP log failure auto-creates credit note & decrements supplier balance_due
+    const testSupId = 'sup-haccp-credit-' + randomUUID();
+    db.prepare(`
+      INSERT INTO suppliers (id, name, balance_due, is_active, created_at, updated_at)
+      VALUES (?, 'Dairy Supplier', 5000, 1, datetime('now'), datetime('now'))
+    `).run(testSupId);
+
+    const haccpRes = await api(baseUrl, '/api/haccp/ccp-logs', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        station_name: 'Receiving Milk Temperature',
+        ccp_category: 'Receiving',
+        recorded_value: 12.5,
+        unit: '°C',
+        target_min: 2.0,
+        target_max: 6.0,
+        corrective_action: 'Rejected shipment due to warm temperature',
+        supplier_id: testSupId,
+        rejected_amount: 450,
+      },
+    });
+    assertEqualOrThrow(haccpRes.status, 201, 'HACCP CCP log created');
+    assertEqualOrThrow(haccpRes.data.ccp_log.status, 'critical_breach', 'CCP status is critical_breach');
+    assertOrThrow(Boolean(haccpRes.data.credit_note), 'Credit note auto-generated');
+    assertEqualOrThrow(haccpRes.data.credit_note.amount, 450, 'Credit note amount is 450');
+
+    const updatedSup = db.prepare('SELECT balance_due FROM suppliers WHERE id = ?').get(testSupId) as any;
+    assertEqualOrThrow(updatedSup.balance_due, 4550, 'Supplier balance_due decremented by rejected_value (5000 - 450 = 4550)');
+
+    // 17.4 WhatsApp Win-Back candidate detection and vouchers
+    const { findWinBackCandidates, runWinBackCampaign, redeemWinBackVoucher } = require('../main/services/whatsapp-winback');
+    const winbackCandidates = findWinBackCandidates(0);
+    assertOrThrow(Array.isArray(winbackCandidates), 'findWinBackCandidates returns array');
+
+    const campaignResult = await runWinBackCampaign({ inactiveDays: 0, discountPct: 15 });
+    assertOrThrow(typeof campaignResult.candidates_count === 'number', 'campaignResult.candidates_count is number');
+    assertOrThrow(typeof campaignResult.vouchers_created === 'number', 'campaignResult.vouchers_created is number');
+
+    const sampleVoucher = db.prepare('SELECT voucher_code FROM customer_winback_vouchers WHERE status = \'active\' LIMIT 1').get() as any;
+    if (sampleVoucher) {
+      const redeemRes = redeemWinBackVoucher(sampleVoucher.voucher_code);
+      assertOrThrow(redeemRes.success, 'Win-back voucher redeemed successfully');
+    }
+
+    // 17.5 Multi-Branch EOD bundle sync
+    const { generateAndSyncEodBundle } = require('../main/services/google-drive');
+    const syncRes = await generateAndSyncEodBundle('closure-test-460');
+    assertOrThrow(syncRes.success, 'generateAndSyncEodBundle returned success');
+    assertOrThrow(Boolean(syncRes.bundle_id), 'bundle_id generated');
+
+    const multibranchApiRes = await api(baseUrl, '/api/finance/multibranch-eod', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(multibranchApiRes.status, 200, 'GET /api/finance/multibranch-eod 200 OK');
+    assertOrThrow(Array.isArray(multibranchApiRes.data.logs), 'Logs array returned');
+    assertOrThrow(multibranchApiRes.data.logs.length >= 1, 'At least 1 EOD sync log returned');
+
+    // 17.6 Driver settlements API
+    const driverSettlementsRes = await api(baseUrl, '/api/orders/driver-settlements', {
+      method: 'GET',
+      headers: authHeader,
+    });
+    assertEqualOrThrow(driverSettlementsRes.status, 200, 'GET /api/orders/driver-settlements 200 OK');
+    assertOrThrow(Array.isArray(driverSettlementsRes.data.unsettled_orders), 'unsettled_orders is array');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

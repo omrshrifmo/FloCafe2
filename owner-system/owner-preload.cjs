@@ -1,5 +1,5 @@
 /**
- * FloOwner Control System v4.5.0 - Standalone Native Desktop Preload Script
+ * FloOwner Control System v4.6.0 - Standalone Native Desktop Preload Script
  * Secure IPC bridge exposing native capabilities to flo-owner-control.html.
  */
 
@@ -7,7 +7,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
-  version: '4.5.0',
+  version: '4.6.0',
   listLocalKeys: () => ipcRenderer.invoke('owner:list-local-keys'),
   readLocalKey: (filePath) => ipcRenderer.invoke('owner:read-local-key', filePath),
   verifyPassword: (password) => ipcRenderer.invoke('owner:verify-password', password),

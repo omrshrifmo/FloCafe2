@@ -14,6 +14,7 @@ import { setupKdsWebSocket } from './services/kds';
 import expressRateLimit from 'express-rate-limit';
 import { staticRouteRateLimit, corsOptions, getUserAuthStatus, isAllowedPrivateIp, isTokenRevoked, isTokenStale } from './middleware/security';
 import { initFromDb as initWhatsAppFromDb } from './services/whatsapp';
+import { initWinBackBackgroundJob } from './services/whatsapp-winback';
 import { cloudSync } from './services/cloud-sync';
 import { API_JSON_BODY_LIMIT } from './http-limits';
 import { buildCspHeader } from './csp';
@@ -346,6 +347,7 @@ export function startServer(): Promise<void> {
         // This is the single startup owner for WhatsApp in every server mode.
         try {
           initWhatsAppFromDb();
+          initWinBackBackgroundJob();
         } catch (error) {
           console.error('[Server] WhatsApp startup initialization failed:', error);
         }

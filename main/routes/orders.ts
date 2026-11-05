@@ -560,6 +560,112 @@ router.post('/courier-settle', requirePermission('orders.create'), (req: Request
   }
 });
 
+router.get('/driver-settlements', requirePermission('orders.read'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { courier_staff_id } = req.query;
+    let sql = `
+      SELECT id, order_number, total, created_at, courier_staff_id, courier_name, delivery_channel_name
+      FROM orders
+      WHERE (type = 'delivery' OR courier_staff_id IS NOT NULL)
+        AND status != 'cancelled'
+        AND courier_settled_at IS NULL
+    `;
+    const params: any[] = [];
+    if (courier_staff_id) {
+      sql += ' AND courier_staff_id = ?';
+      params.push(String(courier_staff_id));
+    }
+    sql += ' ORDER BY created_at ASC';
+    const orders = db.prepare(sql).all(...params);
+    res.json({ success: true, unsettled_orders: orders });
+  } catch (error: any) {
+    console.error('[Orders] Error fetching driver settlements:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch driver settlements' });
+  }
+});
+
+router.post('/driver-settlements/settle', requirePermission('orders.create'), (req: Request, res: Response) => {
+  // Delegate directly to courier settle handler logic
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.id || user?.userId || 'system';
+    const { courier_staff_id, order_ids, shift_id } = req.body;
+
+    let targetOrders: any[] = [];
+    if (Array.isArray(order_ids) && order_ids.length > 0) {
+      const placeholders = order_ids.map(() => '?').join(',');
+      targetOrders = db.prepare(`SELECT * FROM orders WHERE id IN (${placeholders}) AND courier_settled_at IS NULL`).all(...order_ids);
+    } else if (courier_staff_id) {
+      targetOrders = db.prepare(`SELECT * FROM orders WHERE courier_staff_id = ? AND courier_settled_at IS NULL AND status != 'cancelled'`).all(courier_staff_id);
+    } else {
+      targetOrders = db.prepare(`SELECT * FROM orders WHERE (type = 'delivery' OR courier_staff_id IS NOT NULL) AND courier_settled_at IS NULL AND status != 'cancelled'`).all();
+    }
+
+    if (targetOrders.length === 0) {
+      return res.json({ success: true, settled_count: 0, total_settled: 0, message: 'No unsettled driver orders found' });
+    }
+
+    const timestamp = now();
+    const effectiveShiftId = shift_id !== undefined && shift_id !== null ? Number(shift_id) : (getOpenSession(db)?.id ?? null);
+    const shiftStr = effectiveShiftId ? String(effectiveShiftId) : null;
+    let totalSettled = 0;
+
+    withTxn(() => {
+      for (const ord of targetOrders) {
+        totalSettled += Number(ord.total) || 0;
+        db.prepare('UPDATE orders SET courier_settled_at = ?, courier_settlement_session_id = ?, updated_at = ? WHERE id = ?')
+          .run(timestamp, shiftStr, timestamp, ord.id);
+      }
+
+      if (totalSettled > 0 && effectiveShiftId) {
+        const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency());
+        const amountCents = Math.round(totalSettled * minorFactor);
+        const courierLabel = targetOrders[0]?.courier_name || courier_staff_id || 'Courier';
+        let drawerMovementId: number | null = null;
+
+        try {
+          const dRes = db.prepare(`
+            INSERT INTO cash_drawer_movements (
+              business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+            ) VALUES (date('now'), 'pay_in', ?, ?, ?, ?, ?)
+          `).run(
+            amountCents,
+            `Driver COD settlement (${targetOrders.length} orders) - ${courierLabel}`,
+            actorId,
+            timestamp,
+            effectiveShiftId,
+          );
+          drawerMovementId = Number(dRes.lastInsertRowid);
+        } catch (dErr) {
+          console.error('[Orders] Error inserting cash_drawer_movements for driver settlement:', dErr);
+        }
+
+        db.prepare(`
+          INSERT INTO cash_movements (
+            id, session_id, movement_type, category, amount, payment_method, reference_type, reference_id, notes, created_by, created_at, cash_drawer_movement_id
+          ) VALUES (?, ?, 'cash_in', 'Driver Settlement', ?, 'cash', 'driver_settlement', ?, ?, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          shiftStr,
+          totalSettled,
+          courier_staff_id || String(targetOrders[0]?.id),
+          `Settled ${targetOrders.length} delivery orders for ${courierLabel}`,
+          actorId,
+          timestamp,
+          drawerMovementId,
+        );
+      }
+    });
+
+    res.json({ success: true, settled_count: targetOrders.length, total_settled: totalSettled });
+  } catch (error: any) {
+    console.error('[Orders] Error settling driver orders:', error);
+    res.status(500).json({ error: error.message || 'Failed to settle driver orders' });
+  }
+});
+
 router.get('/:id', orderReadRateLimit, requirePermission('orders.read'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
@@ -975,6 +1081,13 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         } catch (err) {
           console.error('[Orders] Tag sync failed:', err);
         }
+      }
+
+      if (body.payments || body.payment_method || body.method) {
+        try {
+          const { sendAutoCheckoutReceipt } = require('../services/whatsapp-winback');
+          void sendAutoCheckoutReceipt(result.order.id).catch(() => {});
+        } catch {}
       }
     }
 

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Loader2, AlertTriangle, CheckCircle2, XCircle, QrCode, Ban, Send, Inbox, Copy, KeyRound, Info,
+  RefreshCw, Sparkles, Gift, Receipt,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -246,12 +247,115 @@ export default function WhatsAppPage() {
     }
   }, []);
 
+  // Winback & Auto-Receipt State
+  interface WinBackCandidate {
+    id: string;
+    name: string | null;
+    phone: string;
+    days_inactive: number;
+    last_order_at: string;
+  }
+  interface WinBackVoucher {
+    id: string;
+    customer_phone: string;
+    customer_name: string | null;
+    voucher_code: string;
+    discount_pct: number;
+    status: string;
+    sent_at: string;
+    expires_at: string;
+  }
+  const [autoReceiptEnabled, setAutoReceiptEnabled] = useState(true);
+  const [winbackEnabled, setWinbackEnabled] = useState(true);
+  const [inactiveDays, setInactiveDays] = useState(14);
+  const [discountPct, setDiscountPct] = useState(15);
+  const [winbackTemplate, setWinbackTemplate] = useState('');
+  const [candidates, setCandidates] = useState<WinBackCandidate[]>([]);
+  const [vouchers, setVouchers] = useState<WinBackVoucher[]>([]);
+  const [loadingWinback, setLoadingWinback] = useState(false);
+  const [dispatchingWinback, setDispatchingWinback] = useState(false);
+  const [savingWinbackSettings, setSavingWinbackSettings] = useState(false);
+
+  const loadWinback = useCallback(async () => {
+    try {
+      setLoadingWinback(true);
+      const [candRes, vouchRes, setRes] = await Promise.all([
+        api.get('/whatsapp/winback/candidates').catch(() => ({ data: { candidates: [] } })),
+        api.get('/whatsapp/winback/vouchers').catch(() => ({ data: { vouchers: [] } })),
+        api.get('/settings').catch(() => ({ data: {} })),
+      ]);
+      setCandidates(candRes.data?.candidates || []);
+      setVouchers(vouchRes.data?.vouchers || []);
+      const settings = setRes.data?.settings || setRes.data || {};
+      if (settings.whatsapp_auto_receipt_enabled !== undefined) {
+        setAutoReceiptEnabled(settings.whatsapp_auto_receipt_enabled === 'true');
+      }
+      if (settings.whatsapp_winback_enabled !== undefined) {
+        setWinbackEnabled(settings.whatsapp_winback_enabled === 'true');
+      }
+      if (settings.whatsapp_winback_inactive_days) {
+        setInactiveDays(Number(settings.whatsapp_winback_inactive_days) || 14);
+      }
+      if (settings.whatsapp_winback_discount_pct) {
+        setDiscountPct(Number(settings.whatsapp_winback_discount_pct) || 15);
+      }
+      if (settings.whatsapp_winback_template) {
+        setWinbackTemplate(settings.whatsapp_winback_template);
+      }
+    } catch {
+      toast.error('Failed to load win-back automation data');
+    } finally {
+      setLoadingWinback(false);
+    }
+  }, []);
+
+  const handleSaveWinbackSettings = async () => {
+    try {
+      setSavingWinbackSettings(true);
+      await api.put('/whatsapp/winback/settings', {
+        auto_receipt_enabled: autoReceiptEnabled,
+        winback_enabled: winbackEnabled,
+        inactive_days: inactiveDays,
+        discount_pct: discountPct,
+        template: winbackTemplate,
+      });
+      toast.success('Win-back & auto-receipt settings saved');
+    } catch {
+      toast.error('Failed to save settings');
+    } finally {
+      setSavingWinbackSettings(false);
+    }
+  };
+
+  const handleRunWinbackCampaign = async () => {
+    try {
+      setDispatchingWinback(true);
+      const res = await api.post('/whatsapp/winback/run', {
+        inactive_days: inactiveDays,
+        discount_pct: discountPct,
+      });
+      toast.success(`Dispatched win-back campaign to ${res.data?.vouchers_created || 0} customers!`);
+      loadWinback();
+    } catch {
+      toast.error('Failed to run win-back campaign');
+    } finally {
+      setDispatchingWinback(false);
+    }
+  };
+
   const defaultTab = status?.state === 'connected' ? 'sent' : 'connection';
   const effectiveTab = (userTab === 'inbox' && !isAdmin) ? defaultTab : userTab ?? defaultTab;
   const onTabChange = (v: string) => {
     setUserTab(v);
     if (typeof window !== 'undefined') window.localStorage.setItem('whatsapp.activeTab', v);
   };
+
+  useEffect(() => {
+    if (effectiveTab === 'winback') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadWinback();
+    }
+  }, [effectiveTab, loadWinback]);
 
   const refreshQr = useCallback(async () => {
     if (!isAdmin) return;
@@ -462,6 +566,7 @@ export default function WhatsAppPage() {
           {isAdmin && (
             <TabsTrigger value="inbox"><Inbox className="size-4" /> {tTabs('inbox')}</TabsTrigger>
           )}
+          <TabsTrigger value="winback"><RefreshCw className="size-4" /> Win-Back &amp; Receipts</TabsTrigger>
           <TabsTrigger value="connection"><QrCode className="size-4" /> {tTabs('connection')}</TabsTrigger>
         </TabsList>
 
@@ -821,6 +926,192 @@ export default function WhatsAppPage() {
             </Card>
           </TabsContent>
         )}
+
+        <TabsContent value="winback" className="space-y-6">
+          {/* Automation Controls */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Receipt className="size-4 text-brand" />
+                  Automated Checkout Receipts
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Instantly dispatch an itemized WhatsApp receipt to the customer upon payment completion.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-xs">
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoReceiptEnabled}
+                    onChange={(e) => setAutoReceiptEnabled(e.target.checked)}
+                    className="size-4 accent-brand rounded"
+                  />
+                  <div>
+                    <span className="font-semibold text-foreground block">Auto-Send WhatsApp Receipt</span>
+                    <span className="text-muted-foreground text-[11px]">Sends branded receipt + loyalty stamp progress on order checkout</span>
+                  </div>
+                </label>
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={handleSaveWinbackSettings} disabled={savingWinbackSettings} className="text-xs">
+                    {savingWinbackSettings ? 'Saving...' : 'Save Receipt Setting'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="size-4 text-purple-500" />
+                  14-Day Inactive Customer Win-Back
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Automatically engage lapsed customers with an exclusive win-back voucher.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-medium text-foreground">Inactive Days Threshold</label>
+                    <Input
+                      type="number"
+                      min={7}
+                      max={90}
+                      value={inactiveDays}
+                      onChange={(e) => setInactiveDays(parseInt(e.target.value) || 14)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-medium text-foreground">Discount Percent (%)</label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={50}
+                      value={discountPct}
+                      onChange={(e) => setDiscountPct(parseFloat(e.target.value) || 15)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-medium text-foreground">Message Template</label>
+                  <textarea
+                    rows={2}
+                    value={winbackTemplate}
+                    onChange={(e) => setWinbackTemplate(e.target.value)}
+                    placeholder="Hi {name}! We miss seeing you at {store}. Enjoy {discount}% OFF with code {code}!"
+                    className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                  />
+                  <span className="text-[10px] text-muted-foreground">Variables: &#123;name&#125;, &#123;store&#125;, &#123;discount&#125;, &#123;code&#125;</span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button size="sm" onClick={handleSaveWinbackSettings} disabled={savingWinbackSettings} className="text-xs">
+                    {savingWinbackSettings ? 'Saving...' : 'Save Win-Back Settings'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Inactive Candidates & 1-Click Dispatch */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base">Inactive Customers Preview ({candidates.length})</CardTitle>
+                <CardDescription className="text-xs">
+                  Customers with no visits in &gt;= {inactiveDays} days who haven&apos;t received a voucher in 30 days.
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleRunWinbackCampaign}
+                disabled={dispatchingWinback || candidates.length === 0}
+                className="text-xs bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                <Gift className="size-3.5 me-1.5" />
+                {dispatchingWinback ? 'Dispatching...' : `Dispatch Win-Back Campaign (${candidates.length})`}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {loadingWinback ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">Loading candidates...</div>
+              ) : candidates.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">No inactive customers eligible right now! Great job on retention.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Last Order</TableHead>
+                      <TableHead className="text-end">Days Inactive</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {candidates.slice(0, 10).map((cand) => (
+                      <TableRow key={cand.id}>
+                        <TableCell className="font-semibold text-xs">{cand.name || 'Valued Guest'}</TableCell>
+                        <TableCell className="font-mono text-xs">{cand.phone}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmt(cand.last_order_at)}</TableCell>
+                        <TableCell className="text-end font-bold text-rose-500 text-xs">{cand.days_inactive} days</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Sent Win-Back Vouchers History */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Win-Back Vouchers Issued ({vouchers.length})</CardTitle>
+              <CardDescription className="text-xs">
+                Live track voucher dispatch, redemption rate, and expiry.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {vouchers.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">No win-back vouchers issued yet.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Voucher Code</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Discount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Sent At</TableHead>
+                      <TableHead>Expires</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {vouchers.slice(0, 15).map((v) => (
+                      <TableRow key={v.id}>
+                        <TableCell className="font-mono font-bold text-xs text-purple-600 dark:text-purple-400">{v.voucher_code}</TableCell>
+                        <TableCell className="text-xs">{v.customer_name || v.customer_phone}</TableCell>
+                        <TableCell className="text-xs font-semibold">{v.discount_pct}% OFF</TableCell>
+                        <TableCell>
+                          <Badge variant={v.status === 'redeemed' ? 'secondary' : v.status === 'expired' ? 'destructive' : 'outline'} className="text-[10px] uppercase">
+                            {v.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmt(v.sent_at)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmt(v.expires_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {status?.lastError && status.state !== 'cooldown' && (

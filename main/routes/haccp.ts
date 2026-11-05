@@ -153,19 +153,27 @@ haccpRoutes.post('/ccp-logs', requirePermission('haccp.logs.manage'), (req, res)
       recorded_value,
       unit = 'C',
       corrective_action,
+      status: explicitStatus,
+      is_within_limits,
+      supplier_id,
+      po_id,
+      rejected_amount,
+      reason: rejectionReason,
     } = req.body;
 
-    if (!station_name || !ccp_category || recorded_value === undefined) {
-      return res.status(400).json({ error: 'station_name, ccp_category, and recorded_value are required' });
+    if (!station_name || !ccp_category || (recorded_value === undefined && explicitStatus === undefined)) {
+      return res.status(400).json({ error: 'station_name, ccp_category, and recorded_value or status are required' });
     }
 
-    const val = Number(recorded_value);
+    const val = recorded_value !== undefined ? Number(recorded_value) : 0;
     const min = target_min !== undefined && target_min !== null ? Number(target_min) : null;
     const max = target_max !== undefined && target_max !== null ? Number(target_max) : null;
 
-    let computedStatus: 'pass' | 'warning' | 'critical_breach' = 'pass';
-    if ((min !== null && val < min) || (max !== null && val > max)) {
-      computedStatus = 'critical_breach';
+    let computedStatus: string = explicitStatus || 'pass';
+    if (!explicitStatus) {
+      if ((min !== null && val < min) || (max !== null && val > max)) {
+        computedStatus = 'critical_breach';
+      }
     }
 
     if (computedStatus === 'critical_breach' && (!corrective_action || !String(corrective_action).trim())) {
@@ -173,30 +181,84 @@ haccpRoutes.post('/ccp-logs', requirePermission('haccp.logs.manage'), (req, res)
     }
 
     const { randomUUID } = require('crypto');
-    const { now } = require('../db');
+    const { now, withTxn } = require('../db');
     const id = randomUUID();
     const timestamp = now();
+    const rejAmount = Math.max(0, Number(rejected_amount) || 0);
 
-    db.prepare(`
-      INSERT INTO haccp_ccp_logs (
-        id, station_name, ccp_category, target_min, target_max, recorded_value, unit, status, corrective_action, recorded_by, recorded_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      String(station_name).trim(),
-      String(ccp_category).trim(),
-      min,
-      max,
-      val,
-      unit,
-      computedStatus,
-      corrective_action ? String(corrective_action).trim() : null,
-      actorId,
-      timestamp,
-    );
+    let creditNote: any = null;
+
+    withTxn(() => {
+      db.prepare(`
+        INSERT INTO haccp_ccp_logs (
+          id, station_name, ccp_category, target_min, target_max, recorded_value, unit, status, corrective_action,
+          supplier_id, po_id, rejected_amount, recorded_by, recorded_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        String(station_name).trim(),
+        String(ccp_category).trim(),
+        min,
+        max,
+        val,
+        unit,
+        computedStatus,
+        corrective_action ? String(corrective_action).trim() : null,
+        supplier_id || null,
+        po_id || null,
+        rejAmount,
+        actorId,
+        timestamp,
+      );
+
+      // Automatically create supplier credit note if delivery is rejected or critical breach with supplier
+      const isRejectedDelivery = computedStatus === 'rejected' || is_within_limits === 0 || (computedStatus === 'critical_breach' && ccp_category === 'Receiving');
+      if (isRejectedDelivery && supplier_id && rejAmount > 0) {
+        const creditNoteId = randomUUID();
+        const reasonText = rejectionReason || corrective_action || `HACCP delivery rejected (${station_name}): ${rejAmount} credits`;
+
+        db.prepare(`
+          INSERT INTO supplier_credit_notes (
+            id, supplier_id, po_id, haccp_log_id, amount, reason, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'applied', ?)
+        `).run(
+          creditNoteId,
+          String(supplier_id),
+          po_id || null,
+          id,
+          rejAmount,
+          reasonText,
+          timestamp,
+        );
+
+        // Decrement supplier balance_due
+        db.prepare(`
+          UPDATE suppliers
+          SET balance_due = MAX(0, COALESCE(balance_due, 0) - ?), updated_at = ?
+          WHERE id = ?
+        `).run(rejAmount, timestamp, String(supplier_id));
+
+        // Record in supplier_ledger_entries
+        db.prepare(`
+          INSERT INTO supplier_ledger_entries (
+            id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+          ) VALUES (?, ?, 'credit_note_haccp_rejected', ?, ?, 'credit_adjustment', NULL, ?, ?, ?)
+        `).run(
+          randomUUID(),
+          String(supplier_id),
+          id,
+          rejAmount,
+          `HACCP Delivery Rejection Credit: ${reasonText}`,
+          actorId,
+          timestamp,
+        );
+
+        creditNote = db.prepare('SELECT * FROM supplier_credit_notes WHERE id = ?').get(creditNoteId);
+      }
+    });
 
     const log = db.prepare('SELECT * FROM haccp_ccp_logs WHERE id = ?').get(id);
-    res.status(201).json({ ccp_log: log });
+    res.status(201).json({ ccp_log: log, credit_note: creditNote });
   } catch (error: any) {
     console.error('[HACCP] Error creating CCP log:', error);
     res.status(500).json({ error: error.message || 'Failed to create CCP log' });

@@ -215,10 +215,57 @@ router.get('/', customerReadRateLimit, requirePermission('customers.view'), (req
     }
 
     const customers = db.prepare(query).all(...params);
-    res.json({ data: customers });
+    const enriched = req.query.search
+      ? customers.map((c: any) => ({
+          ...c,
+          top_favorites: getCustomerTopFavorites(db, c.id),
+        }))
+      : customers;
+    res.json({ data: enriched });
   } catch (error: any) {
     console.error("[API] Internal error:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export function getCustomerTopFavorites(db: ReturnType<typeof getDatabase>, customerId: string | number): Array<{ product_id: string; name: string; price: number; total_ordered: number }> {
+  if (!customerId) return [];
+  try {
+    const favorites = db.prepare(`
+      SELECT
+        oi.product_id,
+        p.name,
+        p.price,
+        SUM(oi.quantity) as total_ordered
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      JOIN products p ON p.id = oi.product_id
+      WHERE o.customer_id = ?
+        AND o.status NOT IN ('cancelled', 'voided')
+      GROUP BY oi.product_id
+      ORDER BY total_ordered DESC
+      LIMIT 3
+    `).all(customerId) as Array<{ product_id: string; name: string; price: number; total_ordered: number }>;
+    return favorites.map((f) => ({
+      product_id: String(f.product_id),
+      name: f.name,
+      price: Number(f.price) || 0,
+      total_ordered: Number(f.total_ordered) || 0,
+    }));
+  } catch (err) {
+    console.warn('[Customers] Failed to fetch top favorites:', err);
+    return [];
+  }
+}
+
+router.get('/:id/favorites', customerReadRateLimit, requirePermission('customers.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const favorites = getCustomerTopFavorites(db, String(req.params.id));
+    res.json({ success: true, favorites });
+  } catch (error: any) {
+    console.error('[Customers] Error fetching favorites:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch customer favorites' });
   }
 });
 

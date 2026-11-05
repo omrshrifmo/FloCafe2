@@ -172,7 +172,7 @@ purchasingRoutes.post('/purchase-orders', requirePermission('purchasing.orders.m
     const db = getDatabase();
     const user = (req as any).user;
     const actorId = user?.id || user?.userId || 'system';
-    const { supplier_id, expected_date, notes, items, tax_amount = 0, shipping_cost = 0, status = 'ordered' } = req.body;
+    const { supplier_id, expected_date, notes, items, tax_amount = 0, shipping_cost = 0, status = 'ordered', credit_terms = 'COD', due_date: customDueDate } = req.body;
 
     if (!supplier_id) return res.status(400).json({ error: 'supplier_id is required' });
     if (!Array.isArray(items) || items.length === 0) {
@@ -181,6 +181,17 @@ purchasingRoutes.post('/purchase-orders', requirePermission('purchasing.orders.m
 
     const supplier = db.prepare('SELECT id FROM suppliers WHERE id = ?').get(supplier_id);
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+    let dueDate = customDueDate || null;
+    if (!dueDate && credit_terms === 'Net 15') {
+      const d = new Date();
+      d.setDate(d.getDate() + 15);
+      dueDate = d.toISOString().slice(0, 10);
+    } else if (!dueDate && credit_terms === 'Net 30') {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      dueDate = d.toISOString().slice(0, 10);
+    }
 
     const result = withTxn(() => {
       const poId = randomUUID();
@@ -215,11 +226,11 @@ purchasingRoutes.post('/purchase-orders', requirePermission('purchasing.orders.m
 
       db.prepare(`
         INSERT INTO purchase_orders (
-          id, po_number, supplier_id, status, subtotal, tax_amount, shipping_cost, total_amount, paid_amount, expected_date, notes, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+          id, po_number, supplier_id, status, subtotal, tax_amount, shipping_cost, total_amount, paid_amount, payment_status, credit_terms, due_date, expected_date, notes, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'unpaid', ?, ?, ?, ?, ?, ?, ?)
       `).run(
         poId, poNumber, supplier_id, status, subtotal, Number(tax_amount || 0), Number(shipping_cost || 0), totalAmount,
-        expected_date || null, notes || null, actorId, timestamp, timestamp
+        credit_terms, dueDate, expected_date || null, notes || null, actorId, timestamp, timestamp
       );
 
       return poId;
@@ -725,3 +736,242 @@ purchasingRoutes.post('/purchase-orders/auto-restock-low', requirePermission('pu
     res.status(500).json({ error: error.message || 'Auto-restock failed' });
   }
 });
+
+// ==========================================
+// Supplier Credit Notes & AP Statements
+// ==========================================
+
+// List credit notes (all or filtered by supplier_id)
+purchasingRoutes.get('/credit-notes', requirePermission('purchasing.orders.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { supplier_id } = req.query;
+    let query = `
+      SELECT cn.*, s.name as supplier_name, s.phone as supplier_phone
+      FROM supplier_credit_notes cn
+      JOIN suppliers s ON s.id = cn.supplier_id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (supplier_id) {
+      query += ' AND cn.supplier_id = ?';
+      params.push(String(supplier_id));
+    }
+    query += ' ORDER BY cn.created_at DESC LIMIT 200';
+    const creditNotes = db.prepare(query).all(...params);
+    res.json({ credit_notes: creditNotes });
+  } catch (error: any) {
+    console.error('[Purchasing] Error listing credit notes:', error);
+    res.status(500).json({ error: error.message || 'Failed to list credit notes' });
+  }
+});
+
+// Create manual credit note
+purchasingRoutes.post('/credit-notes', requirePermission('purchasing.orders.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.name || user?.userId || 'staff';
+    const { supplier_id, po_id, amount, reason } = req.body;
+
+    if (!supplier_id || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: 'supplier_id and a positive amount are required' });
+    }
+
+    const supplier = db.prepare('SELECT id, name, balance_due FROM suppliers WHERE id = ?').get(supplier_id) as any;
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+    const creditAmount = Number(amount);
+    const id = randomUUID();
+    const timestamp = now();
+
+    withTxn(() => {
+      db.prepare(`
+        INSERT INTO supplier_credit_notes (
+          id, supplier_id, po_id, haccp_log_id, amount, reason, status, created_at
+        ) VALUES (?, ?, ?, NULL, ?, ?, 'applied', ?)
+      `).run(id, supplier_id, po_id || null, creditAmount, reason || 'Manual supplier credit note', timestamp);
+
+      // Decrement balance_due
+      db.prepare(`
+        UPDATE suppliers
+        SET balance_due = MAX(0, COALESCE(balance_due, 0) - ?), updated_at = ?
+        WHERE id = ?
+      `).run(creditAmount, timestamp, supplier_id);
+
+      // Log in supplier_ledger_entries
+      db.prepare(`
+        INSERT INTO supplier_ledger_entries (
+          id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+        ) VALUES (?, ?, 'credit_note_manual', ?, ?, 'credit_adjustment', NULL, ?, ?, ?)
+      `).run(randomUUID(), supplier_id, id, creditAmount, reason || 'Manual credit note', actorId, timestamp);
+    });
+
+    const created = db.prepare('SELECT * FROM supplier_credit_notes WHERE id = ?').get(id);
+    res.status(201).json({ success: true, credit_note: created });
+  } catch (error: any) {
+    console.error('[Purchasing] Error creating credit note:', error);
+    res.status(500).json({ error: error.message || 'Failed to create credit note' });
+  }
+});
+
+// Supplier AP Statement
+purchasingRoutes.get('/suppliers/:id/statement', requirePermission('purchasing.orders.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const supplierId = req.params.id;
+
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId) as any;
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+
+    const purchaseOrders = db.prepare(`
+      SELECT id, po_number, status, subtotal, tax_amount, total_amount, paid_amount, payment_status, credit_terms, due_date, created_at
+      FROM purchase_orders
+      WHERE supplier_id = ?
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).all(supplierId);
+
+    const creditNotes = db.prepare(`
+      SELECT * FROM supplier_credit_notes
+      WHERE supplier_id = ?
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).all(supplierId);
+
+    const ledger = db.prepare(`
+      SELECT * FROM supplier_ledger_entries
+      WHERE supplier_id = ?
+      ORDER BY created_at DESC
+      LIMIT 150
+    `).all(supplierId);
+
+    const totalInvoiced = purchaseOrders.reduce((sum: number, po: any) => sum + (Number(po.total_amount) || 0), 0);
+    const totalPaid = purchaseOrders.reduce((sum: number, po: any) => sum + (Number(po.paid_amount) || 0), 0);
+    const totalCredits = creditNotes.reduce((sum: number, cn: any) => sum + (Number(cn.amount) || 0), 0);
+
+    res.json({
+      statement: {
+        supplier,
+        balance_due: Number(supplier.balance_due) || 0,
+        total_invoiced: totalInvoiced,
+        total_paid: totalPaid,
+        total_credits: totalCredits,
+        purchase_orders: purchaseOrders,
+        credit_notes: creditNotes,
+        ledger,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Purchasing] Error fetching statement:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch supplier statement' });
+  }
+});
+
+// Record partial or full payment on a Purchase Order
+const handlePoPayment = (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = user?.name || user?.userId || 'staff';
+    const poId = req.params.id;
+    const { amount, payment_method = 'cash', pay_from_drawer = false, notes, shift_id } = req.body;
+
+    const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId) as any;
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+    const payAmount = Math.max(0, Number(amount) || 0);
+    if (payAmount <= 0) return res.status(400).json({ error: 'Payment amount must be greater than 0' });
+
+    const currentPaid = Number(po.paid_amount) || 0;
+    const totalAmount = Number(po.total_amount) || 0;
+    const newPaidAmount = currentPaid + payAmount;
+    const newPaymentStatus = newPaidAmount >= totalAmount ? 'paid' : (newPaidAmount > 0 ? 'partial' : 'unpaid');
+    const timestamp = now();
+
+    let drawerMovementId: string | null = null;
+    const activeSession = getOpenSession(db);
+    const shiftStr = shift_id || (activeSession ? activeSession.id : null);
+
+    withTxn(() => {
+      // Update purchase order
+      db.prepare(`
+        UPDATE purchase_orders
+        SET paid_amount = ?, payment_status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(newPaidAmount, newPaymentStatus, timestamp, poId);
+
+      // Decrement supplier balance_due
+      db.prepare(`
+        UPDATE suppliers
+        SET balance_due = MAX(0, COALESCE(balance_due, 0) - ?), updated_at = ?
+        WHERE id = ?
+      `).run(payAmount, timestamp, po.supplier_id);
+
+      // Record in supplier_ledger_entries
+      const entryId = randomUUID();
+      db.prepare(`
+        INSERT INTO supplier_ledger_entries (
+          id, supplier_id, entry_type, reference_id, amount, payment_method, shift_session_id, notes, created_by, created_at
+        ) VALUES (?, ?, 'payment', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entryId,
+        po.supplier_id,
+        poId,
+        payAmount,
+        payment_method,
+        shiftStr ? String(shiftStr) : null,
+        notes || `Payment for PO #${po.po_number}`,
+        actorId,
+        timestamp,
+      );
+
+      // Drawer deduction if requested
+      if (pay_from_drawer && shiftStr && payment_method === 'cash') {
+        drawerMovementId = randomUUID();
+        const cur = db.prepare('SELECT * FROM cash_sessions WHERE id = ?').get(shiftStr) as any;
+        if (cur && cur.status === 'open') {
+          const tenantCurrency = getTenantCurrency();
+          const minorFactor = getCurrencyMinorUnitFactor(tenantCurrency);
+          const payCents = Math.round(payAmount * minorFactor);
+          const expectedAfter = Number(cur.expected_cash_cents || 0) - payCents;
+
+          db.prepare(`
+            UPDATE cash_sessions
+            SET expected_cash_cents = ?, total_paid_out_cents = COALESCE(total_paid_out_cents, 0) + ?
+            WHERE id = ?
+          `).run(expectedAfter, payCents, shiftStr);
+
+          db.prepare(`
+            INSERT INTO cash_movements (
+              id, session_id, movement_type, amount, payment_method, reference_id, notes, created_by, created_at
+            ) VALUES (?, ?, 'paid_out', ?, 'cash', ?, ?, ?, ?)
+          `).run(
+            drawerMovementId,
+            shiftStr,
+            payAmount,
+            poId,
+            notes || `Supplier PO payment #${po.po_number}`,
+            actorId,
+            timestamp,
+          );
+        }
+      }
+    });
+
+    const updatedPo = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId) as any;
+    res.json({
+      success: true,
+      purchase_order: updatedPo,
+      amount_paid: Number(updatedPo.paid_amount) || 0,
+      balance_remaining: Math.max(0, (Number(updatedPo.total_amount) || 0) - (Number(updatedPo.paid_amount) || 0)),
+    });
+  } catch (error: any) {
+    console.error('[Purchasing] Error recording PO payment:', error);
+    res.status(500).json({ error: error.message || 'Failed to record purchase order payment' });
+  }
+};
+
+purchasingRoutes.post('/orders/:id/payments', requirePermission('purchasing.orders.manage'), handlePoPayment);
+purchasingRoutes.post('/purchase-orders/:id/payments', requirePermission('purchasing.orders.manage'), handlePoPayment);
+

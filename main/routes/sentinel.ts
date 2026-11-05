@@ -1057,5 +1057,17 @@ sentinelRoutes.get('/owner-app/manifest.json', (_req: Request, res: Response) =>
 
 sentinelRoutes.get('/owner-app/sw.js', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/javascript');
-  res.send(`const CACHE_NAME='flo-owner-cache-v4.5.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+  res.send(`const CACHE_NAME='flo-owner-cache-v4.6.0';const ASSETS_TO_CACHE=['/owner-app','/owner-app/manifest.json'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS_TO_CACHE)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`);
+});
+
+// 13. GET /api/sentinel/eod-bundles - Multi-Branch EOD Bundles
+sentinelRoutes.get('/eod-bundles', requireOwnerAuth, (req: Request, res: Response) => {
+  try {
+    const db = getDatabaseSafe();
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    const logs = db.prepare(`SELECT * FROM multibranch_eod_sync_logs ORDER BY created_at DESC LIMIT ?`).all(limit) as any[];
+    res.json({ success: true, count: logs.length, bundles: logs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to list EOD bundles' });
+  }
 });

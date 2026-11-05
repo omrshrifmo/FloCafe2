@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>FloOwner Control System v4.5.0</title>
+<title>FloOwner Control System v4.6.0</title>
 <link rel="manifest" href="/owner-app/manifest.json" />
 <meta name="description" content="Standalone native remote fleet management for FloCafe POS — Windows, Linux, Android." />
 <style>
@@ -217,7 +217,7 @@ input,textarea,select{font-family:var(--font)}
       <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
       <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
-    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.5.0 &middot; Standalone Native Fleet Manager</p></div>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.6.0 &middot; Standalone Native Fleet Manager</p></div>
   </div>
   <div id="key-vault">
     <label>&#128273; Owner Key:</label>
@@ -256,6 +256,7 @@ input,textarea,select{font-family:var(--font)}
       <button class="tab-btn" data-tab="tunnel" onclick="showTab('tunnel')">Tunnel</button>
       <button class="tab-btn" data-tab="license" onclick="showTab('license')">License</button>
       <button class="tab-btn" data-tab="update" onclick="showTab('update')">Update</button>
+      <button class="tab-btn" data-tab="multibranch" onclick="showTab('multibranch')">&#127970; Multi-Branch EOD</button>
       <button class="tab-btn" data-tab="mcp" onclick="showTab('mcp')">MCP Bridge</button>
     </div>
     <div id="tab-content">
@@ -415,8 +416,23 @@ input,textarea,select{font-family:var(--font)}
           <button class="copy-btn" onclick="copyMcpConfig()">Copy Config</button>
         </div>
         <div class="card">
-          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Available MCP Tools (v4.5.0)</div>
+          <div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Available MCP Tools (v4.6.0)</div>
           <div id="mcp-tools-list"></div>
+        </div>
+      </div>
+      <div class="section" id="sec-multibranch">
+        <div id="multibranch-alert" class="alert"></div>
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span><span class="dot" style="background:var(--accent2)"></span> Multi-Branch EOD Z-Reports &amp; Cloud Sync</span>
+            <button class="btn btn-primary btn-sm" onclick="loadMultiBranchEod()">&#128260; Refresh Bundles</button>
+          </div>
+          <p style="font-size:.75rem;color:var(--muted);margin-top:4px">Aggregated shift closures, Z-reports, and encrypted Google Drive sync bundles across nodes.</p>
+          <div class="stat-grid" id="mb-summary" style="margin-top:10px"></div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="card-title"><span class="dot" style="background:var(--success)"></span> Shift Closure Z-Reports &amp; GDrive Archive</div>
+          <div id="mb-table" style="margin-top:10px;overflow-x:auto"></div>
         </div>
       </div>
     </div>
@@ -518,7 +534,7 @@ async function scanLan(){
   btn.textContent='Scan LAN ('+prefix+'.x:3009)';btn.disabled=false;
 }
 function showTab(tab,upd=true){if(upd)state.activeTab=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));const sec=document.getElementById('sec-'+tab);if(sec)sec.classList.add('active');if(state.activeNodeIdx>=0)loadTabData(tab);}
-function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'license':loadLicense();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
+function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'multibranch':loadMultiBranchEod();break;case 'license':loadLicense();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
 async function apiFetch(baseUrl,ep,method,body,headers){const opts={method:method||'GET',headers:{'Content-Type':'application/json',...(headers||{})}};if(body)opts.body=JSON.stringify(body);return fetch(baseUrl.replace(/\/$/,'')+ep,opts);}
 async function ownerPost(ep,body){
   const n=activeNode();if(!n)throw new Error('No node');
@@ -553,6 +569,42 @@ async function loadAnalytics(){
   const stock=ops.low_stock_items||[];
   document.getElementById('analytics-stock').innerHTML=stock.length?stock.map(s=>'<div class="info-row"><span class="lbl">'+esc(s.name)+'</span><span class="val tag-warn">Qty:'+s.stock_quantity+' Min:'+s.min_stock_alert+'</span></div>').join(''):'<p style="color:var(--success);font-size:.8rem">All stock OK</p>';
   }catch(e){showAlert('analytics-alert','err',e.message);}
+}
+async function loadMultiBranchEod(){
+  const n=activeNode();if(!n)return;
+  try{
+    const{res,data}=await ownerGet('/api/sentinel/eod-bundles');
+    if(!res.ok){showAlert('multibranch-alert','err',data.error||'Failed to load EOD bundles');return;}
+    const logs=data.bundles||[];
+    const totalRev=logs.reduce((s,l)=>s+(Number(l.net_sales)||0),0);
+    const totalWaste=logs.reduce((s,l)=>s+(Number(l.total_waste)||0),0);
+    const totalVariance=logs.reduce((s,l)=>s+(Number(l.cash_variance)||0),0);
+    document.getElementById('mb-summary').innerHTML=
+      '<div class="stat-card accent"><div class="val">'+logs.length+'</div><div class="lbl">EOD Bundles</div></div>'+
+      '<div class="stat-card accent2"><div class="val">'+fmtCur(totalRev)+'</div><div class="lbl">Consolidated Net Sales</div></div>'+
+      '<div class="stat-card"><div class="val">'+fmtCur(totalWaste)+'</div><div class="lbl">Waste &amp; Calibration</div></div>'+
+      '<div class="stat-card '+(totalVariance===0?'':'danger')+'"><div class="val">'+fmtCur(totalVariance)+'</div><div class="lbl">Cash Variance</div></div>';
+    if(!logs.length){
+      document.getElementById('mb-table').innerHTML='<div class="empty">No EOD sync bundles recorded on this node.</div>';
+      return;
+    }
+    let html='<table><thead><tr><th>Branch</th><th>Date</th><th>Z-Report #</th><th>Gross</th><th>Net Sales</th><th>Cash</th><th>Variance</th><th>GDrive Status</th><th>Synced At</th></tr></thead><tbody>';
+    for(const l of logs){
+      html+='<tr>'+
+        '<td style="font-weight:600">'+esc(l.branch_name||'Main Branch')+'</td>'+
+        '<td style="font-family:monospace">'+esc(l.business_date||'--')+'</td>'+
+        '<td style="font-family:monospace;font-weight:600">'+esc(l.z_report_number||'#'+l.closure_id.slice(0,8))+'</td>'+
+        '<td style="font-family:monospace">'+fmtCur(l.gross_sales)+'</td>'+
+        '<td style="font-family:monospace;font-weight:600;color:var(--success)">'+fmtCur(l.net_sales)+'</td>'+
+        '<td style="font-family:monospace">'+fmtCur(l.cash_collected)+'</td>'+
+        '<td style="font-family:monospace;font-weight:600;color:'+(Number(l.cash_variance||0)===0?'var(--success)':'var(--danger)')+'">'+fmtCur(l.cash_variance)+'</td>'+
+        '<td><span class="'+(l.gdrive_status==='synced'?'tag-ok':'tag-warn')+'">'+esc(l.gdrive_status||'pending')+'</span></td>'+
+        '<td style="font-family:monospace;font-size:.7rem;color:var(--muted)">'+esc(l.synced_at?new Date(l.synced_at).toLocaleString():'--')+'</td>'+
+      '</tr>';
+    }
+    html+='</tbody></table>';
+    document.getElementById('mb-table').innerHTML=html;
+  }catch(e){showAlert('multibranch-alert','err',e.message);}
 }
 function clearSql(){document.getElementById('sql-input').value='';document.getElementById('sql-results').innerHTML='';}
 function setSql(q){document.getElementById('sql-input').value=q;}

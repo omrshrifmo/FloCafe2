@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { Button } from '@/components/ui/button';
@@ -56,6 +55,10 @@ interface PnlData {
   refunds: number;
   net_revenue: number;
   direct_cogs: number;
+  authorized_waste_cost?: number;
+  barista_calibration_cost?: number;
+  staff_meals_cost?: number;
+  unexplained_shrinkage_cost?: number;
   gross_profit: number;
   gross_margin_pct: number;
   direct_operating_expenses: number;
@@ -65,7 +68,9 @@ interface PnlData {
   payroll_expense: number;
   gross_aggregator_revenue?: number;
   aggregator_commissions?: number;
+  aggregator_commissions_cost?: number;
   net_aggregator_receivable?: number;
+  aggregator_receivables_total?: number;
   net_operating_profit_ebitda: number;
   ebitda_margin_pct: number;
 }
@@ -102,7 +107,56 @@ export default function FinancePage() {
   const { formatDate } = useFormatDate();
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier' | 'multibranch'>('overview');
+
+  interface MultiBranchEodLog {
+    id: string;
+    closure_id: string;
+    branch_name: string;
+    branch_code: string;
+    business_date: string;
+    z_report_number: string;
+    gross_sales: number;
+    net_sales: number;
+    cash_collected: number;
+    card_collected: number;
+    cash_variance: number;
+    gdrive_status: string;
+    synced_at: string;
+    z_report_json?: unknown;
+    pnl_summary_json?: unknown;
+  }
+  const [multibranchLogs, setMultibranchLogs] = useState<MultiBranchEodLog[]>([]);
+  const [multibranchSummary, setMultibranchSummary] = useState<Record<string, unknown> | null>(null);
+  const [loadingMultibranch, setLoadingMultibranch] = useState(false);
+  const [syncingEod, setSyncingEod] = useState(false);
+
+  const loadMultibranchEod = useCallback(async () => {
+    try {
+      setLoadingMultibranch(true);
+      const res = await api.get('/finance/multibranch-eod');
+      setMultibranchLogs(res.data?.logs || []);
+      setMultibranchSummary(res.data?.summary || null);
+    } catch {
+      toast.error('Failed to load multi-branch EOD sync logs');
+    } finally {
+      setLoadingMultibranch(false);
+    }
+  }, []);
+
+  const handleTriggerEodSync = async () => {
+    try {
+      setSyncingEod(true);
+      const res = await api.post('/finance/multibranch-eod/trigger');
+      toast.success(res.data?.message || 'EOD sync bundle created and queued for cloud upload!');
+      void loadMultibranchEod();
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to trigger EOD sync';
+      toast.error(errorMsg);
+    } finally {
+      setSyncingEod(false);
+    }
+  };
 
   interface CourierUnsettledOrder {
     id: string;
@@ -134,7 +188,11 @@ export default function FinancePage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadUnsettledOrders();
     }
-  }, [activeTab, loadUnsettledOrders]);
+    if (activeTab === 'multibranch') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadMultibranchEod();
+    }
+  }, [activeTab, loadUnsettledOrders, loadMultibranchEod]);
 
   const handleSettleCourier = async (courierStaffId?: string | null, orderIds?: string[]) => {
     try {
@@ -570,6 +628,18 @@ export default function FinancePage() {
           <Truck className="h-4 w-4" />
           Courier COD Settlement
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('multibranch')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'multibranch'
+              ? 'bg-brand text-brand-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <Building className="h-4 w-4" />
+          Multi-Branch EOD &amp; Consolidation
+        </button>
       </div>
 
       {/* TAB 1: OVERVIEW & LEDGER */}
@@ -829,9 +899,33 @@ export default function FinancePage() {
                     <span className="text-emerald-600">{fmtCurrency(pnlData.net_revenue)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Cost of Goods Sold (BOM Recipe COGS)</span>
+                    <span className="text-muted-foreground">Direct Recipe COGS (BOM Standard)</span>
                     <span className="text-amber-600">-{fmtCurrency(pnlData.direct_cogs)}</span>
                   </div>
+                  {Number(pnlData.authorized_waste_cost || 0) > 0 && (
+                    <div className="flex justify-between text-xs ps-3">
+                      <span className="text-muted-foreground">↳ Spoilage / Expired Waste</span>
+                      <span className="text-amber-600">-{fmtCurrency(pnlData.authorized_waste_cost || 0)}</span>
+                    </div>
+                  )}
+                  {Number(pnlData.barista_calibration_cost || 0) > 0 && (
+                    <div className="flex justify-between text-xs ps-3">
+                      <span className="text-muted-foreground">↳ Morning Espresso Dial-In / Calibration</span>
+                      <span className="text-amber-600">-{fmtCurrency(pnlData.barista_calibration_cost || 0)}</span>
+                    </div>
+                  )}
+                  {Number(pnlData.staff_meals_cost || 0) > 0 && (
+                    <div className="flex justify-between text-xs ps-3">
+                      <span className="text-muted-foreground">↳ Staff Shift Meals</span>
+                      <span className="text-amber-600">-{fmtCurrency(pnlData.staff_meals_cost || 0)}</span>
+                    </div>
+                  )}
+                  {Number(pnlData.unexplained_shrinkage_cost || 0) > 0 && (
+                    <div className="flex justify-between text-xs ps-3">
+                      <span className="text-rose-500 font-medium">↳ Unexplained Stocktake Shrinkage</span>
+                      <span className="text-rose-600">-{fmtCurrency(pnlData.unexplained_shrinkage_cost || 0)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
                     <span>Gross Profit</span>
                     <span className={pnlData.gross_profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
@@ -1145,6 +1239,149 @@ export default function FinancePage() {
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-muted-foreground">
                         {loadingCourier ? 'Loading courier orders...' : 'All courier deliveries are fully settled!'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: MULTI-BRANCH EOD Z-REPORTS & CONSOLIDATION */}
+      {activeTab === 'multibranch' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Multi-Branch EOD Z-Reports &amp; Cloud Sync</h2>
+              <p className="text-xs text-muted-foreground">Consolidated cross-branch P&amp;L metrics, shift closures, and encrypted Google Drive sync bundles</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => void loadMultibranchEod()} disabled={loadingMultibranch}>
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleTriggerEodSync()}
+                disabled={syncingEod}
+                className="bg-brand hover:bg-brand/90"
+              >
+                <Download className="h-4 w-4 me-1.5" />
+                {syncingEod ? 'Syncing...' : 'Sync Local EOD Bundle Now'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Consolidated KPI Cards */}
+          {multibranchSummary && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-card p-4 rounded-xl border border-border">
+                <span className="text-xs text-muted-foreground block font-medium">Synced Branches</span>
+                <span className="text-2xl font-bold text-foreground font-mono mt-1 block">
+                  {multibranchSummary.branches_count || 1}
+                </span>
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  {multibranchSummary.total_syncs || multibranchLogs.length} closure bundles recorded
+                </span>
+              </div>
+              <div className="bg-card p-4 rounded-xl border border-border">
+                <span className="text-xs text-muted-foreground block font-medium">Consolidated Net Sales</span>
+                <span className="text-2xl font-bold text-emerald-600 font-mono mt-1 block">
+                  {fmtCurrency(multibranchSummary.total_revenue || 0)}
+                </span>
+                <span className="text-[11px] text-muted-foreground mt-1 block">Across all branch shifts</span>
+              </div>
+              <div className="bg-card p-4 rounded-xl border border-border">
+                <span className="text-xs text-muted-foreground block font-medium">Total COGS &amp; Waste</span>
+                <span className="text-2xl font-bold text-amber-600 font-mono mt-1 block">
+                  {fmtCurrency((multibranchSummary.total_direct_cogs || 0) + (multibranchSummary.total_waste || 0))}
+                </span>
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  Waste: {fmtCurrency(multibranchSummary.total_waste || 0)}
+                </span>
+              </div>
+              <div className="bg-card p-4 rounded-xl border border-border">
+                <span className="text-xs text-muted-foreground block font-medium">Consolidated Net Profit</span>
+                <span className={`text-2xl font-bold font-mono mt-1 block ${
+                  (multibranchSummary.total_net_profit || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                }`}>
+                  {fmtCurrency(multibranchSummary.total_net_profit || 0)}
+                </span>
+                <span className="text-[11px] text-muted-foreground mt-1 block">Post COGS &amp; expenses</span>
+              </div>
+            </div>
+          )}
+
+          {/* Sync Logs Table */}
+          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Branch End-of-Day (EOD) Z-Reports</h3>
+                <p className="text-xs text-muted-foreground">Detailed logs of branch shift closures and GDrive sync status</p>
+              </div>
+              <span className="text-xs text-muted-foreground font-mono">{multibranchLogs.length} sync bundles</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted text-muted-foreground font-semibold">
+                  <tr>
+                    <th className="p-3 text-start">Branch</th>
+                    <th className="p-3 text-start">Business Date</th>
+                    <th className="p-3 text-start">Z-Report #</th>
+                    <th className="p-3 text-end">Gross Sales</th>
+                    <th className="p-3 text-end">Net Sales</th>
+                    <th className="p-3 text-end">Cash In Drawer</th>
+                    <th className="p-3 text-end">Cash Variance</th>
+                    <th className="p-3 text-center">GDrive Sync</th>
+                    <th className="p-3 text-end">Synced At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {multibranchLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-muted/20">
+                      <td className="p-3 font-semibold text-foreground">
+                        {log.branch_name || 'Main Branch'}
+                        {log.branch_code && (
+                          <span className="text-[10px] text-muted-foreground ms-1 font-mono">({log.branch_code})</span>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono text-muted-foreground">{log.business_date}</td>
+                      <td className="p-3 font-mono font-bold text-foreground">
+                        {log.z_report_number || `#${log.closure_id.slice(0, 8)}`}
+                      </td>
+                      <td className="p-3 text-end font-mono text-foreground">{fmtCurrency(log.gross_sales)}</td>
+                      <td className="p-3 text-end font-mono font-bold text-foreground">{fmtCurrency(log.net_sales)}</td>
+                      <td className="p-3 text-end font-mono text-foreground">{fmtCurrency(log.cash_collected)}</td>
+                      <td className="p-3 text-end font-mono">
+                        <span className={Number(log.cash_variance || 0) === 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                          {Number(log.cash_variance || 0) > 0 ? `+${fmtCurrency(log.cash_variance)}` : fmtCurrency(log.cash_variance)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <Badge
+                          variant="secondary"
+                          className={
+                            log.gdrive_status === 'synced'
+                              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                              : 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                          }
+                        >
+                          {log.gdrive_status === 'synced' ? '✓ Synced' : log.gdrive_status}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-end text-muted-foreground font-mono">
+                        {log.synced_at ? formatDate(log.synced_at) : 'Local only'}
+                      </td>
+                    </tr>
+                  ))}
+                  {multibranchLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                        {loadingMultibranch
+                          ? 'Loading multi-branch EOD sync logs...'
+                          : 'No EOD sync logs recorded yet. Complete a shift closure or click "Sync Local EOD Bundle Now".'}
                       </td>
                     </tr>
                   )}

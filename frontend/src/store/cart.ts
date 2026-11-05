@@ -16,6 +16,7 @@ export function buildActiveCartPayload(
     onlinePlatform?: string;
     externalOrderId?: string;
     orderNotes?: string;
+    discount?: { type: 'percentage' | 'amount'; value: number; reason?: string } | null;
   },
   discount?: { type: 'percentage' | 'amount'; value: number; reason?: string } | null,
 ): ActiveCartPreliminaryPayload {
@@ -41,7 +42,7 @@ export function buildActiveCartPayload(
     onlinePlatform: cart.onlinePlatform || undefined,
     externalOrderId: cart.externalOrderId || undefined,
     orderNotes: cart.orderNotes || undefined,
-    discount: discount || null,
+    discount: discount || cart.discount || null,
   };
 }
 
@@ -63,6 +64,7 @@ interface CartState {
   aggregatorOrderRef: string;
   courierStaffId: string | null;
   courierName: string;
+  discount: { type: 'percentage' | 'amount'; value: number; reason?: string } | null;
 
   addItem: (product: Product, quantity?: number, addons?: Addon[], specialInstructions?: string) => void;
   updateItemDetails: (cartItemId: string, quantity: number, addons: Addon[], specialInstructions: string) => void;
@@ -83,6 +85,7 @@ interface CartState {
   setDeliveryChannel: (id: string | null, name?: string | null) => void;
   setAggregatorOrderRef: (ref: string) => void;
   setCourier: (id: string | null, name?: string) => void;
+  setDiscount: (discount: CartState['discount']) => void;
 
   subtotal: () => number;
   itemCount: () => number;
@@ -106,6 +109,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   aggregatorOrderRef: '',
   courierStaffId: null,
   courierName: '',
+  discount: null,
 
   addItem: (product, quantity = 1, addons = [], specialInstructions = '') => {
     const items = get().items;
@@ -174,7 +178,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   clearCart: () => {
-    set({ items: [], tableId: null, heldOrderId: null, customerId: null, customer: null, customerSource: null, guestCount: 1, orderType: 'dine_in', deliveryAddress: '', onlinePlatform: '', externalOrderId: '', orderNotes: '' });
+    set({ items: [], tableId: null, heldOrderId: null, customerId: null, customer: null, customerSource: null, guestCount: 1, orderType: 'dine_in', deliveryAddress: '', onlinePlatform: '', externalOrderId: '', orderNotes: '', discount: null });
   },
 
   loadItems: (items, tableId, customerId, guestCount, orderNotes, heldOrderId) => {
@@ -199,6 +203,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   setDeliveryChannel: (id, name = null) => set({ deliveryChannelId: id, deliveryChannelName: name }),
   setAggregatorOrderRef: (ref) => set({ aggregatorOrderRef: ref }),
   setCourier: (id, name = '') => set({ courierStaffId: id, courierName: name }),
+  setDiscount: (discount) => set({ discount }),
 
   subtotal: () => {
     return get().items.reduce((sum, item) => {

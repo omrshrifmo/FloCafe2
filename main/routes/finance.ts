@@ -669,6 +669,40 @@ export function handleGetPnl(req: Request, res: Response): void {
     const aggregatorCommissions = Number(aggRow?.aggregator_commissions || 0);
     const netAggregatorReceivable = Math.max(0, grossAggregatorRevenue - aggregatorCommissions);
 
+    const aggReceivablesRow = db.prepare(`
+      SELECT COALESCE(SUM(total - COALESCE(aggregator_commission_amount, 0)), 0) as unsettled_receivables
+      FROM orders
+      WHERE status != 'cancelled'
+        AND delivery_channel_id IS NOT NULL
+        AND courier_settled_at IS NULL
+        AND date(created_at) >= date(?) AND date(created_at) <= date(?)
+    `).get(startDate, endDate) as any;
+    const aggregatorReceivablesTotal = Number(aggReceivablesRow?.unsettled_receivables || 0);
+
+    // 5b. Waste Breakdown & Unexplained Shrinkage
+    const wasteBreakdown = db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN LOWER(waste_type) IN ('waste', 'spoilage', 'remake') OR LOWER(COALESCE(reason, '')) IN ('waste', 'spoilage', 'remake') THEN total_cost ELSE 0 END), 0) as authorized_waste_cost,
+        COALESCE(SUM(CASE WHEN LOWER(waste_type) IN ('calibration', 'dial_in', 'dial-in') OR LOWER(COALESCE(reason, '')) IN ('calibration', 'dial_in', 'dial-in') THEN total_cost ELSE 0 END), 0) as barista_calibration_cost,
+        COALESCE(SUM(CASE WHEN LOWER(waste_type) IN ('staff_meal', 'staff_drink', 'staff meal', 'staff drink') OR LOWER(COALESCE(reason, '')) IN ('staff_meal', 'staff_drink', 'staff meal', 'staff drink') THEN total_cost ELSE 0 END), 0) as staff_meals_cost
+      FROM waste_logs
+      WHERE date(logged_at) >= date(?) AND date(logged_at) <= date(?)
+    `).get(startDate, endDate) as any;
+
+    const authorizedWasteCost = Number(wasteBreakdown?.authorized_waste_cost || 0);
+    const baristaCalibrationCost = Number(wasteBreakdown?.barista_calibration_cost || 0);
+    const staffMealsCost = Number(wasteBreakdown?.staff_meals_cost || 0);
+
+    const shrinkageRow = db.prepare(`
+      SELECT COALESCE(SUM(ABS(sl.variance_value)), 0) as total_shrinkage
+      FROM stocktake_lines sl
+      JOIN stocktake_sessions ss ON ss.id = sl.stocktake_id
+      WHERE sl.variance_value < 0
+        AND date(COALESCE(ss.reconciled_at, ss.created_at)) >= date(?)
+        AND date(COALESCE(ss.reconciled_at, ss.created_at)) <= date(?)
+    `).get(startDate, endDate) as any;
+    const unexplainedShrinkageCost = Number(shrinkageRow?.total_shrinkage || 0);
+
     // 6. Net Operating Profit (EBITDA)
     const ebitda = grossProfit - totalOperatingExpenses - payrollExpense;
     const ebitdaMarginPct = netRevenue > 0 ? (ebitda / netRevenue) * 100 : 0;
@@ -690,7 +724,13 @@ export function handleGetPnl(req: Request, res: Response): void {
         payroll_expense: payrollExpense,
         gross_aggregator_revenue: grossAggregatorRevenue,
         aggregator_commissions: aggregatorCommissions,
+        aggregator_commissions_cost: aggregatorCommissions,
         net_aggregator_receivable: netAggregatorReceivable,
+        aggregator_receivables_total: aggregatorReceivablesTotal,
+        authorized_waste_cost: authorizedWasteCost,
+        barista_calibration_cost: baristaCalibrationCost,
+        staff_meals_cost: staffMealsCost,
+        unexplained_shrinkage_cost: unexplainedShrinkageCost,
         net_operating_profit_ebitda: ebitda,
         ebitda_margin_pct: ebitdaMarginPct,
       },
@@ -702,4 +742,68 @@ export function handleGetPnl(req: Request, res: Response): void {
 }
 
 financeRoutes.get('/pnl', requirePermission('finance.expenses.view'), handleGetPnl);
+
+// ==========================================
+// Multi-Branch EOD Sync & Consolidated P&L
+// ==========================================
+financeRoutes.get('/multibranch-eod', requirePermission('finance.expenses.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    const logs = db.prepare(`SELECT * FROM multibranch_eod_sync_logs ORDER BY created_at DESC LIMIT ?`).all(limit) as any[];
+
+    // Parse JSON blobs and compute multi-branch aggregates
+    let totalRevenue = 0;
+    let totalCogs = 0;
+    let totalWaste = 0;
+    let totalStaffMeals = 0;
+    let totalNetProfit = 0;
+
+    const parsedLogs = logs.map((log) => {
+      let zReport: any = {};
+      let pnlSummary: any = {};
+      try { zReport = JSON.parse(log.z_report_json); } catch {}
+      try { pnlSummary = JSON.parse(log.pnl_summary_json); } catch {}
+
+      totalRevenue += Number(pnlSummary.net_revenue || 0);
+      totalCogs += Number(pnlSummary.cogs || 0);
+      totalWaste += Number(pnlSummary.authorized_waste || 0);
+      totalStaffMeals += Number(pnlSummary.staff_meals || 0);
+      totalNetProfit += Number(pnlSummary.net_profit || 0);
+
+      return {
+        ...log,
+        z_report: zReport,
+        pnl_summary: pnlSummary,
+      };
+    });
+
+    res.json({
+      success: true,
+      count: parsedLogs.length,
+      logs: parsedLogs,
+      consolidated: {
+        total_revenue: totalRevenue,
+        total_cogs: totalCogs,
+        total_waste: totalWaste,
+        total_staff_meals: totalStaffMeals,
+        total_net_profit: totalNetProfit,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Finance] Error fetching multibranch EOD logs:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch multibranch EOD logs' });
+  }
+});
+
+financeRoutes.post('/multibranch-eod/trigger', requirePermission('finance.expenses.manage'), async (req: Request, res: Response) => {
+  try {
+    const { generateAndSyncEodBundle } = require('../services/google-drive');
+    const result = await generateAndSyncEodBundle(req.body?.closure_id);
+    res.json({ success: true, bundle: result });
+  } catch (error: any) {
+    console.error('[Finance] Error triggering multibranch EOD bundle:', error);
+    res.status(500).json({ error: error.message || 'Failed to trigger multibranch EOD bundle' });
+  }
+});
 

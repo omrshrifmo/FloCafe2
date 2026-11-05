@@ -219,4 +219,101 @@ router.delete('/blocklist/:phone', requirePermission('whatsapp.manage'), (req: R
   res.json({ ok: true });
 });
 
+// ==========================================
+// 14-Day Win-Back & Auto-Receipt Automation
+// ==========================================
+router.get('/winback/candidates', requirePermission('whatsapp.use'), (_req: Request, res: Response) => {
+  try {
+    const { findWinBackCandidates } = require('../services/whatsapp-winback');
+    const inactiveDays = _req.query.inactive_days ? Number(_req.query.inactive_days) : undefined;
+    const candidates = findWinBackCandidates(inactiveDays);
+    res.json({ success: true, count: candidates.length, candidates });
+  } catch (error: any) {
+    console.error('[WhatsApp] Error listing winback candidates:', error);
+    res.status(500).json({ error: error.message || 'Failed to list winback candidates' });
+  }
+});
+
+router.get('/winback/vouchers', requirePermission('whatsapp.use'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    const vouchers = db.prepare(`
+      SELECT * FROM customer_winback_vouchers ORDER BY sent_at DESC LIMIT ?
+    `).all(limit) as any[];
+    res.json({ success: true, count: vouchers.length, vouchers });
+  } catch (error: any) {
+    console.error('[WhatsApp] Error listing winback vouchers:', error);
+    res.status(500).json({ error: error.message || 'Failed to list winback vouchers' });
+  }
+});
+
+router.post('/winback/run', requirePermission('whatsapp.manage'), asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { runWinBackCampaign } = require('../services/whatsapp-winback');
+    const { inactive_days, discount_pct } = req.body || {};
+    const result = await runWinBackCampaign({
+      inactiveDays: inactive_days !== undefined ? Number(inactive_days) : undefined,
+      discountPct: discount_pct !== undefined ? Number(discount_pct) : undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[WhatsApp] Error executing winback campaign:', error);
+    res.status(500).json({ error: error.message || 'Failed to execute winback campaign' });
+  }
+}));
+
+router.put('/winback/settings', requirePermission('whatsapp.manage'), (req: Request, res: Response) => {
+  try {
+    const {
+      auto_receipt_enabled,
+      winback_enabled,
+      inactive_days,
+      discount_pct,
+      template,
+    } = req.body || {};
+
+    const updates: Record<string, string> = {};
+    if (auto_receipt_enabled !== undefined) {
+      updates.whatsapp_auto_receipt_enabled = auto_receipt_enabled ? 'true' : 'false';
+    }
+    if (winback_enabled !== undefined) {
+      updates.whatsapp_winback_enabled = winback_enabled ? 'true' : 'false';
+    }
+    if (inactive_days !== undefined) {
+      updates.whatsapp_winback_inactive_days = String(inactive_days);
+    }
+    if (discount_pct !== undefined) {
+      updates.whatsapp_winback_discount_pct = String(discount_pct);
+    }
+    if (template !== undefined) {
+      updates.whatsapp_winback_template = String(template);
+    }
+
+    upsertSettings(updates);
+    res.json({ success: true, settings: updates });
+  } catch (error: any) {
+    console.error('[WhatsApp] Error updating winback settings:', error);
+    res.status(500).json({ error: error.message || 'Failed to update winback settings' });
+  }
+});
+
+router.post('/winback/redeem', requirePermission('orders.create'), (req: Request, res: Response) => {
+  try {
+    const { code, order_id } = req.body || {};
+    if (!code) {
+      return res.status(400).json({ error: 'Voucher code is required' });
+    }
+    const { redeemWinBackVoucher } = require('../services/whatsapp-winback');
+    const result = redeemWinBackVoucher(code, order_id);
+    if (!result.valid) {
+      return res.status(400).json({ error: result.error || 'Invalid or expired voucher' });
+    }
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('[WhatsApp] Error redeeming winback voucher:', error);
+    res.status(500).json({ error: error.message || 'Failed to redeem voucher' });
+  }
+});
+
 export const whatsappRoutes = router;

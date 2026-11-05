@@ -2360,8 +2360,16 @@ router.post('/:id/pay', requirePermission('payments.take'), (req: Request, res: 
     ));
 
     const billStatus = (result.bill as any)?.payment_status;
-    if (billStatus === 'paid') notifyKdsUpdate();
-    else notifyOrderUpdated();
+    if (billStatus === 'paid') {
+      notifyKdsUpdate();
+      try {
+        const { sendAutoCheckoutReceipt } = require('../services/whatsapp-winback');
+        const bRow = db.prepare('SELECT order_id FROM bills WHERE id = ?').get(req.params.id) as any;
+        if (bRow?.order_id) void sendAutoCheckoutReceipt(bRow.order_id).catch(() => {});
+      } catch {}
+    } else {
+      notifyOrderUpdated();
+    }
 
     res.json(result);
   } catch (error: any) {

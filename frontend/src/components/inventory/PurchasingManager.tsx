@@ -53,6 +53,10 @@ interface PurchaseOrder {
   supplier_name?: string;
   status: 'draft' | 'ordered' | 'received' | 'cancelled';
   total_amount: number;
+  paid_amount?: number;
+  payment_status?: string;
+  credit_terms?: string;
+  due_date?: string | null;
   expected_date: string | null;
   received_at: string | null;
   received_by_name?: string | null;
@@ -60,17 +64,62 @@ interface PurchaseOrder {
   items?: PurchaseOrderItem[];
 }
 
+interface CreditNote {
+  id: string;
+  supplier_id: string;
+  supplier_name?: string;
+  po_id?: string;
+  haccp_log_id?: string;
+  amount: number;
+  reason: string;
+  status: string;
+  created_at: string;
+}
+
+interface StatementData {
+  supplier: Supplier;
+  balance_due: number;
+  total_invoiced: number;
+  total_paid: number;
+  total_credits: number;
+  purchase_orders: PurchaseOrder[];
+  credit_notes: CreditNote[];
+  ledger: Array<{
+    id: string;
+    entry_type: string;
+    reference_id: string | null;
+    amount: number;
+    payment_method: string | null;
+    notes: string | null;
+    created_at: string;
+  }>;
+}
+
 export function PurchasingManager() {
   const t = useTranslations('purchasing');
-  const tCommon = useTranslations('common');
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
 
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'suppliers'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'suppliers' | 'statements' | 'credit_notes'>('orders');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
+  const [selectedStatementSupplierId, setSelectedStatementSupplierId] = useState<string>('');
+  const [statementData, setStatementData] = useState<StatementData | null>(null);
+  const [loadingStatement, setLoadingStatement] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  // Barcode rapid scan input
+  const [barcodeScanInput, setBarcodeScanInput] = useState('');
+
+  // Partial PO Payment Modal
+  const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
+  const [poPayAmount, setPoPayAmount] = useState<number>(0);
+  const [poPayMethod, setPoPayMethod] = useState<'cash' | 'bank_transfer' | 'cheque'>('cash');
+  const [poPayFromDrawer, setPoPayFromDrawer] = useState(false);
+  const [poPayNotes, setPoPayNotes] = useState('');
+  const [isSubmittingPoPay, setIsSubmittingPoPay] = useState(false);
 
   // New Supplier Modal
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -89,6 +138,8 @@ export function PurchasingManager() {
   const [availableItems, setAvailableItems] = useState<Array<{ target_type: 'inventory' | 'supply'; id: string; name: string; unit: string; cost: number }>>([]);
   const [poForm, setPoForm] = useState<{
     supplier_id: string;
+    credit_terms: 'COD' | 'Net 15' | 'Net 30';
+    due_date: string;
     expected_date: string;
     notes: string;
     items: {
@@ -101,6 +152,8 @@ export function PurchasingManager() {
     }[];
   }>({
     supplier_id: '',
+    credit_terms: 'COD',
+    due_date: '',
     expected_date: '',
     notes: '',
     items: [],
@@ -269,6 +322,8 @@ export function PurchasingManager() {
       setShowPoModal(false);
       setPoForm({
         supplier_id: suppliers[0]?.id || '',
+        credit_terms: 'COD',
+        due_date: '',
         expected_date: '',
         notes: '',
         items: [],
@@ -358,12 +413,104 @@ export function PurchasingManager() {
       setCreditNoteReason('Damaged goods / Return');
       setCreditNoteRef('');
       loadData();
+      void loadCreditNotes();
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, 'Failed to apply credit note'));
     } finally {
       setIsSubmittingCredit(false);
     }
   };
+
+  const handlePoPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingPo || poPayAmount <= 0) return;
+    try {
+      setIsSubmittingPoPay(true);
+      let activeShiftId: number | null = null;
+      if (poPayFromDrawer && poPayMethod === 'cash') {
+        try {
+          const sessionRes = await api.get('/cash-sessions/active');
+          activeShiftId = sessionRes.data?.id ?? null;
+        } catch {}
+      }
+      const res = await api.post(`/purchasing/orders/${payingPo.id}/payments`, {
+        amount: poPayAmount,
+        payment_method: poPayMethod,
+        pay_from_drawer: poPayFromDrawer && poPayMethod === 'cash',
+        notes: poPayNotes || undefined,
+        shift_id: activeShiftId,
+      });
+      toast.success(`Payment recorded. Remaining: ${fmtCurrency(res.data?.balance_remaining || 0)}`);
+      setPayingPo(null);
+      setPoPayAmount(0);
+      setPoPayNotes('');
+      setPoPayFromDrawer(false);
+      loadData();
+      if (selectedStatementSupplierId) loadStatement(selectedStatementSupplierId);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Failed to record PO payment'));
+    } finally {
+      setIsSubmittingPoPay(false);
+    }
+  };
+
+  const loadCreditNotes = useCallback(async () => {
+    try {
+      const res = await api.get('/purchasing/credit-notes');
+      setCreditNotes(res.data?.credit_notes || []);
+    } catch {
+      toast.error('Failed to load credit notes');
+    }
+  }, []);
+
+  const loadStatement = useCallback(async (supplierId: string) => {
+    if (!supplierId) return;
+    setLoadingStatement(true);
+    try {
+      const res = await api.get(`/purchasing/suppliers/${supplierId}/statement`);
+      setStatementData(res.data?.statement || null);
+    } catch {
+      toast.error('Failed to load supplier statement');
+    } finally {
+      setLoadingStatement(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSubTab === 'credit_notes') {
+      let active = true;
+      api.get('/purchasing/credit-notes')
+        .then((res) => {
+          if (active) setCreditNotes(res.data?.credit_notes || []);
+        })
+        .catch(() => {
+          if (active) toast.error('Failed to load credit notes');
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [activeSubTab]);
+
+  useEffect(() => {
+    const targetId = selectedStatementSupplierId || suppliers[0]?.id;
+    if (activeSubTab === 'statements' && targetId) {
+      let active = true;
+      api.get(`/purchasing/suppliers/${targetId}/statement`)
+        .then((res) => {
+          if (active) setStatementData(res.data?.statement || null);
+        })
+        .catch(() => {
+          if (active) toast.error('Failed to load supplier statement');
+        })
+        .finally(() => {
+          if (active) setLoadingStatement(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [activeSubTab, selectedStatementSupplierId, suppliers]);
 
   const handleBarcodeQuickScan = (code: string) => {
     const trimmed = code.trim().toLowerCase();
@@ -393,8 +540,9 @@ export function PurchasingManager() {
           ],
         });
       }
-      toast.success(`Scanned: ${match.name}`);
+      toast.success(`Scanned +1: ${match.name}`);
       setBarcodeInput('');
+      setBarcodeScanInput('');
     } else {
       toast.error(`No item found matching "${code}"`);
     }
@@ -439,6 +587,24 @@ export function PurchasingManager() {
             <Building className="size-3.5 me-1.5" />
             {t('tabSuppliers', { count: suppliers.length })}
           </Button>
+          <Button
+            variant={activeSubTab === 'statements' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveSubTab('statements')}
+            className="text-xs"
+          >
+            <PackageCheck className="size-3.5 me-1.5" />
+            AP Statements
+          </Button>
+          <Button
+            variant={activeSubTab === 'credit_notes' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveSubTab('credit_notes')}
+            className="text-xs"
+          >
+            <RefreshCw className="size-3.5 me-1.5" />
+            Credit Notes ({creditNotes.length})
+          </Button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -475,14 +641,27 @@ export function PurchasingManager() {
               {t('addSupplier')}
             </Button>
           )}
+          {activeSubTab === 'credit_notes' && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                if (suppliers.length > 0) setCreditingSupplier(suppliers[0]);
+              }}
+              className="text-xs flex items-center gap-1.5"
+            >
+              <Plus className="size-3.5" />
+              New Credit Note
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Orders Tab */}
       {activeSubTab === 'orders' && (
         <div className="bg-card border border-border rounded-xl overflow-hidden shadow-xs">
-          <div className="p-3 border-b border-border bg-muted/40">
-            <div className="relative max-w-sm">
+          <div className="p-3 border-b border-border bg-muted/40 flex flex-wrap items-center justify-between gap-3">
+            <div className="relative max-w-sm flex-1">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <input
                 type="text"
@@ -491,6 +670,32 @@ export function PurchasingManager() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full ps-9 pe-3 py-1.5 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-brand"
               />
+            </div>
+
+            {/* USB/Bluetooth Barcode Rapid Scan Bar */}
+            <div className="flex items-center gap-2 max-w-xs flex-1">
+              <input
+                type="text"
+                value={barcodeScanInput}
+                onChange={(e) => setBarcodeScanInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleBarcodeQuickScan(barcodeScanInput);
+                  }
+                }}
+                placeholder="Scan ingredient barcode..."
+                className="w-full px-2.5 py-1.5 bg-background border border-border rounded-md text-xs outline-none focus:ring-1 focus:ring-brand"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => handleBarcodeQuickScan(barcodeScanInput)}
+                className="h-8 shrink-0 text-xs px-2.5"
+              >
+                Scan
+              </Button>
             </div>
           </div>
 
@@ -501,67 +706,276 @@ export function PurchasingManager() {
                   <th className="p-3 text-start">{t('colPoNumber')}</th>
                   <th className="p-3 text-start">{t('colSupplier')}</th>
                   <th className="p-3 text-start">{t('colStatus')}</th>
-                  <th className="p-3 text-end">{t('colTotalAmount')}</th>
+                  <th className="p-3 text-start">Terms / Due</th>
+                  <th className="p-3 text-end">Total / Paid</th>
                   <th className="p-3 text-start">{t('colDateCreated')}</th>
-                  <th className="p-3 text-start">{t('colExpectedDate')}</th>
                   <th className="p-3 text-end">{t('colAction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredOrders.map((po) => (
-                  <tr key={po.id} className="hover:bg-muted/20">
-                    <td className="p-3 font-mono font-bold text-foreground">{po.po_number}</td>
-                    <td className="p-3 font-medium text-foreground">{po.supplier_name || 'Direct Vendor'}</td>
-                    <td className="p-3">
-                      <Badge
-                        variant={
-                          po.status === 'received'
-                            ? 'secondary'
-                            : po.status === 'cancelled'
-                            ? 'destructive'
-                            : 'outline'
-                        }
-                        className="text-[10px] uppercase font-bold"
-                      >
-                        {po.status}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-end font-bold text-foreground">
-                      {fmtCurrency(po.total_amount)}
-                    </td>
-                    <td className="p-3 text-muted-foreground">{formatDate(po.created_at)}</td>
-                    <td className="p-3 text-muted-foreground">
-                      {po.expected_date ? formatDate(po.expected_date) : '—'}
-                    </td>
-                    <td className="p-3 text-end">
-                      {po.status !== 'received' && po.status !== 'cancelled' ? (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => {
-                            setReceivingPo(po);
-                            setPaymentMode('full');
-                            setReceivePaidAmount(po.total_amount);
-                            setPayFromDrawer(false);
-                          }}
-                          className="text-[11px] h-7 bg-brand hover:bg-brand/90"
+                {filteredOrders.map((po) => {
+                  const paid = Number(po.paid_amount) || 0;
+                  const remaining = Math.max(0, po.total_amount - paid);
+                  const isFullyPaid = po.payment_status === 'paid' || remaining <= 0;
+
+                  return (
+                    <tr key={po.id} className="hover:bg-muted/20">
+                      <td className="p-3 font-mono font-bold text-foreground">{po.po_number}</td>
+                      <td className="p-3 font-medium text-foreground">{po.supplier_name || 'Direct Vendor'}</td>
+                      <td className="p-3">
+                        <Badge
+                          variant={
+                            po.status === 'received'
+                              ? 'secondary'
+                              : po.status === 'cancelled'
+                              ? 'destructive'
+                              : 'outline'
+                          }
+                          className="text-[10px] uppercase font-bold"
                         >
-                          <PackageCheck className="size-3.5 me-1" />
-                          {t('receiveGrn')}
-                        </Button>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground flex items-center justify-end gap-1">
-                          <CheckCircle2 className="size-3.5 text-green-500" />
-                          {t('received')}
+                          {po.status}
+                        </Badge>
+                      </td>
+                      <td className="p-3">
+                        <span className="font-semibold text-foreground">{po.credit_terms || 'COD'}</span>
+                        {po.due_date && (
+                          <span className="block text-[10px] text-muted-foreground">Due: {formatDate(po.due_date)}</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-end">
+                        <span className="font-bold text-foreground block">{fmtCurrency(po.total_amount)}</span>
+                        <span className={`text-[10px] ${isFullyPaid ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-amber-600 dark:text-amber-400'}`}>
+                          {isFullyPaid ? 'Paid' : `Paid: ${fmtCurrency(paid)}`}
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="p-3 text-muted-foreground">{formatDate(po.created_at)}</td>
+                      <td className="p-3 text-end">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {po.status !== 'received' && po.status !== 'cancelled' && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                setReceivingPo(po);
+                                setPaymentMode('full');
+                                setReceivePaidAmount(po.total_amount);
+                                setPayFromDrawer(false);
+                              }}
+                              className="text-[11px] h-7 bg-brand hover:bg-brand/90"
+                            >
+                              <PackageCheck className="size-3.5 me-1" />
+                              {t('receiveGrn')}
+                            </Button>
+                          )}
+                          {!isFullyPaid && po.status !== 'cancelled' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setPayingPo(po);
+                                setPoPayAmount(remaining);
+                                setPoPayNotes(`Payment for PO #${po.po_number}`);
+                              }}
+                              className="text-[11px] h-7 border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                            >
+                              Pay Invoice
+                            </Button>
+                          )}
+                          {po.status === 'received' && isFullyPaid && (
+                            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                              <CheckCircle2 className="size-3.5 text-green-500" />
+                              Completed
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-muted-foreground">
                       {t('noOrdersFound')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* AP Statements Tab */}
+      {activeSubTab === 'statements' && (
+        <div className="space-y-4">
+          <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-foreground">Select Supplier:</label>
+              <select
+                value={selectedStatementSupplierId || suppliers[0]?.id || ''}
+                onChange={(e) => {
+                  setSelectedStatementSupplierId(e.target.value);
+                  loadStatement(e.target.value);
+                }}
+                className="p-1.5 bg-background border border-border rounded text-xs"
+              >
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} (Balance: {fmtCurrency(s.balance_due)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {statementData && (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => {
+                    setPayingSupplier(statementData.supplier);
+                    setSupplierPayAmount(statementData.balance_due);
+                  }}
+                  disabled={statementData.balance_due <= 0}
+                  className="text-xs h-8"
+                >
+                  Pay Outstanding Balance
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCreditingSupplier(statementData.supplier)}
+                  className="text-xs h-8"
+                >
+                  Issue Credit Note
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {loadingStatement && (
+            <div className="p-8 text-center text-xs text-muted-foreground">Loading supplier statement...</div>
+          )}
+
+          {!loadingStatement && statementData && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-card border border-border p-3 rounded-xl">
+                  <span className="text-[11px] text-muted-foreground block">Balance Due (AP)</span>
+                  <span className="text-lg font-bold text-foreground">{fmtCurrency(statementData.balance_due)}</span>
+                </div>
+                <div className="bg-card border border-border p-3 rounded-xl">
+                  <span className="text-[11px] text-muted-foreground block">Total Invoiced</span>
+                  <span className="text-lg font-bold text-foreground">{fmtCurrency(statementData.total_invoiced)}</span>
+                </div>
+                <div className="bg-card border border-border p-3 rounded-xl">
+                  <span className="text-[11px] text-muted-foreground block">Total Paid</span>
+                  <span className="text-lg font-bold text-green-600 dark:text-green-400">{fmtCurrency(statementData.total_paid)}</span>
+                </div>
+                <div className="bg-card border border-border p-3 rounded-xl">
+                  <span className="text-[11px] text-muted-foreground block">Total Credit Notes</span>
+                  <span className="text-lg font-bold text-purple-600 dark:text-purple-400">{fmtCurrency(statementData.total_credits)}</span>
+                </div>
+              </div>
+
+              <div className="bg-card border border-border rounded-xl p-4">
+                <h4 className="text-xs font-bold text-foreground mb-2">Purchase Orders &amp; Invoices</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted text-muted-foreground">
+                      <tr>
+                        <th className="p-2 text-start">PO #</th>
+                        <th className="p-2 text-start">Date</th>
+                        <th className="p-2 text-start">Terms</th>
+                        <th className="p-2 text-start">Due Date</th>
+                        <th className="p-2 text-end">Amount</th>
+                        <th className="p-2 text-end">Paid</th>
+                        <th className="p-2 text-end">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {statementData.purchase_orders.map((po) => (
+                        <tr key={po.id}>
+                          <td className="p-2 font-mono font-bold text-foreground">{po.po_number}</td>
+                          <td className="p-2 text-muted-foreground">{formatDate(po.created_at)}</td>
+                          <td className="p-2">{po.credit_terms || 'COD'}</td>
+                          <td className="p-2 text-muted-foreground">{po.due_date ? formatDate(po.due_date) : '—'}</td>
+                          <td className="p-2 text-end font-bold text-foreground">{fmtCurrency(po.total_amount)}</td>
+                          <td className="p-2 text-end text-green-600">{fmtCurrency(po.paid_amount || 0)}</td>
+                          <td className="p-2 text-end">
+                            <Badge variant={po.payment_status === 'paid' ? 'secondary' : 'outline'} className="text-[10px]">
+                              {po.payment_status || 'unpaid'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-card border border-border rounded-xl p-4">
+                <h4 className="text-xs font-bold text-foreground mb-2">Recent Ledger Timeline</h4>
+                <div className="space-y-2">
+                  {statementData.ledger.map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between p-2.5 bg-muted/30 rounded-lg text-xs">
+                      <div>
+                        <span className="font-semibold text-foreground uppercase">{entry.entry_type.replace(/_/g, ' ')}</span>
+                        <p className="text-[11px] text-muted-foreground">{entry.notes || 'Ledger entry'} &bull; {formatDate(entry.created_at)}</p>
+                      </div>
+                      <span className="font-mono font-bold text-foreground">{fmtCurrency(entry.amount)}</span>
+                    </div>
+                  ))}
+                  {statementData.ledger.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-4">No ledger movements recorded yet</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Credit Notes Tab */}
+      {activeSubTab === 'credit_notes' && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-muted text-muted-foreground font-semibold">
+                <tr>
+                  <th className="p-3 text-start">Supplier</th>
+                  <th className="p-3 text-start">Reason / CCP Log</th>
+                  <th className="p-3 text-end">Amount</th>
+                  <th className="p-3 text-start">Status</th>
+                  <th className="p-3 text-start">Date Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {creditNotes.map((cn) => (
+                  <tr key={cn.id} className="hover:bg-muted/20">
+                    <td className="p-3 font-bold text-foreground">{cn.supplier_name || 'Vendor'}</td>
+                    <td className="p-3 text-muted-foreground">
+                      {cn.reason}
+                      {cn.haccp_log_id && (
+                        <span className="block text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                          Auto-generated from HACCP Rejection
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-end font-bold text-purple-600 dark:text-purple-400">
+                      {fmtCurrency(cn.amount)}
+                    </td>
+                    <td className="p-3">
+                      <Badge variant="secondary" className="text-[10px] uppercase font-bold">
+                        {cn.status}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-muted-foreground">{formatDate(cn.created_at)}</td>
+                  </tr>
+                ))}
+                {creditNotes.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                      No supplier credit notes on record
                     </td>
                   </tr>
                 )}
@@ -805,6 +1219,43 @@ export function PurchasingManager() {
                     type="date"
                     value={poForm.expected_date}
                     onChange={(e) => setPoForm({ ...poForm, expected_date: e.target.value })}
+                    className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-medium text-foreground">Credit Terms</label>
+                  <select
+                    value={poForm.credit_terms}
+                    onChange={(e) => {
+                      const terms = e.target.value as 'COD' | 'Net 15' | 'Net 30';
+                      let d = '';
+                      if (terms === 'Net 15') {
+                        const targetDate = new Date();
+                        targetDate.setDate(targetDate.getDate() + 15);
+                        d = targetDate.toISOString().slice(0, 10);
+                      } else if (terms === 'Net 30') {
+                        const targetDate = new Date();
+                        targetDate.setDate(targetDate.getDate() + 30);
+                        d = targetDate.toISOString().slice(0, 10);
+                      }
+                      setPoForm({ ...poForm, credit_terms: terms, due_date: d });
+                    }}
+                    className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                  >
+                    <option value="COD">COD (Due on Delivery)</option>
+                    <option value="Net 15">Net 15 (15 Days)</option>
+                    <option value="Net 30">Net 30 (30 Days)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-medium text-foreground">Payment Due Date</label>
+                  <input
+                    type="date"
+                    value={poForm.due_date}
+                    onChange={(e) => setPoForm({ ...poForm, due_date: e.target.value })}
                     className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                   />
                 </div>
@@ -1149,6 +1600,109 @@ export function PurchasingManager() {
                 </Button>
                 <Button type="submit" variant="default" size="sm" disabled={isSubmittingCredit}>
                   {isSubmittingCredit ? t('processing') : 'Apply Credit Note'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Partial PO Payment Modal */}
+      {payingPo && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="text-sm font-bold text-foreground">Pay Invoice: {payingPo.po_number}</h3>
+              <button
+                type="button"
+                onClick={() => setPayingPo(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handlePoPayment} className="space-y-3 text-xs">
+              <div className="p-3 bg-muted/40 rounded-lg space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Supplier:</span>
+                  <span className="font-semibold text-foreground">{payingPo.supplier_name || 'Vendor'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice Total:</span>
+                  <span className="font-bold text-foreground">{fmtCurrency(payingPo.total_amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount Paid:</span>
+                  <span className="text-green-600 font-bold">{fmtCurrency(payingPo.paid_amount || 0)}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-border">
+                  <span className="font-semibold text-foreground">Balance Remaining:</span>
+                  <span className="font-bold text-red-500">
+                    {fmtCurrency(Math.max(0, payingPo.total_amount - (payingPo.paid_amount || 0)))}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Payment Amount</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  max={Math.max(0, payingPo.total_amount - (payingPo.paid_amount || 0))}
+                  required
+                  value={poPayAmount}
+                  onChange={(e) => setPoPayAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Payment Method</label>
+                <select
+                  value={poPayMethod}
+                  onChange={(e) => setPoPayMethod(e.target.value as 'cash' | 'bank_transfer' | 'cheque')}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank Transfer / EFT</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-medium text-foreground">Reference / Notes (optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Wire ref #1234, Check #456"
+                  value={poPayNotes}
+                  onChange={(e) => setPoPayNotes(e.target.value)}
+                  className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
+                />
+              </div>
+
+              {poPayMethod === 'cash' && (
+                <label className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={poPayFromDrawer}
+                    onChange={(e) => setPoPayFromDrawer(e.target.checked)}
+                    className="rounded accent-brand size-4"
+                  />
+                  <div>
+                    <p className="font-semibold text-foreground">Pay From Cash Drawer</p>
+                    <p className="text-[10px] text-muted-foreground">Record payout in active cash drawer session</p>
+                  </div>
+                </label>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <Button type="button" variant="outline" size="sm" onClick={() => setPayingPo(null)}>
+                  {t('btnCancel')}
+                </Button>
+                <Button type="submit" variant="default" size="sm" disabled={isSubmittingPoPay}>
+                  {isSubmittingPoPay ? t('processing') : 'Record Payment'}
                 </Button>
               </div>
             </form>

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * FloOwner Control System v4.5.0 - Universal Android APK Builder
- * Produces release/FloOwner-Control-4.5.0-android.apk (minSdkVersion 21+ Lollipop through Android 15+)
+ * FloOwner Control System v4.6.0 - Universal Android APK Builder
+ * Produces release/FloOwner-Control-4.6.0-android.apk (minSdkVersion 21+ Lollipop through Android 15+)
  * and release/FloOwner-Android-Package.zip.
  */
 
@@ -23,7 +23,7 @@ if (fs.existsSync(stagingDir)) {
 fs.mkdirSync(stagingDir, { recursive: true });
 
 console.log('='.repeat(70));
-console.log('📱 Building Universal FloOwner Control Android APK (v4.5.0)...');
+console.log('📱 Building Universal FloOwner Control Android APK (v4.6.0)...');
 console.log('='.repeat(70));
 
 // 1. Prepare assets
@@ -93,7 +93,7 @@ function buildBinaryManifest() {
     'android',
     'package',
     'com.omrshrifmo.floownercontrol',
-    '4.5.0',
+    '4.6.0',
     'uses-sdk',
     'uses-permission',
     'android.permission.INTERNET',
@@ -249,11 +249,11 @@ function buildBinaryManifest() {
   // Start NS
   chunks.push(makeStartNamespace(nsUriIdx, nsPrefixIdx));
 
-  // <manifest package="com.omrshrifmo.floownercontrol" android:versionCode="40500" android:versionName="4.5.0">
+  // <manifest package="com.omrshrifmo.floownercontrol" android:versionCode="40600" android:versionName="4.6.0">
   chunks.push(makeStartElement(stringIndices['manifest'], [
     { nsIdx: 0xFFFFFFFF, nameIdx: stringIndices['package'], rawValIdx: stringIndices['com.omrshrifmo.floownercontrol'], dataType: 0x03, data: stringIndices['com.omrshrifmo.floownercontrol'] },
-    { nsIdx: nsUriIdx, nameIdx: stringIndices['versionCode'], rawValIdx: 0xFFFFFFFF, dataType: 0x10, data: 40500 },
-    { nsIdx: nsUriIdx, nameIdx: stringIndices['versionName'], rawValIdx: stringIndices['4.5.0'], dataType: 0x03, data: stringIndices['4.5.0'] },
+    { nsIdx: nsUriIdx, nameIdx: stringIndices['versionCode'], rawValIdx: 0xFFFFFFFF, dataType: 0x10, data: 40600 },
+    { nsIdx: nsUriIdx, nameIdx: stringIndices['versionName'], rawValIdx: stringIndices['4.6.0'], dataType: 0x03, data: stringIndices['4.6.0'] },
   ]));
 
   // <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>
@@ -349,7 +349,7 @@ const manifestEntries = [
   { name: 'res/drawable/icon.png', path: path.join(stagingDir, 'res', 'drawable', 'icon.png') },
 ];
 
-let manifestMf = 'Manifest-Version: 1.0\r\nCreated-By: FloCafe Sovereign APK Builder v4.5.0\r\n\r\n';
+let manifestMf = 'Manifest-Version: 1.0\r\nCreated-By: FloCafe Sovereign APK Builder v4.6.0\r\n\r\n';
 for (const entry of manifestEntries) {
   if (fs.existsSync(entry.path)) {
     const hash = computeFileSha256(entry.path);
@@ -359,7 +359,7 @@ for (const entry of manifestEntries) {
 fs.writeFileSync(path.join(metaDir, 'MANIFEST.MF'), manifestMf, 'utf8');
 
 const manifestDigest = crypto.createHash('sha256').update(manifestMf).digest('base64');
-let certSf = `Signature-Version: 1.0\r\nCreated-By: FloCafe Sovereign APK Builder v4.5.0\r\nSHA-256-Digest-Manifest: ${manifestDigest}\r\n\r\n`;
+let certSf = `Signature-Version: 1.0\r\nCreated-By: FloCafe Sovereign APK Builder v4.6.0\r\nSHA-256-Digest-Manifest: ${manifestDigest}\r\n\r\n`;
 for (const entry of manifestEntries) {
   if (fs.existsSync(entry.path)) {
     const entryChunk = `Name: ${entry.name}\r\nSHA-256-Digest: ${computeFileSha256(entry.path)}\r\n\r\n`;
@@ -383,8 +383,8 @@ const certRsaBuf = Buffer.concat([
 ]);
 fs.writeFileSync(path.join(metaDir, 'CERT.RSA'), certRsaBuf);
 
-// 7. Pack APK into release/FloOwner-Control-4.5.0-android.apk
-const targetApk = path.join(releaseDir, 'FloOwner-Control-4.5.0-android.apk');
+// 7. Pack APK into release/FloOwner-Control-4.6.0-android.apk
+const targetApk = path.join(releaseDir, 'FloOwner-Control-4.6.0-android.apk');
 if (fs.existsSync(targetApk)) fs.unlinkSync(targetApk);
 
 console.log('[Android Builder] Packing APK archive...');
@@ -398,15 +398,15 @@ const androidPkgDir = path.join(stagingDir, 'FloOwner-Android-Package');
 if (fs.existsSync(androidPkgDir)) fs.rmSync(androidPkgDir, { recursive: true, force: true });
 fs.mkdirSync(androidPkgDir, { recursive: true });
 
-fs.copyFileSync(targetApk, path.join(androidPkgDir, 'FloOwner-Control-4.5.0-android.apk'));
+fs.copyFileSync(targetApk, path.join(androidPkgDir, 'FloOwner-Control-4.6.0-android.apk'));
 fs.copyFileSync(ownerHtml, path.join(androidPkgDir, 'flo-owner-control.html'));
 
-const readmeContent = `FloOwner Control System v4.5.0 — Android Installation Guide
+const readmeContent = `FloOwner Control System v4.6.0 — Android Installation Guide
 ============================================================
 
 1. Native Android APK Installation:
-   - Copy FloOwner-Control-4.5.0-android.apk to your Android phone or tablet.
-   - Open File Manager, tap FloOwner-Control-4.5.0-android.apk, and select Install (enable "Install from unknown sources" if prompted).
+   - Copy FloOwner-Control-4.6.0-android.apk to your Android phone or tablet.
+   - Open File Manager, tap FloOwner-Control-4.6.0-android.apk, and select Install (enable "Install from unknown sources" if prompted).
    - FloOwner Control will install as a native full-screen application.
    - The app has INTERNET and ACCESS_NETWORK_STATE permissions, allowing seamless connections to:
      * Local LAN POS nodes (http://192.168.x.x:3009)
@@ -426,7 +426,7 @@ fs.writeFileSync(path.join(androidPkgDir, 'README.txt'), readmeContent, 'utf8');
 
 const targetZip = path.join(releaseDir, 'FloOwner-Android-Package.zip');
 if (fs.existsSync(targetZip)) fs.unlinkSync(targetZip);
-execSync(`zip -r "${targetZip}" FloOwner-Control-4.5.0-android.apk flo-owner-control.html README.txt`, {
+execSync(`zip -r "${targetZip}" FloOwner-Control-4.6.0-android.apk flo-owner-control.html README.txt`, {
   cwd: androidPkgDir,
   stdio: 'inherit',
 });

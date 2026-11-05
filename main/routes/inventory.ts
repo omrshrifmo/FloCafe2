@@ -135,8 +135,8 @@ router.get('/waste-logs', requirePermission('inventory.view'), (req: Request, re
   }
 });
 
-// POST /api/inventory/waste-logs
-router.post('/waste-logs', requirePermission('inventory.manage'), (req: Request, res: Response) => {
+// POST /api/inventory/waste-logs & /api/inventory/waste
+router.post(['/waste-logs', '/waste'], requirePermission('inventory.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const {
@@ -164,7 +164,7 @@ router.post('/waste-logs', requirePermission('inventory.manage'), (req: Request,
     let unit = 'each';
 
     withTxn(() => {
-      if (source_type === 'product_bom') {
+      if (source_type === 'product_bom' || source_type === 'product') {
         const prod = db.prepare('SELECT id, name, price FROM products WHERE id = ?').get(source_id) as any;
         if (!prod) throw new Error('Product not found for BOM waste log');
         itemName = prod.name;

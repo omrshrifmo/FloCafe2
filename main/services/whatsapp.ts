@@ -117,7 +117,7 @@ export interface WhatsAppStatus {
   pairingCode?: string;
 }
 
-interface QueuedSend {
+export interface QueuedSend {
   phoneE164: string;
   body: string;
   billId: number | null;

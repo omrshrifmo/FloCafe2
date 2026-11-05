@@ -305,10 +305,27 @@ export function FastTouchMode({
   const [searchingCustomer, setSearchingCustomer] = useState(false);
   const [loyaltyPoints, setLoyaltyPoints] = useState<number | null>(null);
 
+  const [customerFavorites, setCustomerFavorites] = useState<Array<{ product_id: string; name: string; price: number; total_ordered: number }>>([]);
+
+  // 1-Tap Waste / Calibration State
+  const [showWasteModal, setShowWasteModal] = useState(false);
+  const [wasteType, setWasteType] = useState<'calibration' | 'waste' | 'staff_meal'>('calibration');
+  const [wasteItemId, setWasteItemId] = useState<string>('');
+  const [wasteQuantity, setWasteQuantity] = useState<number>(1);
+  const [isLoggingWaste, setIsLoggingWaste] = useState(false);
+
+  // Delivery Aggregator & Driver COD Settlement State
+  const [selectedAggregator, setSelectedAggregator] = useState<string | null>(null);
+  const [showDriverSettlementModal, setShowDriverSettlementModal] = useState(false);
+  const [driverSettlements, setDriverSettlements] = useState<Array<{ id: string | number; order_number?: string; total_amount?: number; customer_name?: string; delivery_platform?: string; courier_name?: string; delivery_channel_name?: string }>>([]);
+  const [loadingDriverSettlements, setLoadingDriverSettlements] = useState(false);
+  const [isSettlingDriver, setIsSettlingDriver] = useState(false);
+
   useEffect(() => {
     if (!cart.customer?.id) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoyaltyPoints(null);
+      setCustomerFavorites([]);
       return;
     }
     const controller = new AbortController();
@@ -317,6 +334,13 @@ export function FastTouchMode({
         setLoyaltyPoints(res.data?.balance ?? 0);
       })
       .catch(() => setLoyaltyPoints(null));
+
+    api.get(`/customers/${cart.customer.id}/favorites`, { signal: controller.signal })
+      .then((res) => {
+        setCustomerFavorites(res.data?.favorites || []);
+      })
+      .catch(() => setCustomerFavorites([]));
+
     return () => controller.abort();
   }, [cart.customer?.id]);
 
@@ -357,11 +381,95 @@ export function FastTouchMode({
     cart.setCustomer(null);
     cart.setCustomerId(null);
     setLoyaltyPoints(null);
+    setCustomerFavorites([]);
     setCustomerSearchQuery('');
   };
 
-  const loyaltyStamps = (loyaltyPoints ?? 0) % 7;
-  const freeRewardsEarned = Math.floor((loyaltyPoints ?? 0) / 7);
+  const customerObj = cart.customer as (Customer & { stamps_count?: number }) | null;
+  const stampsCount = customerObj?.stamps_count !== undefined
+    ? Number(customerObj.stamps_count)
+    : Math.floor((loyaltyPoints ?? 0) % 10);
+  const loyaltyStamps = stampsCount % 10;
+  const freeRewardsEarned = Math.floor(stampsCount / 10);
+
+  const handleRedeemFreeReward = () => {
+    if (cart.items.length === 0) {
+      toast.error('Add drinks to cart first to redeem reward');
+      return;
+    }
+    cart.setDiscount({
+      type: 'percentage',
+      value: 100,
+      reason: '10-Stamp Buy-X-Get-1-Free Reward',
+    });
+    toast.success('Free Reward Redeemed! 100% discount applied to drink.');
+  };
+
+  const handleQuickAddFavorite = (fav: { product_id: string; name: string; price: number }) => {
+    const matched = products.find((p) => String(p.id) === String(fav.product_id));
+    if (matched) {
+      cart.addItem(matched, 1);
+    } else {
+      cart.addItem({
+        id: fav.product_id,
+        name: fav.name,
+        price: fav.price,
+        is_active: 1,
+        category_id: 'fav',
+      } as unknown as Product, 1);
+    }
+    toast.success(`+1 Favorite: ${fav.name}`);
+  };
+
+  const handleLogWaste = async () => {
+    const item = products.find((p) => String(p.id) === String(wasteItemId)) || products[0];
+    if (!item) {
+      toast.error('Select a product to log');
+      return;
+    }
+    try {
+      setIsLoggingWaste(true);
+      await api.post('/inventory/waste', {
+        source_type: 'product',
+        source_id: item.id,
+        item_name: item.name,
+        quantity: wasteQuantity,
+        waste_type: wasteType,
+        reason: wasteType === 'calibration' ? 'dial_in' : wasteType === 'staff_meal' ? 'staff_meal' : 'waste',
+      });
+      toast.success(`Logged ${wasteType}: ${wasteQuantity}x ${item.name}`);
+      setShowWasteModal(false);
+    } catch {
+      toast.error('Failed to log waste');
+    } finally {
+      setIsLoggingWaste(false);
+    }
+  };
+
+  const loadDriverSettlements = async () => {
+    try {
+      setLoadingDriverSettlements(true);
+      const res = await api.get('/orders/driver-settlements');
+      setDriverSettlements(res.data?.unsettled_orders || []);
+    } catch {
+      toast.error('Failed to load driver settlements');
+    } finally {
+      setLoadingDriverSettlements(false);
+    }
+  };
+
+  const handleSettleDriverCod = async () => {
+    try {
+      setIsSettlingDriver(true);
+      const res = await api.post('/orders/driver-settlements/settle', {});
+      toast.success(`Settled ${res.data?.settled_count || 0} orders into cash drawer!`);
+      setShowDriverSettlementModal(false);
+    } catch {
+      toast.error('Failed to settle driver COD');
+    } finally {
+      setIsSettlingDriver(false);
+    }
+  };
 
   // Global Escape keyboard listener to exit Fast-Touch
   useEffect(() => {
@@ -773,6 +881,41 @@ export function FastTouchMode({
             </button>
           </div>
 
+          {/* Delivery Aggregator & Driver COD Quick Bar */}
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border shrink-0 h-11">
+            {(['Talabat', 'Elmenus', 'Breadfast', 'Instashop'] as const).map((agg) => (
+              <button
+                key={agg}
+                type="button"
+                onClick={() => {
+                  if (selectedAggregator === agg) {
+                    setSelectedAggregator(null);
+                  } else {
+                    setSelectedAggregator(agg);
+                    cart.setOrderType('delivery');
+                  }
+                }}
+                className={`h-9 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer touch-manipulation ${
+                  selectedAggregator === agg
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                {agg}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setShowDriverSettlementModal(true);
+                loadDriverSettlements();
+              }}
+              className="h-9 px-2.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 cursor-pointer touch-manipulation"
+            >
+              Driver COD
+            </button>
+          </div>
+
           {/* Table Selector & Guests Stepper (Only active if Dine In) */}
           {cart.orderType === 'dine_in' && (
             <div className="flex items-center gap-2 shrink-0">
@@ -852,6 +995,17 @@ export function FastTouchMode({
             </button>
           )}
 
+          {/* 1-Tap Waste / Calibration Button */}
+          <button
+            type="button"
+            onClick={() => setShowWasteModal(true)}
+            className="flex items-center gap-1.5 h-11 min-h-[44px] px-3.5 rounded-xl text-sm border border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
+            title="Log Morning Calibration, Spoilage, or Staff Shift Meal"
+          >
+            <Trash2 className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <span className="hidden sm:inline">1-Tap Waste</span>
+          </button>
+
           <button
             type="button"
             onClick={handleRepeatLast}
@@ -926,49 +1080,79 @@ export function FastTouchMode({
 
             {/* Customer & Loyalty Stamp Card */}
             {cart.customer ? (
-              <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-8 w-8 rounded-lg bg-amber-500/20 text-amber-600 flex items-center justify-center font-bold text-sm shrink-0">
-                    ☕
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-black text-foreground truncate flex items-center gap-1.5">
-                      <span>{cart.customer.name}</span>
-                      {cart.customer.phone && (
-                        <span className="text-[10px] text-muted-foreground font-mono font-normal">
-                          ({cart.customer.phone})
-                        </span>
-                      )}
+              <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col gap-2 shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-8 w-8 rounded-lg bg-amber-500/20 text-amber-600 flex items-center justify-center font-bold text-sm shrink-0">
+                      ☕
                     </div>
-                    <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-                      <span>{isArabic ? 'بطاقة الأختام:' : 'Stamp Card:'}</span>
-                      <span className="font-mono font-black">{loyaltyStamps}/7</span>
-                      <div className="flex items-center gap-0.5 ms-1">
-                        {[...Array(7)].map((_, i) => (
-                          <span
-                            key={i}
-                            className={`inline-block size-2 rounded-full ${
-                              i < loyaltyStamps ? 'bg-amber-500 shadow-xs' : 'bg-muted-foreground/30'
-                            }`}
-                          />
-                        ))}
+                    <div className="min-w-0">
+                      <div className="text-xs font-black text-foreground truncate flex items-center gap-1.5">
+                        <span>{cart.customer.name}</span>
+                        {cart.customer.phone && (
+                          <span className="text-[10px] text-muted-foreground font-mono font-normal">
+                            ({cart.customer.phone})
+                          </span>
+                        )}
                       </div>
-                      {freeRewardsEarned > 0 && (
-                        <Badge variant="default" className="ms-1.5 text-[9px] bg-amber-600 text-white font-bold h-4 px-1">
-                          🎉 {freeRewardsEarned} Free
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200 flex-wrap">
+                        <span>{isArabic ? 'بطاقة الأختام:' : 'Stamp Card:'}</span>
+                        <span className="font-mono font-black">{loyaltyStamps}/10</span>
+                        <div className="flex items-center gap-0.5 ms-1">
+                          {[...Array(10)].map((_, i) => (
+                            <span
+                              key={i}
+                              className={`inline-block size-2 rounded-full ${
+                                i < loyaltyStamps ? 'bg-amber-500 shadow-xs' : 'bg-muted-foreground/30'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        {freeRewardsEarned > 0 && (
+                          <Badge variant="default" className="ms-1.5 text-[9px] bg-amber-600 text-white font-bold h-4 px-1">
+                            🎉 {freeRewardsEarned} Free
+                          </Badge>
+                        )}
+                        {(freeRewardsEarned > 0 || stampsCount >= 10) && (
+                          <button
+                            type="button"
+                            onClick={handleRedeemFreeReward}
+                            className="ms-1.5 px-2 py-0.5 text-[10px] bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md shadow-xs active:scale-95 transition-all cursor-pointer"
+                          >
+                            Redeem Free Reward
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleClearCustomer}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+                    title="Remove customer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleClearCustomer}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
-                  title="Remove customer"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+
+                {customerFavorites && customerFavorites.length > 0 && (
+                  <div className="pt-1.5 border-t border-amber-500/20 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">
+                      {isArabic ? 'المفضلة:' : 'Top Favorites:'}
+                    </span>
+                    {customerFavorites.slice(0, 3).map((fav) => (
+                      <button
+                        key={fav.product_id}
+                        type="button"
+                        onClick={() => handleQuickAddFavorite(fav)}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 border border-amber-500/30 flex items-center gap-1 cursor-pointer active:scale-95 transition-all"
+                        title={`Click to add ${fav.name}`}
+                      >
+                        <span>⭐ {fav.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="relative shrink-0">
@@ -1602,6 +1786,194 @@ export function FastTouchMode({
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1-Tap Waste / Calibration Modal */}
+      {showWasteModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-amber-500" />
+                <h3 className="font-bold text-base text-foreground">
+                  {isArabic ? 'تسجيل هدر / معايرة سريعة' : '1-Tap Waste & Calibration'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWasteModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Waste Type Selector */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'calibration', label: isArabic ? 'معايرة صباحية' : 'Dial-In' },
+                { id: 'waste', label: isArabic ? 'تالف / منتهي' : 'Spoilage' },
+                { id: 'staff_meal', label: isArabic ? 'وجبة موظف' : 'Staff Meal' },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setWasteType(t.id as 'calibration' | 'waste' | 'staff_meal')}
+                  className={`py-2 px-1 text-xs font-bold rounded-xl border text-center transition-all cursor-pointer ${
+                    wasteType === t.id
+                      ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs'
+                      : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Product Selector */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-foreground">
+                {isArabic ? 'الصنف المراد تسجيله' : 'Select Item / Recipe'}
+              </label>
+              <select
+                value={wasteItemId}
+                onChange={(e) => setWasteItemId(e.target.value)}
+                className="w-full p-2.5 bg-muted/30 border border-border rounded-xl text-xs font-bold text-foreground outline-none focus:ring-1 focus:ring-brand"
+              >
+                <option value="">-- {isArabic ? 'اختر صنف' : 'Select Product'} --</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({fmtCurrency(p.price)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quantity Stepper */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border">
+              <span className="text-xs font-bold text-foreground">
+                {isArabic ? 'الكمية' : 'Portions / Quantity'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWasteQuantity(Math.max(1, wasteQuantity - 1))}
+                  className="h-8 w-8 rounded-lg bg-card border border-border flex items-center justify-center font-bold text-sm cursor-pointer"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </button>
+                <span className="font-mono font-bold text-sm w-6 text-center">{wasteQuantity}</span>
+                <button
+                  type="button"
+                  onClick={() => setWasteQuantity(wasteQuantity + 1)}
+                  className="h-8 w-8 rounded-lg bg-card border border-border flex items-center justify-center font-bold text-sm cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleLogWaste}
+              disabled={isLoggingWaste || (!wasteItemId && products.length === 0)}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold h-11 rounded-xl shadow-xs cursor-pointer"
+            >
+              {isLoggingWaste
+                ? (isArabic ? 'جارِ التسجيل...' : 'Logging...')
+                : (isArabic ? 'تأكيد الخصم من المخزون' : 'Confirm Waste Deduction')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* In-House Driver COD Settlement Modal */}
+      {showDriverSettlementModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div>
+                <h3 className="font-bold text-base text-foreground">
+                  {isArabic ? 'تسوية عهدة السائقين (COD)' : 'In-House Driver COD Settlement'}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {isArabic ? 'مراجعة وتسوية مبالغ التوصيل المعلقة في عهدة السائقين' : 'Review and reconcile pending cash held by in-house delivery drivers'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDriverSettlementModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-2 pe-1">
+              {loadingDriverSettlements ? (
+                <div className="py-8 text-center text-xs text-muted-foreground animate-pulse">
+                  {isArabic ? 'جارِ تحميل الطلبات المعلقة...' : 'Loading unsettled driver orders...'}
+                </div>
+              ) : driverSettlements.length === 0 ? (
+                <div className="py-8 text-center text-xs text-emerald-600 font-bold">
+                  ✓ {isArabic ? 'جميع طلبات التوصيل مسواة، لا توجد عهدة معلقة' : 'All delivery orders are settled! No pending driver cash.'}
+                </div>
+              ) : (
+                driverSettlements.map((ord) => (
+                  <div
+                    key={ord.id}
+                    className="p-2.5 rounded-xl border border-border bg-muted/20 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="font-bold text-foreground">
+                        Order #{ord.order_number || String(ord.id).slice(0, 8)}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Driver: <span className="font-semibold text-foreground">{ord.courier_name || 'In-House Courier'}</span>
+                        {ord.delivery_channel_name && ` • Channel: ${ord.delivery_channel_name}`}
+                      </div>
+                    </div>
+                    <div className="text-end">
+                      <div className="font-mono font-bold text-brand">{fmtCurrency(ord.total)}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {ord.created_at ? parseDbTimestamp(ord.created_at).toLocaleTimeString() : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {driverSettlements.length > 0 && (
+              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                  {isArabic ? 'إجمالي المبالغ المعلقة' : 'Total Unsettled COD Cash:'}
+                </span>
+                <span className="font-mono font-bold text-sm text-blue-700 dark:text-blue-300">
+                  {fmtCurrency(driverSettlements.reduce((sum, o) => sum + (Number(o.total) || 0), 0))}
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowDriverSettlementModal(false)}
+                className="flex-1 rounded-xl text-xs font-bold h-10"
+              >
+                {isArabic ? 'إغلاق' : 'Close'}
+              </Button>
+              <Button
+                onClick={handleSettleDriverCod}
+                disabled={isSettlingDriver || driverSettlements.length === 0}
+                className="flex-1 bg-brand hover:bg-brand/90 text-white font-bold rounded-xl text-xs h-10 cursor-pointer"
+              >
+                {isSettlingDriver
+                  ? (isArabic ? 'جارِ التسوية...' : 'Settling...')
+                  : (isArabic ? 'تسوية وتوريد للدرج' : 'Settle All Into Cash Drawer')}
+              </Button>
             </div>
           </div>
         </div>
