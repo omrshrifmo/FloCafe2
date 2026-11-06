@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.6.0', 'MCP server version is 4.6.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.6.1', 'MCP server version is 4.6.1');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.6.0', 'package.json version is 4.6.0');
+    assertEqualOrThrow(rootPackageJson.version, '4.6.1', 'package.json version is 4.6.1');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.6.0', 'owner builder config version is 4.6.0');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.6.1', 'owner builder config version is 4.6.1');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.6.0',
+      flocafe_version: '4.6.1',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.6.0', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.6.1', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,10 +2093,10 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.6.0', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.6.1', 'WebCrypto decrypted beacon matches flocafe_version');
 
-    // ── Test 17: v4.6.0 Operating System Pillars Verification ──────────────────
-    console.log('\n[17] Verifying FloCafe v4.6.0 Operating System Pillars...');
+    // ── Test 17: v4.6.1 Operating System Pillars Verification ──────────────────
+    console.log('\n[17] Verifying FloCafe v4.6.1 Operating System Pillars...');
 
     // 17.1 Schema tables exist: v112 migration
     const winbackTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_winback_vouchers'").get();
@@ -2164,8 +2164,55 @@ async function main() {
     const updatedSup = db.prepare('SELECT balance_due FROM suppliers WHERE id = ?').get(testSupId) as any;
     assertEqualOrThrow(updatedSup.balance_due, 4550, 'Supplier balance_due decremented by rejected_value (5000 - 450 = 4550)');
 
-    // 17.4 WhatsApp Win-Back candidate detection and vouchers
-    const { findWinBackCandidates, runWinBackCampaign, redeemWinBackVoucher } = require('../main/services/whatsapp-winback');
+    // 17.3.1 HACCP validation bounds checks
+    const negRejRes = await api(baseUrl, '/api/haccp/ccp-logs', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        station_name: 'Receiving Milk Temperature',
+        ccp_category: 'Receiving',
+        recorded_value: 4.0,
+        rejected_amount: -100,
+      },
+    });
+    assertEqualOrThrow(negRejRes.status, 400, 'HACCP rejects negative rejected_amount');
+
+    const nanValRes = await api(baseUrl, '/api/haccp/ccp-logs', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        station_name: 'Receiving Milk Temperature',
+        ccp_category: 'Receiving',
+        recorded_value: 'not_a_number',
+      },
+    });
+    assertEqualOrThrow(nanValRes.status, 400, 'HACCP rejects non-finite recorded_value');
+
+    const invertedRangeRes = await api(baseUrl, '/api/haccp/ccp-logs', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        station_name: 'Receiving Milk Temperature',
+        ccp_category: 'Receiving',
+        recorded_value: 4.0,
+        target_min: 15.0,
+        target_max: 5.0,
+      },
+    });
+    assertEqualOrThrow(invertedRangeRes.status, 400, 'HACCP rejects inverted range (min > max)');
+
+    // 17.4 WhatsApp Win-Back candidate detection, vouchers, and phone normalization
+    const { findWinBackCandidates, runWinBackCampaign, redeemWinBackVoucher, normalizeWhatsAppPhone } = require('../main/services/whatsapp-winback');
+
+    assertEqualOrThrow(normalizeWhatsAppPhone('01012345678'), '201012345678', 'Normalizes Egyptian 010 mobile to 2010');
+    assertEqualOrThrow(normalizeWhatsAppPhone('01123456789'), '201123456789', 'Normalizes Egyptian 011 mobile to 2011');
+    assertEqualOrThrow(normalizeWhatsAppPhone('01234567890'), '201234567890', 'Normalizes Egyptian 012 mobile to 2012');
+    assertEqualOrThrow(normalizeWhatsAppPhone('01567890123'), '201567890123', 'Normalizes Egyptian 015 mobile to 2015');
+    assertEqualOrThrow(normalizeWhatsAppPhone('+201012345678'), '201012345678', 'Normalizes +2010 mobile without plus');
+    assertEqualOrThrow(normalizeWhatsAppPhone('00201012345678'), '201012345678', 'Strips leading 00 international prefix');
+    assertEqualOrThrow(normalizeWhatsAppPhone('010-1234-5678'), '201012345678', 'Strips formatting dashes and spaces');
+    assertEqualOrThrow(normalizeWhatsAppPhone(''), null, 'Empty phone returns null');
+    assertEqualOrThrow(normalizeWhatsAppPhone(null), null, 'Null phone returns null');
     const winbackCandidates = findWinBackCandidates(0);
     assertOrThrow(Array.isArray(winbackCandidates), 'findWinBackCandidates returns array');
 
@@ -2200,6 +2247,57 @@ async function main() {
     });
     assertEqualOrThrow(driverSettlementsRes.status, 200, 'GET /api/orders/driver-settlements 200 OK');
     assertOrThrow(Array.isArray(driverSettlementsRes.data.unsettled_orders), 'unsettled_orders is array');
+
+    // 17.7 Multi-Branch EOD Google Drive offline resilience check
+    const { upsertSettings } = require('../main/db');
+    upsertSettings({ eod_gdrive_sync_enabled: 'true' });
+    const offlineSyncRes = await generateAndSyncEodBundle('closure-test-460');
+    assertOrThrow(offlineSyncRes.success, 'generateAndSyncEodBundle succeeds when drive is offline');
+    const latestLog = db.prepare('SELECT * FROM multibranch_eod_sync_logs WHERE id = ?').get(offlineSyncRes.bundle_id) as any;
+    assertOrThrow(Boolean(latestLog), 'EOD sync log persisted');
+    assertEqualOrThrow(latestLog.sync_channel, 'local+sentinel (drive_offline)', 'Records drive_offline channel status');
+    upsertSettings({ eod_gdrive_sync_enabled: 'false' });
+
+    // ── Test 18: FloOwner Control v4.6.1 Android APK Byte-Level & Signature Verification ──
+    console.log('\n[18] Verifying FloOwner Control v4.6.1 Universal Android APK byte-level integrity...');
+    const pathMod = require('path');
+    const fsMod = require('fs');
+    const cpMod = require('child_process');
+
+    const apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.6.1-android.apk');
+    assertOrThrow(fsMod.existsSync(apkPath), 'release/FloOwner-Control-4.6.1-android.apk must exist');
+
+    const apkBuffer = fsMod.readFileSync(apkPath);
+    assertOrThrow(apkBuffer.length > 30000, 'APK file size must be > 30KB');
+
+    // Verify APK Signing Block magic: "APK Sig Block 42"
+    assertOrThrow(apkBuffer.includes(Buffer.from('APK Sig Block 42', 'ascii')), 'APK contains APK Sig Block 42 signature block');
+
+    // Extract classes.dex from the APK
+    const dexBuffer = cpMod.execSync(`unzip -p "${apkPath}" classes.dex`);
+    assertOrThrow(dexBuffer.length > 500, 'classes.dex extracted from APK must be > 500 bytes');
+
+    // Verify DEX magic "dex\n035\0"
+    const dexMagic = dexBuffer.subarray(0, 8).toString('ascii');
+    assertEqualOrThrow(dexMagic, 'dex\n035\0', 'classes.dex begins with valid DEX magic 035');
+
+    // Verify class_defs_size at offset 96
+    const classDefsSize = dexBuffer.readUInt32LE(96);
+    assertOrThrow(classDefsSize >= 1, `classes.dex class_defs_size must be >= 1 (got ${classDefsSize})`);
+
+    // Verify bytecode contains MainActivity and WebView classes
+    const dexStr = dexBuffer.toString('binary');
+    assertOrThrow(dexStr.includes('Lcom/flocafe/ownercontrol/MainActivity;'), 'classes.dex contains Lcom/flocafe/ownercontrol/MainActivity;');
+    assertOrThrow(dexStr.includes('Landroid/webkit/WebView;'), 'classes.dex contains Landroid/webkit/WebView;');
+
+    // Verify with apksigner if available
+    const apksignerJar = pathMod.join(process.cwd(), '.cache', 'android-sdk', 'build-tools', 'lib', 'apksigner.jar');
+    if (fsMod.existsSync(apksignerJar)) {
+      const verifyOutput = cpMod.execSync(`java -jar "${apksignerJar}" verify --verbose --print-certs "${apkPath}"`, { encoding: 'utf8' });
+      assertOrThrow(verifyOutput.includes('Verified using v1 scheme (JAR signing): true'), 'apksigner confirms v1 scheme');
+      assertOrThrow(verifyOutput.includes('Verified using v2 scheme (APK Signature Scheme v2): true'), 'apksigner confirms v2 scheme');
+      assertOrThrow(verifyOutput.includes('Verified using v3 scheme (APK Signature Scheme v3): true'), 'apksigner confirms v3 scheme');
+    }
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

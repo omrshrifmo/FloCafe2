@@ -126,8 +126,16 @@ export default function FinancePage() {
     z_report_json?: unknown;
     pnl_summary_json?: unknown;
   }
+  interface MultiBranchSummary {
+    branches_count?: number;
+    total_syncs?: number;
+    total_revenue?: number;
+    total_direct_cogs?: number;
+    total_waste?: number;
+    total_net_profit?: number;
+  }
   const [multibranchLogs, setMultibranchLogs] = useState<MultiBranchEodLog[]>([]);
-  const [multibranchSummary, setMultibranchSummary] = useState<Record<string, unknown> | null>(null);
+  const [multibranchSummary, setMultibranchSummary] = useState<MultiBranchSummary | null>(null);
   const [loadingMultibranch, setLoadingMultibranch] = useState(false);
   const [syncingEod, setSyncingEod] = useState(false);
 
@@ -189,7 +197,6 @@ export default function FinancePage() {
       void loadUnsettledOrders();
     }
     if (activeTab === 'multibranch') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadMultibranchEod();
     }
   }, [activeTab, loadUnsettledOrders, loadMultibranchEod]);

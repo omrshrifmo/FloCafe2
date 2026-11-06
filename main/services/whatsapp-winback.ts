@@ -3,6 +3,39 @@ import { getDatabase, getSettingValue, upsertSettings, now } from '../db';
 import * as whatsapp from './whatsapp';
 import { parsePhoneE164 } from '../lib/phone';
 
+/**
+ * Normalizes phone numbers for WhatsApp delivery.
+ * Strips non-digits, strips leading 00, and converts Egyptian domestic mobile numbers
+ * (010..., 011..., 012..., 015...) into international E.164 without leading plus (2010...).
+ */
+export function normalizeWhatsAppPhone(rawPhone: string | null | undefined): string | null {
+  if (!rawPhone || typeof rawPhone !== 'string') return null;
+  let digits = rawPhone.replace(/\D/g, '');
+  if (!digits) return null;
+
+  // Strip leading 00 international prefix
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+
+  // Egyptian domestic mobile format: 010xxxxxxxx, 011xxxxxxxx, 012xxxxxxxx, 015xxxxxxxx (11 digits)
+  if (/^01[0125]\d{8}$/.test(digits)) {
+    return '20' + digits.slice(1);
+  }
+
+  // Already prefixed with Egypt country code: 201[0125]xxxxxxxx (12 digits)
+  if (/^201[0125]\d{8}$/.test(digits)) {
+    return digits;
+  }
+
+  // Generic valid international number
+  if (digits.length >= 7 && digits.length <= 15) {
+    return digits;
+  }
+
+  return digits.length > 0 ? digits : null;
+}
+
 export interface WinBackCandidate {
   id: string;
   name: string | null;
@@ -57,7 +90,9 @@ export async function sendAutoCheckoutReceipt(orderId: string | number): Promise
 
     const tenantCountry = getSettingValue('country') || '';
     const parsedPhone = parsePhoneE164(customerPhone, tenantCountry);
-    if (!parsedPhone) return false;
+    const normalizedDigits = normalizeWhatsAppPhone(customerPhone);
+    const phoneE164 = parsedPhone?.e164 || (normalizedDigits ? `+${normalizedDigits}` : null);
+    if (!phoneE164) return false;
 
     const items = db.prepare(`
       SELECT oi.*, p.name as product_name
@@ -110,7 +145,7 @@ export async function sendAutoCheckoutReceipt(orderId: string | number): Promise
     }
 
     void whatsapp.sendMessage({
-      phoneE164: parsedPhone.e164,
+      phoneE164,
       body: receiptBody,
       billId: null,
       customerId: customerId ? Number(customerId) || null : null,
@@ -224,12 +259,14 @@ export async function runWinBackCampaign(options?: {
       .replace('{code}', voucherCode);
 
     const parsedPhone = parsePhoneE164(cand.phone, tenantCountry);
+    const normalizedDigits = normalizeWhatsAppPhone(cand.phone);
+    const phoneE164 = parsedPhone?.e164 || (normalizedDigits ? `+${normalizedDigits}` : null);
     let sentFlag = 0;
 
-    if (isConnected && parsedPhone) {
+    if (isConnected && phoneE164) {
       try {
         void whatsapp.sendMessage({
-          phoneE164: parsedPhone.e164,
+          phoneE164,
           body: message,
           billId: null,
           customerId: Number(cand.id) || null,

@@ -2362,17 +2362,27 @@ export async function generateAndSyncEodBundle(closureId?: string | number): Pro
 
   // 6. Attempt Google Drive backup trigger if connected and enabled
   const driveSyncEnabled = getSettingValue('eod_gdrive_sync_enabled') === 'true';
+  let driveOffline = false;
   if (driveSyncEnabled) {
     try {
       const driveStatus = await googleDrive.getStatus();
-      if (driveStatus.connected) {
+      if (driveStatus.connected && driveStatus.auth_state === 'connected') {
         await googleDrive.backupNow(undefined, 'automatic');
         driveFileId = 'gdrive-synced-' + bundleId.slice(0, 8);
+      } else {
+        driveOffline = true;
       }
-    } catch (gErr) {
-      console.warn('[EODSync] Google Drive sync skipped/failed:', (gErr as any)?.message);
+    } catch (gErr: any) {
+      driveOffline = true;
+      console.warn('[EODSync] Google Drive sync skipped/failed (offline/invalid_grant):', gErr?.message || gErr);
     }
   }
+
+  const syncChannel = driveFileId
+    ? 'local+drive+sentinel'
+    : (driveOffline || driveSyncEnabled)
+      ? 'local+sentinel (drive_offline)'
+      : 'local+sentinel';
 
   db.prepare(`
     INSERT INTO multibranch_eod_sync_logs (
@@ -2390,7 +2400,7 @@ export async function generateAndSyncEodBundle(closureId?: string | number): Pro
     JSON.stringify(pnlSummary),
     driveFileId,
     sha256,
-    driveFileId ? 'local+drive+sentinel' : 'local+sentinel'
+    syncChannel
   );
 
   return {

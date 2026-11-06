@@ -1,5 +1,5 @@
 /**
- * FloOwner Control System v4.6.0 - Standalone Native Desktop Main Process
+ * FloOwner Control System v4.6.1 - Standalone Native Desktop Main Process
  * Lightweight Electron launcher dedicated to FloCafe remote fleet administration.
  */
 
@@ -23,7 +23,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'FloOwner Control System v4.6.0',
+    title: 'FloOwner Control System v4.6.1',
     autoHideMenuBar: true,
     backgroundColor: '#0f1117',
     webPreferences: {
@@ -88,6 +88,35 @@ ipcMain.handle('owner:list-local-keys', async () => {
         }
       }
     } catch {}
+  }
+
+  // Auto-generate unified Mobile Vault Bundle if keys were found
+  if (foundKeys.length > 0) {
+    try {
+      const bundleDir = '/home/omrshrifmo/FloCafe-Owner-Private-Keys';
+      const bundleFile = path.join(bundleDir, 'flo-owner-vault-bundle.flokey');
+      if (fs.existsSync(bundleDir)) {
+        const validIndividualKeys = foundKeys.filter((k) => k.name !== 'flo-owner-vault-bundle.flokey' && k.data?.key_type);
+        if (validIndividualKeys.length > 0) {
+          const bundleObj = {
+            bundle_type: 'flo_owner_vault_bundle',
+            version: 1,
+            generated_at: new Date().toISOString(),
+            keys_count: validIndividualKeys.length,
+            keys: validIndividualKeys.map((k) => ({
+              name: k.name,
+              tier: k.data?.tier || (k.name.includes('master') ? 'owner_reactivate_master' : k.name.replace(/\.flokey$/, '')),
+              key_type: k.data?.key_type || (k.name.includes('master') ? 'owner_master' : 'tier'),
+              content: k.content,
+              data: k.data,
+            })),
+          };
+          fs.writeFileSync(bundleFile, JSON.stringify(bundleObj, null, 2), { mode: 0o600 });
+        }
+      }
+    } catch (e) {
+      console.warn('[Owner Main] Could not write flo-owner-vault-bundle.flokey:', e);
+    }
   }
 
   return foundKeys;

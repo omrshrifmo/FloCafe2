@@ -317,7 +317,17 @@ export function FastTouchMode({
   // Delivery Aggregator & Driver COD Settlement State
   const [selectedAggregator, setSelectedAggregator] = useState<string | null>(null);
   const [showDriverSettlementModal, setShowDriverSettlementModal] = useState(false);
-  const [driverSettlements, setDriverSettlements] = useState<Array<{ id: string | number; order_number?: string; total_amount?: number; customer_name?: string; delivery_platform?: string; courier_name?: string; delivery_channel_name?: string }>>([]);
+  const [driverSettlements, setDriverSettlements] = useState<Array<{
+    id: string | number;
+    order_number?: string;
+    total?: number;
+    total_amount?: number;
+    customer_name?: string;
+    delivery_platform?: string;
+    courier_name?: string;
+    delivery_channel_name?: string;
+    created_at?: string;
+  }>>([]);
   const [loadingDriverSettlements, setLoadingDriverSettlements] = useState(false);
   const [isSettlingDriver, setIsSettlingDriver] = useState(false);
 
@@ -1936,7 +1946,7 @@ export function FastTouchMode({
                       </div>
                     </div>
                     <div className="text-end">
-                      <div className="font-mono font-bold text-brand">{fmtCurrency(ord.total)}</div>
+                      <div className="font-mono font-bold text-brand">{fmtCurrency(ord.total ?? ord.total_amount ?? 0)}</div>
                       <div className="text-[10px] text-muted-foreground font-mono">
                         {ord.created_at ? parseDbTimestamp(ord.created_at).toLocaleTimeString() : ''}
                       </div>
@@ -1952,7 +1962,7 @@ export function FastTouchMode({
                   {isArabic ? 'إجمالي المبالغ المعلقة' : 'Total Unsettled COD Cash:'}
                 </span>
                 <span className="font-mono font-bold text-sm text-blue-700 dark:text-blue-300">
-                  {fmtCurrency(driverSettlements.reduce((sum, o) => sum + (Number(o.total) || 0), 0))}
+                  {fmtCurrency(driverSettlements.reduce((sum, o) => sum + (Number(o.total ?? o.total_amount ?? 0)), 0))}
                 </span>
               </div>
             )}

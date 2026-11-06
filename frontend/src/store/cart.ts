@@ -112,57 +112,55 @@ export const useCartStore = create<CartState>((set, get) => ({
   discount: null,
 
   addItem: (product, quantity = 1, addons = [], specialInstructions = '') => {
-    const items = get().items;
     const itemId = generateCartItemId(product.id, addons, specialInstructions);
-    const existing = items.find((i) => i.id === itemId);
-
-    if (existing) {
-      set({
-        items: items.map((i) =>
-          i.id === itemId ? { ...i, quantity: i.quantity + quantity } : i
-        ),
-      });
-    } else {
-      set({
-        items: [...items, { id: itemId, product, quantity, addons, special_instructions: specialInstructions }],
-      });
-    }
+    set((state) => {
+      const existing = state.items.find((i) => i.id === itemId);
+      if (existing) {
+        return {
+          items: state.items.map((i) =>
+            i.id === itemId ? { ...i, quantity: i.quantity + quantity } : i
+          ),
+        };
+      }
+      return {
+        items: [...state.items, { id: itemId, product, quantity, addons, special_instructions: specialInstructions }],
+      };
+    });
   },
 
   updateItemDetails: (cartItemId, quantity, addons, specialInstructions) => {
-    const items = get().items;
-    const target = items.find((i) => i.id === cartItemId);
-    if (!target) return;
+    set((state) => {
+      const target = state.items.find((i) => i.id === cartItemId);
+      if (!target) return state;
 
-    const newId = generateCartItemId(target.product.id, addons, specialInstructions);
-    if (newId === cartItemId) {
-      set({
-        items: items.map((i) =>
-          i.id === cartItemId ? { ...i, quantity, addons, special_instructions: specialInstructions } : i
-        ),
-      });
-      return;
-    }
+      const newId = generateCartItemId(target.product.id, addons, specialInstructions);
+      if (newId === cartItemId) {
+        return {
+          items: state.items.map((i) =>
+            i.id === cartItemId ? { ...i, quantity, addons, special_instructions: specialInstructions } : i
+          ),
+        };
+      }
 
-    // The edit produced a config that matches another existing line — merge into it.
-    const collision = items.find((i) => i.id === newId && i.id !== cartItemId);
-    if (collision) {
-      set({
-        items: items
-          .filter((i) => i.id !== cartItemId)
-          .map((i) => (i.id === newId ? { ...i, quantity: i.quantity + quantity } : i)),
-      });
-    } else {
-      set({
-        items: items.map((i) =>
+      // The edit produced a config that matches another existing line — merge into it.
+      const collision = state.items.find((i) => i.id === newId && i.id !== cartItemId);
+      if (collision) {
+        return {
+          items: state.items
+            .filter((i) => i.id !== cartItemId)
+            .map((i) => (i.id === newId ? { ...i, quantity: i.quantity + quantity } : i)),
+        };
+      }
+      return {
+        items: state.items.map((i) =>
           i.id === cartItemId ? { ...i, id: newId, quantity, addons, special_instructions: specialInstructions } : i
         ),
-      });
-    }
+      };
+    });
   },
 
   removeItem: (cartItemId) => {
-    set({ items: get().items.filter((i) => i.id !== cartItemId) });
+    set((state) => ({ items: state.items.filter((i) => i.id !== cartItemId) }));
   },
 
   updateQuantity: (cartItemId, quantity) => {
@@ -170,11 +168,11 @@ export const useCartStore = create<CartState>((set, get) => ({
       get().removeItem(cartItemId);
       return;
     }
-    set({
-      items: get().items.map((i) =>
+    set((state) => ({
+      items: state.items.map((i) =>
         i.id === cartItemId ? { ...i, quantity } : i
       ),
-    });
+    }));
   },
 
   clearCart: () => {

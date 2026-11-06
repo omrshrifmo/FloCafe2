@@ -51,3 +51,5 @@ owner-private-keys/
 *.flokey
 *.private.pem
 scripts/generate-owner-license-keys.cjs
+
+.cache/

@@ -302,7 +302,7 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
                             <span className="font-bold text-foreground">Order #{ord.order_number}</span>
                             <span className="text-muted-foreground ms-1.5">({ord.courier_name || 'Driver'})</span>
                           </div>
-                          <span className="font-mono font-bold text-brand">{fmt(ord.total)}</span>
+                          <span className="font-mono font-bold text-brand">{fmt(ord.total || 0)}</span>
                         </div>
                       ))
                     )}

@@ -206,6 +206,12 @@ input,textarea,select{font-family:var(--font)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .prog-bar{background:var(--surface);border-radius:4px;overflow:hidden;height:6px;margin:4px 0}
 .prog-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-box{background:var(--card);border:1px solid var(--border);border-radius:12px;width:100%;max-width:540px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.modal-header h3{font-size:.95rem;margin:0;color:var(--text)}
+.tier-btn.has-key{border-color:rgba(0,212,170,.5);background:rgba(0,212,170,.08);color:var(--accent2)}
+.tier-btn.has-key::after{content:' ✓';color:var(--accent2);font-size:.7rem}
 @media(max-width:780px){#header{padding:10px 14px}#pw-input{width:120px}#fleet-panel{max-height:35vh}}
 </style>
 </head>
@@ -217,12 +223,15 @@ input,textarea,select{font-family:var(--font)}
       <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
       <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
-    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.6.0 &middot; Standalone Native Fleet Manager</p></div>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.6.1 &middot; Standalone Native Fleet Manager</p></div>
   </div>
   <div id="key-vault">
     <label>&#128273; Owner Key:</label>
     <button id="key-file-btn" onclick="loadKeyFile()">Load .flokey</button>
     <span id="key-status" class="ks-no">No key loaded</span>
+    <button id="vault-import-btn" class="btn btn-ghost btn-sm" onclick="openVaultModal()" style="margin-left:6px">&#128229; Import Vault</button>
+    <button id="vault-export-btn" class="btn btn-ghost btn-sm" onclick="exportVaultBundle()" style="margin-left:4px">&#128228; Export Vault</button>
+    <span id="vault-status" class="badge b-nogui" style="margin-left:4px">Vault: 0</span>
     <label style="margin-left:8px">Password:</label>
     <input type="password" id="pw-input" value="Fl0220671190" placeholder="Owner password" autocomplete="current-password" />
     <button id="vault-lock-btn" onclick="pingAll()">&#128260; Ping All</button>
@@ -439,33 +448,255 @@ input,textarea,select{font-family:var(--font)}
   </main>
 </div>
 </div>
+<div id="vault-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeVaultModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>&#128273; Mobile Vault Bundle &amp; Keys Manager</h3>
+      <button class="node-del" onclick="closeVaultModal()">x</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.78rem;color:var(--muted);margin-bottom:8px">
+        Import single/multiple <code>.flokey</code> files or a combined <code>flo-owner-vault-bundle.flokey</code>, or paste raw JSON.
+      </p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('vault-file-input').click()">&#128194; Choose File(s) / Bundle</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportVaultBundle()">&#128228; Export Vault File</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyVaultToClipboard()">&#128203; Copy Vault to Clipboard</button>
+      </div>
+      <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:4px">Paste Vault JSON or .flokey text:</label>
+      <textarea id="vault-paste-area" style="width:100%;min-height:120px;background:#0a0d14;border:1px solid var(--border);border-radius:6px;color:#c9d1d9;font-family:monospace;font-size:.75rem;padding:8px" placeholder="Paste .flokey JSON or bundle JSON here..."></textarea>
+      <div id="vault-modal-alert" class="alert" style="margin-top:8px"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="closeVaultModal()">Close</button>
+      <button class="btn btn-primary btn-sm" onclick="importFromPasteArea()">&#128229; Import Pasted Keys</button>
+    </div>
+  </div>
+</div>
 <input type="file" id="key-file-input" accept=".flokey,.json" style="display:none" onchange="onKeyFileSelected(event)" />
 <input type="file" id="tier-file-input" accept=".flokey,.json" style="display:none" onchange="onTierFileSelected(event)" />
+<input type="file" id="vault-file-input" accept=".flokey,.json" multiple style="display:none" onchange="onVaultFileSelected(event)" />
 <script>
-const state={nodes:[],activeNodeIdx:-1,ownerKey:null,localKeys:[],activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
+const state={nodes:[],activeNodeIdx:-1,ownerKey:null,localKeys:[],vault:{},activeTab:'overview',tunnelUrl:null,termHistory:[],termHistIdx:-1};
 const pw=()=>document.getElementById('pw-input').value.trim();
 function toBase64Utf8(str) {
   try { return btoa(unescape(encodeURIComponent(str))); } catch { return ''; }
 }
-function save(){try{localStorage.setItem('flo_nodes',JSON.stringify(state.nodes.map(n=>({name:n.name,url:n.url}))));if(state.ownerKey)localStorage.setItem('flo_owner_key',state.ownerKey);}catch{}}
+function save(){
+  try{
+    localStorage.setItem('flo_nodes',JSON.stringify(state.nodes.map(n=>({name:n.name,url:n.url}))));
+    if(state.ownerKey)localStorage.setItem('flo_owner_key',state.ownerKey);
+    if(state.vault)localStorage.setItem('flo_owner_vault',JSON.stringify(state.vault));
+  }catch{}
+}
+function updateVaultUI(){
+  const keys = Object.keys(state.vault||{});
+  const vEl = document.getElementById('vault-status');
+  if(vEl){
+    if(keys.length>0){
+      vEl.textContent='Vault: '+keys.length+' keys';
+      vEl.className='badge b-gui';
+      vEl.title=keys.join(', ');
+    } else {
+      vEl.textContent='Vault: 0';
+      vEl.className='badge b-nogui';
+    }
+  }
+  // Update tier buttons highlight
+  document.querySelectorAll('.tier-grid .tier-btn').forEach(btn=>{
+    const match = btn.getAttribute('onclick')?.match(/activateTier\('([^']+)'\)/);
+    if(match&&match[1]){
+      const t = match[1];
+      if(state.vault&&state.vault[t]){
+        btn.classList.add('has-key');
+        btn.title='Preloaded in vault ('+t+'). 1-tap ready.';
+      } else {
+        btn.classList.remove('has-key');
+      }
+    }
+  });
+}
+function openVaultModal(){
+  document.getElementById('vault-modal').style.display='flex';
+  document.getElementById('vault-paste-area').focus();
+}
+function closeVaultModal(){
+  document.getElementById('vault-modal').style.display='none';
+  const a=document.getElementById('vault-modal-alert');if(a)a.style.display='none';
+}
+function importKeysFromText(text,sourceName){
+  if(!text||!text.trim())return 0;
+  let parsed;
+  try{parsed=JSON.parse(text);}catch(err){throw new Error('Invalid JSON: '+err.message);}
+  let count=0;
+  function processKey(item){
+    if(!item)return;
+    const rawContent=typeof item.content==='string'?item.content:JSON.stringify(item.content||item.data||item,null,2);
+    const data=item.data||item;
+    const keyType=data.key_type||(data.tier==='owner_reactivate_master'?'owner_master':'tier');
+    const tier=data.tier||(item.name&&item.name.includes('master')?'owner_reactivate_master':(item.name?item.name.replace(/\.flokey$/,''):'custom'));
+    if(keyType==='owner_master'||tier==='owner_reactivate_master'){
+      state.ownerKey=rawContent;
+      state.vault['owner_reactivate_master']=rawContent;
+      count++;
+    } else if(tier){
+      state.vault[tier]=rawContent;
+      count++;
+    }
+  }
+  if(parsed.bundle_type==='flo_owner_vault_bundle'&&Array.isArray(parsed.keys)){
+    parsed.keys.forEach(processKey);
+  } else if(Array.isArray(parsed)){
+    parsed.forEach(processKey);
+  } else if(parsed.key_type||parsed.tier||parsed.private_key_pem){
+    processKey(parsed);
+  } else if(typeof parsed==='object'){
+    Object.keys(parsed).forEach(k=>{if(typeof parsed[k]==='object'&&parsed[k]!==null)processKey(parsed[k]);});
+  }
+  if(count>0){save();updateKeyStatus();updateVaultUI();}
+  return count;
+}
+function importFromPasteArea(){
+  const txt=document.getElementById('vault-paste-area').value;
+  try{
+    const count=importKeysFromText(txt,'Pasted Text');
+    if(count>0){
+      alert('Successfully imported '+count+' key(s) into Mobile Vault!');
+      closeVaultModal();
+    } else {
+      alert('No valid keys recognized in pasted JSON.');
+    }
+  }catch(e){
+    alert('Import failed: '+e.message);
+  }
+}
+function onVaultFileSelected(e){
+  const files=Array.from(e.target.files||[]);
+  if(!files.length)return;
+  let totalImported=0;
+  let processed=0;
+  files.forEach(f=>{
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const count=importKeysFromText(ev.target.result,f.name);
+        totalImported+=count;
+      }catch(err){
+        console.warn('Could not parse file '+f.name,err);
+      }
+      processed++;
+      if(processed===files.length){
+        showAlert('overview-alert','ok','Imported '+totalImported+' key(s) from '+files.length+' file(s) into Mobile Vault!');
+        closeVaultModal();
+      }
+    };
+    r.readAsText(f);
+  });
+  e.target.value='';
+}
+function exportVaultBundle(){
+  const keys=Object.keys(state.vault||{});
+  if(!keys.length&&!state.ownerKey){
+    alert('No keys in vault to export. Load or import keys first.');
+    return;
+  }
+  const bundle={
+    bundle_type:'flo_owner_vault_bundle',
+    version:1,
+    exported_at:new Date().toISOString(),
+    keys_count:keys.length+(state.ownerKey&&!state.vault['owner_reactivate_master']?1:0),
+    keys:[]
+  };
+  if(state.ownerKey&&!state.vault['owner_reactivate_master']){
+    let d=null;try{d=JSON.parse(state.ownerKey);}catch{}
+    bundle.keys.push({
+      name:'owner-reactivate-master.flokey',
+      tier:'owner_reactivate_master',
+      key_type:'owner_master',
+      content:state.ownerKey,
+      data:d
+    });
+  }
+  keys.forEach(t=>{
+    let content=state.vault[t];
+    let d=null;try{d=JSON.parse(content);}catch{}
+    bundle.keys.push({
+      name:t+'.flokey',
+      tier:t,
+      key_type:t==='owner_reactivate_master'?'owner_master':'tier',
+      content:content,
+      data:d
+    });
+  });
+  const jsonStr=JSON.stringify(bundle,null,2);
+  const blob=new Blob([jsonStr],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='flo-owner-vault-bundle.flokey';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  try{if(navigator.clipboard)navigator.clipboard.writeText(jsonStr);}catch{}
+  showAlert('overview-alert','ok','Exported vault bundle ('+bundle.keys.length+' keys) and copied to clipboard!');
+}
+function copyVaultToClipboard(){
+  const keys=Object.keys(state.vault||{});
+  if(!keys.length&&!state.ownerKey){alert('Vault is empty.');return;}
+  const bundle={bundle_type:'flo_owner_vault_bundle',version:1,exported_at:new Date().toISOString(),keys_count:keys.length+(state.ownerKey&&!state.vault['owner_reactivate_master']?1:0),keys:[]};
+  if(state.ownerKey&&!state.vault['owner_reactivate_master']){
+    let d=null;try{d=JSON.parse(state.ownerKey);}catch{}
+    bundle.keys.push({name:'owner-reactivate-master.flokey',tier:'owner_reactivate_master',key_type:'owner_master',content:state.ownerKey,data:d});
+  }
+  keys.forEach(t=>{
+    let content=state.vault[t];let d=null;try{d=JSON.parse(content);}catch{}
+    bundle.keys.push({name:t+'.flokey',tier:t,key_type:t==='owner_reactivate_master'?'owner_master':'tier',content:content,data:d});
+  });
+  const jsonStr=JSON.stringify(bundle,null,2);
+  try{if(navigator.clipboard)navigator.clipboard.writeText(jsonStr);}catch{}
+  alert('Copied full vault bundle ('+bundle.keys.length+' keys) to clipboard!');
+}
 async function autoLoadElectronKeys() {
   if (!window.electronAPI || typeof window.electronAPI.listLocalKeys !== 'function') return;
   try {
     const keys = await window.electronAPI.listLocalKeys();
     if (Array.isArray(keys) && keys.length > 0) {
       state.localKeys = keys;
-      const masterKey = keys.find(k => (k.name && k.name.includes('master')) || (k.data && k.data.key_type === 'owner_master'));
-      if (masterKey) {
-        state.ownerKey = typeof masterKey.content === 'string' ? masterKey.content : JSON.stringify(masterKey.content, null, 2);
-        save();
-        updateKeyStatus();
-      }
+      keys.forEach(k => {
+        const tier = k.data?.tier || (k.name.includes('master') ? 'owner_reactivate_master' : k.name.replace(/\.flokey$/, ''));
+        state.vault[tier] = typeof k.content === 'string' ? k.content : JSON.stringify(k.content, null, 2);
+        if (k.name.includes('master') || k.data?.key_type === 'owner_master') {
+          state.ownerKey = typeof k.content === 'string' ? k.content : JSON.stringify(k.content, null, 2);
+        }
+      });
+      save();
+      updateKeyStatus();
+      updateVaultUI();
     }
   } catch (e) {
     console.warn('[FloOwner] Auto-load local keys error:', e);
   }
 }
-function load(){try{const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');ns.forEach(n=>addNodeRaw(n.name,n.url,false));}catch{}try{const k=localStorage.getItem('flo_owner_key');if(k){state.ownerKey=k;updateKeyStatus();}}catch{}if(!state.nodes.length){addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);save();}autoLoadElectronKeys();}
+function load(){
+  try{
+    const ns=JSON.parse(localStorage.getItem('flo_nodes')||'[]');
+    ns.forEach(n=>addNodeRaw(n.name,n.url,false));
+  }catch{}
+  try{
+    const k=localStorage.getItem('flo_owner_key');
+    if(k){state.ownerKey=k;updateKeyStatus();}
+  }catch{}
+  try{
+    const v=localStorage.getItem('flo_owner_vault');
+    if(v){state.vault=JSON.parse(v);updateVaultUI();}
+  }catch{}
+  if(!state.nodes.length){
+    addNodeRaw('Local Sentinel (:3009)','http://127.0.0.1:3009',false);
+    addNodeRaw('Local Main API (:3001)','http://127.0.0.1:3001',false);
+    save();
+  }
+  autoLoadElectronKeys();
+}
 function loadKeyFile(){document.getElementById('key-file-input').click();}
 function loadTierFile(){document.getElementById('tier-file-input').click();}
 function onTierFileSelected(e){
@@ -534,7 +765,7 @@ async function scanLan(){
   btn.textContent='Scan LAN ('+prefix+'.x:3009)';btn.disabled=false;
 }
 function showTab(tab,upd=true){if(upd)state.activeTab=tab;document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));const sec=document.getElementById('sec-'+tab);if(sec)sec.classList.add('active');if(state.activeNodeIdx>=0)loadTabData(tab);}
-function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'multibranch':loadMultiBranchEod();break;case 'license':loadLicense();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
+function loadTabData(tab){switch(tab){case 'overview':loadOverview();break;case 'analytics':loadAnalytics();break;case 'multibranch':loadMultiBranchEod();break;case 'license':loadLicense();updateVaultUI();break;case 'tunnel':loadTunnelStatus();break;case 'mcp':renderMcp();break;}}
 async function apiFetch(baseUrl,ep,method,body,headers){const opts={method:method||'GET',headers:{'Content-Type':'application/json',...(headers||{})}};if(body)opts.body=JSON.stringify(body);return fetch(baseUrl.replace(/\/$/,'')+ep,opts);}
 async function ownerPost(ep,body){
   const n=activeNode();if(!n)throw new Error('No node');
@@ -654,7 +885,11 @@ async function activateTier(tier){
   const n=activeNode();if(!n)return;
   const btns=document.querySelectorAll('.tier-btn');btns.forEach(b=>b.classList.add('loading'));
   showAlert('license-alert','info','Activating '+tier+'...');
-  try{const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'activate',tierKeyContent:'__tier_'+tier,ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});if(res.ok&&data.success){showAlert('license-alert','ok','License activated: '+tier);loadLicense();pingNode(state.activeNodeIdx);}else showAlert('license-alert','err',data.error||'Failed');}catch(e){showAlert('license-alert','err',e.message);}
+  try{
+    const tierKeyContent = (state.vault && state.vault[tier]) ? state.vault[tier] : ('__tier_' + tier);
+    const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'activate',tierKeyContent,ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});
+    if(res.ok&&data.success){showAlert('license-alert','ok','License activated: '+tier);loadLicense();pingNode(state.activeNodeIdx);}else showAlert('license-alert','err',data.error||'Failed');
+  }catch(e){showAlert('license-alert','err',e.message);}
   btns.forEach(b=>b.classList.remove('loading'));
 }
 async function setAutoRenew(enabled){try{const{res,data}=await ownerPost('/api/sentinel/remote-license',{action:'set_auto_renew',autoRenewPolicy:{enabled,renew_tier:'forever',max_renewals:99},ownerMasterKeyContent:state.ownerKey,reactivationPassword:pw()});showAlert('license-alert',res.ok?'ok':'err',res.ok?'Auto-renew '+(enabled?'enabled':'disabled'):(data.error||'Failed'));}catch(e){showAlert('license-alert','err',e.message);}}

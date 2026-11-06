@@ -165,6 +165,40 @@ haccpRoutes.post('/ccp-logs', requirePermission('haccp.logs.manage'), (req, res)
       return res.status(400).json({ error: 'station_name, ccp_category, and recorded_value or status are required' });
     }
 
+    if (rejected_amount !== undefined && rejected_amount !== null) {
+      const numRej = Number(rejected_amount);
+      if (!Number.isFinite(numRej) || numRej < 0) {
+        return res.status(400).json({ error: 'rejected_amount must be a non-negative finite number' });
+      }
+    }
+
+    if (recorded_value !== undefined && recorded_value !== null) {
+      const numVal = Number(recorded_value);
+      if (!Number.isFinite(numVal)) {
+        return res.status(400).json({ error: 'recorded_value must be a finite number' });
+      }
+    }
+
+    if (target_min !== undefined && target_min !== null) {
+      const numMin = Number(target_min);
+      if (!Number.isFinite(numMin)) {
+        return res.status(400).json({ error: 'target_min must be a finite number' });
+      }
+    }
+
+    if (target_max !== undefined && target_max !== null) {
+      const numMax = Number(target_max);
+      if (!Number.isFinite(numMax)) {
+        return res.status(400).json({ error: 'target_max must be a finite number' });
+      }
+    }
+
+    if (target_min !== undefined && target_min !== null && target_max !== undefined && target_max !== null) {
+      if (Number(target_min) > Number(target_max)) {
+        return res.status(400).json({ error: 'target_min cannot be greater than target_max' });
+      }
+    }
+
     const val = recorded_value !== undefined ? Number(recorded_value) : 0;
     const min = target_min !== undefined && target_min !== null ? Number(target_min) : null;
     const max = target_max !== undefined && target_max !== null ? Number(target_max) : null;
