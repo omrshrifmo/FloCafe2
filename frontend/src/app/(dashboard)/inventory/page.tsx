@@ -350,12 +350,12 @@ export default function InventoryPage() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-foreground">{tNav('inventory')}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{tr('Inventory & Materials Management', 'إدارة المخزون والمواد الخام')}</h1>
         {tab === 'supplies' && (
-          <Button onClick={openAddSupply}><Plus size={16} className="me-1" /> {t('addSupply')}</Button>
+          <Button onClick={openAddSupply}><Plus size={16} className="me-1" /> {tr('Add Supply Material', 'إضافة مادة خام')}</Button>
         )}
         {tab === 'recipes' && (
-          <Button onClick={openAddRecipe}><Plus size={16} className="me-1" /> {t('addRecipe')}</Button>
+          <Button onClick={openAddRecipe}><Plus size={16} className="me-1" /> {tr('Add Prep Recipe', 'إضافة وصفة تحضير')}</Button>
         )}
       </div>
 
@@ -375,17 +375,17 @@ export default function InventoryPage() {
               <Search size={18} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                placeholder={tCommon('search')}
+                placeholder={tr('Search raw materials and supplies...', 'البحث في الخامات والمواد الخام...')}
                 className="w-full ps-10 pe-4 py-2.5 bg-card border border-border rounded-lg focus:ring-2 focus:ring-brand outline-none"
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
               <input type="checkbox" checked={lowStockOnly} onChange={(e) => setLowStockOnly(e.target.checked)} />
-              {t('lowStockOnly')}
+              {tr('Low Stock Only', 'الأصناف المنخفضة فقط')}
             </label>
             <label className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
               <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
-              {t('includeInactive')}
+              {tr('Include Inactive', 'تضمين غير النشطة')}
             </label>
           </div>
 
@@ -393,12 +393,12 @@ export default function InventoryPage() {
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('supplyName')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('baseUnit')}</th>
-                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{t('stock')}</th>
-                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{t('threshold')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tCommon('active')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('actions')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Supply Name', 'اسم المادة الخام')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Base Unit', 'وحدة القياس')}</th>
+                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{tr('On-Hand Stock', 'الرصيد الحالي')}</th>
+                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Min Threshold', 'الحد الأدنى')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Status', 'الحالة')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Actions', 'الإجراءات')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -407,7 +407,7 @@ export default function InventoryPage() {
                     <td className="p-4 font-medium text-foreground">
                       {s.name}
                       {s.is_low_stock === 1 && (
-                        <Badge variant="destructive" className="ms-2">{t('lowStock')}</Badge>
+                        <Badge variant="destructive" className="ms-2">{tr('Low Stock', 'منخفض المخزون')}</Badge>
                       )}
                     </td>
                     <td className="p-4 text-center text-sm text-muted-foreground">{s.base_unit}</td>
@@ -416,20 +416,20 @@ export default function InventoryPage() {
                       {s.low_stock_threshold === null ? '—' : fmtNum(Number(s.low_stock_threshold))}
                     </td>
                     <td className="p-4 text-center text-sm">
-                      {s.is_active === 1 ? tCommon('active') : tCommon('inactive')}
+                      {s.is_active === 1 ? tr('Active', 'نشط') : tr('Inactive', 'معطل')}
                     </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Button variant="ghost" size="sm" onClick={() => {
                           setMovementSupply(s);
                           setMovementForm({ movement_type: 'receive', quantity: '', unit: s.base_unit, reason: '' });
-                        }} title={t('recordMovement')}>
+                        }} title={tr('Record Movement', 'تسجيل حركة مخزنية')}>
                           <ArrowDownCircle size={14} />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => openEditSupply(s)} title={tCommon('edit')}>
+                        <Button variant="ghost" size="sm" onClick={() => openEditSupply(s)} title={tr('Edit Supply', 'تعديل المادة الخام')}>
                           <Edit size={14} />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDeletingSupply(s)} title={tCommon('delete')}>
+                        <Button variant="ghost" size="sm" onClick={() => setDeletingSupply(s)} title={tr('Delete Supply', 'حذف المادة الخام')}>
                           <Trash2 size={14} />
                         </Button>
                       </div>
@@ -438,7 +438,7 @@ export default function InventoryPage() {
                 ))}
               </tbody>
             </table>
-            {supplies.length === 0 && <p className="text-center text-muted-foreground py-12">{t('emptySupplies')}</p>}
+            {supplies.length === 0 && <p className="text-center text-muted-foreground py-12">{tr('No raw materials or supplies found.', 'لا توجد خامات أو مواد مسجلة.')}</p>}
           </div>
         </TabsContent>
 
@@ -447,10 +447,10 @@ export default function InventoryPage() {
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('product')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('yield')}</th>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('components')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('actions')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Product / Prep Item', 'المنتج / صنف التحضير')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Batch Yield', 'حجم دفعة الإنتاج')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Raw Components', 'المكونات والخامات')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Actions', 'الإجراءات')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -469,10 +469,10 @@ export default function InventoryPage() {
                     </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEditRecipe(r)} title={tCommon('edit')}>
+                        <Button variant="ghost" size="sm" onClick={() => openEditRecipe(r)} title={tr('Edit Recipe', 'تعديل الوصفة')}>
                           <Edit size={14} />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDeletingRecipe(r)} title={tCommon('delete')}>
+                        <Button variant="ghost" size="sm" onClick={() => setDeletingRecipe(r)} title={tr('Delete Recipe', 'حذف الوصفة')}>
                           <Trash2 size={14} />
                         </Button>
                       </div>
@@ -481,7 +481,7 @@ export default function InventoryPage() {
                 ))}
               </tbody>
             </table>
-            {recipes.length === 0 && <p className="text-center text-muted-foreground py-12">{t('emptyRecipes')}</p>}
+            {recipes.length === 0 && <p className="text-center text-muted-foreground py-12">{tr('No prep recipes found.', 'لا توجد وصفات تحضير مسجلة.')}</p>}
           </div>
         </TabsContent>
 
@@ -490,21 +490,24 @@ export default function InventoryPage() {
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('date')}</th>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('supply')}</th>
-                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('movementType')}</th>
-                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{t('quantity')}</th>
-                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{t('stockAfter')}</th>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('reason')}</th>
-                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('actor')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Movement Date', 'تاريخ الحركة')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Supply Item', 'المادة الخام')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Movement Type', 'نوع الحركة')}</th>
+                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Quantity Delta', 'الكمية المحولة')}</th>
+                  <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Stock After', 'الرصيد بعد الحركة')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Reason / Reference', 'السبب / المرجع')}</th>
+                  <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{tr('Logged By', 'بواسطة')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {movements.map((m) => {
                   const Icon = movementTypeIcons[m.movement_type] || ClipboardList;
-                  const labelKey = m.movement_type === 'recipe_depletion' ? 'recipeDepletion'
-                    : m.movement_type === 'recipe_restore' ? 'recipeRestore'
-                    : m.movement_type;
+                  const label = m.movement_type === 'recipe_depletion' ? tr('Recipe Depletion', 'خصم مبيعات آلي')
+                    : m.movement_type === 'recipe_restore' ? tr('Recipe Restore', 'استرجاع مبيعات')
+                    : m.movement_type === 'receive' ? tr('Stock Receiving', 'استلام وتوريد')
+                    : m.movement_type === 'count' ? tr('Stock Count', 'جرد دوري')
+                    : m.movement_type === 'adjustment' ? tr('Stock Adjustment', 'تسوية مخزنية')
+                    : tr('Waste / Damage', 'هدر وتالف');
                   return (
                     <tr key={m.id} className="hover:bg-muted">
                       <td className="p-4 text-sm text-muted-foreground whitespace-nowrap">{formatDate(m.created_at)}</td>
@@ -512,7 +515,7 @@ export default function InventoryPage() {
                       <td className="p-4 text-center text-sm">
                         <span className="inline-flex items-center gap-1.5">
                           <Icon size={14} className="text-muted-foreground" />
-                          {t(labelKey as 'receive' | 'count' | 'adjustment' | 'waste' | 'recipeDepletion' | 'recipeRestore')}
+                          {label}
                         </span>
                       </td>
                       <td className={`p-4 text-end text-sm font-medium whitespace-nowrap ${Number(m.quantity_delta) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -526,10 +529,10 @@ export default function InventoryPage() {
                 })}
               </tbody>
             </table>
-            {movements.length === 0 && <p className="text-center text-muted-foreground py-12">{t('emptyMovements')}</p>}
+            {movements.length === 0 && <p className="text-center text-muted-foreground py-12">{tr('No inventory movements recorded yet.', 'لا توجد حركات مخزنية مسجلة بعد.')}</p>}
             {nextCursor !== null && (
               <div className="text-center py-3 border-t border-border">
-                <Button variant="outline" size="sm" onClick={() => loadMovements(nextCursor)}>{t('loadMore')}</Button>
+                <Button variant="outline" size="sm" onClick={() => loadMovements(nextCursor)}>{tr('Load More Movements', 'تحميل المزيد من الحركات')}</Button>
               </div>
             )}
           </div>
@@ -547,24 +550,24 @@ export default function InventoryPage() {
           <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-base text-foreground">Waste &amp; Spoilage Ledger</h3>
-                <p className="text-xs text-muted-foreground">Authorized waste, barista dial-in shots, staff meals, and damaged goods</p>
+                <h3 className="font-bold text-base text-foreground">{tr('Waste & Spoilage Ledger', 'سجل الهدر والتالف والمعايرة')}</h3>
+                <p className="text-xs text-muted-foreground">{tr('Authorized waste, barista dial-in shots, staff meals, and damaged goods', 'الهدر المعتمد، معايرة الإسبريسو، وجبات الموظفين، والتالف المخزني')}</p>
               </div>
               <Button size="sm" variant="outline" onClick={() => setRefreshKey((k) => k + 1)}>
-                Refresh
+                {tr('Refresh Ledger', 'تحديث السجل')}
               </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-muted text-muted-foreground font-semibold">
                   <tr>
-                    <th className="p-3 text-start">Type / Reason</th>
-                    <th className="p-3 text-start">Item</th>
-                    <th className="p-3 text-end">Quantity</th>
-                    <th className="p-3 text-end">Est. Loss</th>
-                    <th className="p-3 text-start">Logged By</th>
-                    <th className="p-3 text-start">Date / Time</th>
-                    <th className="p-3 text-start">Notes</th>
+                    <th className="p-3 text-start">{tr('Type / Reason', 'النوع / السبب')}</th>
+                    <th className="p-3 text-start">{tr('Item Name', 'اسم الصنف')}</th>
+                    <th className="p-3 text-end">{tr('Wasted Quantity', 'الكمية المهدرة')}</th>
+                    <th className="p-3 text-end">{tr('Estimated Loss', 'الخسارة المقدرة')}</th>
+                    <th className="p-3 text-start">{tr('Logged By Staff', 'الموظف المسؤول')}</th>
+                    <th className="p-3 text-start">{tr('Date & Time', 'التاريخ والوقت')}</th>
+                    <th className="p-3 text-start">{tr('Notes', 'الملاحظات')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -581,7 +584,11 @@ export default function InventoryPage() {
                           }
                           className="capitalize text-[10px]"
                         >
-                          {log.waste_type.replace('_', ' ')}
+                          {log.waste_type === 'dial_in'
+                            ? tr('Dial-in Calibration', 'معايرة ماكينة')
+                            : log.waste_type === 'staff_meal'
+                            ? tr('Staff Meal', 'وجبة موظف')
+                            : tr('Spoilage / Waste', 'تالف / هدر')}
                         </Badge>
                       </td>
                       <td className="p-3 font-semibold text-foreground">{log.source_name}</td>
@@ -597,7 +604,7 @@ export default function InventoryPage() {
                   {wasteLogs.length === 0 && (
                     <tr>
                       <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                        {loadingWaste ? 'Loading waste records...' : 'No waste records found.'}
+                        {loadingWaste ? tr('Loading waste records...', 'جاري تحميل سجلات الهدر...') : tr('No waste records logged.', 'لا توجد سجلات هدر مسجلة.')}
                       </td>
                     </tr>
                   )}

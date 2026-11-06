@@ -855,7 +855,7 @@ export function FastTouchMode({
             title="Exit Fast-Touch POS (Esc)"
           >
             <X className="h-4 w-4 stroke-[2.5]" />
-            <span>{isArabic ? 'خروج من اللمس السريع' : 'Exit Fast-Touch'}</span>
+            <span>{tr('Exit Fast-Touch', 'خروج من اللمس السريع')}</span>
           </button>
 
           <div className="hidden sm:flex items-center gap-2">
@@ -863,7 +863,7 @@ export function FastTouchMode({
               <Zap className="h-4 w-4" />
             </div>
             <span className="font-extrabold text-sm text-foreground">
-              {isArabic ? 'نقاط البيع السريع' : 'Fast-Touch Express POS'}
+              {tr('Fast-Touch Express POS', 'نقاط البيع السريع')}
             </span>
           </div>
         </div>
@@ -930,7 +930,7 @@ export function FastTouchMode({
               }}
               className="h-9 px-2.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 cursor-pointer touch-manipulation"
             >
-              Driver COD
+              {tr('Driver COD', 'توصيل عهدة السائق')}
             </button>
           </div>
 
@@ -951,18 +951,18 @@ export function FastTouchMode({
                 <span>
                   {currentTable
                     ? `${t('tableLabel')}: ${currentTable.name}`
-                    : (isArabic ? 'اختر طاولة' : t('selectTable'))}
+                    : tr('Select Table', 'اختر طاولة')}
                 </span>
 
                 {currentTable?.status === 'occupied' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black bg-orange-500/20 text-orange-600 dark:text-orange-300">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-                    {isArabic ? 'مشغولة' : 'Occupied'}
+                    {tr('Occupied', 'مشغولة')}
                   </span>
                 )}
 
                 <span className="text-xs text-brand underline font-bold ms-0.5">
-                  {isArabic ? 'تغيير' : 'Change'}
+                  {tr('Change', 'تغيير')}
                 </span>
               </button>
 
@@ -998,7 +998,7 @@ export function FastTouchMode({
               className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-extrabold text-sm animate-pulse cursor-pointer hover:bg-amber-500/20 active:scale-[0.98] transition-all touch-manipulation"
             >
               <Lock className="h-4 w-4" />
-              <span>{isArabic ? 'الوردية مغلقة - افتح الوردية' : 'Shift Closed - Open Shift'}</span>
+              <span>{tr('Shift Closed - Open Shift', 'الوردية مغلقة - افتح الوردية')}</span>
             </button>
           )}
 
@@ -1009,7 +1009,7 @@ export function FastTouchMode({
               className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl text-sm bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
             >
               <Clock className="h-4 w-4" />
-              <span>{isArabic ? `الطلبات المعلقة (${allHeldOrdersList.length})` : `Held Orders (${allHeldOrdersList.length})`}</span>
+              <span>{tr('Held Orders', 'الطلبات المعلقة')} ({allHeldOrdersList.length})</span>
             </button>
           )}
 
@@ -1046,10 +1046,10 @@ export function FastTouchMode({
             type="button"
             onClick={() => setShowWasteModal(true)}
             className="flex items-center gap-1.5 h-11 min-h-[44px] px-3.5 rounded-xl text-sm border border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
-            title="Log Morning Calibration, Spoilage, or Staff Shift Meal"
+            title={tr('Log Morning Calibration, Spoilage, or Staff Shift Meal', 'تسجيل معايرة صباحية أو هدر تالف أو وجبة موظف')}
           >
             <Trash2 className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">1-Tap Waste</span>
+            <span className="hidden sm:inline">{tr('1-Tap Waste', 'تسجيل هدر سريع')}</span>
           </button>
 
           <button
@@ -1059,7 +1059,7 @@ export function FastTouchMode({
             className="flex items-center gap-2 h-11 min-h-[44px] px-4 rounded-xl text-sm text-brand border border-brand/30 hover:bg-brand/10 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
           >
             <Repeat className="h-4 w-4" />
-            <span className="hidden sm:inline">{isArabic ? 'تكرار آخر صنف' : 'Repeat Last'}</span>
+            <span className="hidden sm:inline">{tr('Repeat Last', 'تكرار آخر صنف')}</span>
           </button>
 
           {cart.items.length > 0 && (
@@ -1072,7 +1072,7 @@ export function FastTouchMode({
               className="flex items-center gap-2 h-11 min-h-[44px] px-3.5 rounded-xl text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
             >
               <Trash2 className="h-4 w-4" />
-              <span className="hidden sm:inline ms-1">{isArabic ? 'إفراغ' : 'Clear'}</span>
+              <span className="hidden sm:inline ms-1">{tr('Clear', 'إفراغ')}</span>
             </button>
           )}
         </div>
@@ -1100,8 +1100,8 @@ export function FastTouchMode({
                 <div>
                   <div className="text-xs font-black text-foreground">
                     {cart.orderType === 'dine_in'
-                      ? (currentTable ? `${t('tableLabel')}: ${currentTable.name}` : (isArabic ? 'طاولة غير محددة' : 'No Table Selected'))
-                      : (isArabic ? 'طلب سفري' : 'Takeaway Order')}
+                      ? (currentTable ? `${t('tableLabel')}: ${currentTable.name}` : tr('No Table Selected', 'طاولة غير محددة'))
+                      : tr('Takeaway Order', 'طلب سفري')}
                   </div>
                   {activeTableOrder && (
                     <div className="text-[10px] text-muted-foreground font-mono">
@@ -1118,8 +1118,8 @@ export function FastTouchMode({
                     : 'bg-muted text-muted-foreground'
                 }`}>
                   {servedItems.length > 0
-                    ? (isArabic ? `${servedItems.length} صنف مقدم` : `${servedItems.length} served`)
-                    : (isArabic ? 'طاولة شاغرة' : 'New Table')}
+                    ? `${servedItems.length} ${tr('served', 'صنف مقدم')}`
+                    : tr('New Table', 'طاولة شاغرة')}
                 </span>
               )}
             </div>
@@ -1142,7 +1142,7 @@ export function FastTouchMode({
                         )}
                       </div>
                       <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200 flex-wrap">
-                        <span>{isArabic ? 'بطاقة الأختام:' : 'Stamp Card:'}</span>
+                        <span>{tr('Stamp Card', 'بطاقة الأختام')}:</span>
                         <span className="font-mono font-black">{loyaltyStamps}/10</span>
                         <div className="flex items-center gap-0.5 ms-1">
                           {[...Array(10)].map((_, i) => (
@@ -1156,7 +1156,7 @@ export function FastTouchMode({
                         </div>
                         {freeRewardsEarned > 0 && (
                           <Badge variant="default" className="ms-1.5 text-[9px] bg-amber-600 text-white font-bold h-4 px-1">
-                            🎉 {freeRewardsEarned} Free
+                            🎉 {freeRewardsEarned} {tr('Free', 'مجانا')}
                           </Badge>
                         )}
                         {(freeRewardsEarned > 0 || stampsCount >= 10) && (
@@ -1165,7 +1165,7 @@ export function FastTouchMode({
                             onClick={handleRedeemFreeReward}
                             className="ms-1.5 px-2 py-0.5 text-[10px] bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md shadow-xs active:scale-95 transition-all cursor-pointer"
                           >
-                            Redeem Free Reward
+                            {tr('Redeem Free Reward', 'استبدال المكافأة المجانية')}
                           </button>
                         )}
                       </div>
@@ -1175,7 +1175,7 @@ export function FastTouchMode({
                     type="button"
                     onClick={handleClearCustomer}
                     className="p-1 rounded-md text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
-                    title="Remove customer"
+                    title={tr('Remove customer', 'إزالة العميل')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -1184,7 +1184,7 @@ export function FastTouchMode({
                 {customerFavorites && customerFavorites.length > 0 && (
                   <div className="pt-1.5 border-t border-amber-500/20 flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">
-                      {isArabic ? 'المفضلة:' : 'Top Favorites:'}
+                      {tr('Top Favorites', 'المفضلة')}:
                     </span>
                     {customerFavorites.slice(0, 3).map((fav) => (
                       <button
@@ -1206,7 +1206,7 @@ export function FastTouchMode({
                   <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder={isArabic ? 'بحث عن العميل بالهاتف أو الاسم...' : 'Customer phone or name (Loyalty Stamp)...'}
+                    placeholder={tr('Customer phone or name - Loyalty Stamp', 'بحث عن العميل بالهاتف أو الاسم - بطاقة الأختام')}
                     value={customerSearchQuery}
                     onChange={(e) => setCustomerSearchQuery(e.target.value)}
                     className="w-full ps-8 pe-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs outline-none focus:ring-1 focus:ring-brand text-foreground"
@@ -1229,10 +1229,10 @@ export function FastTouchMode({
                       >
                         <div>
                           <div className="font-bold text-foreground">{c.name}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono">{c.phone || 'No phone'}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{c.phone || tr('No phone', 'بدون هاتف')}</div>
                         </div>
                         <div className="text-[10px] font-mono text-brand font-bold">
-                          {c.loyalty_points ?? c.wallet_balance ?? 0} pts
+                          {c.loyalty_points ?? c.wallet_balance ?? 0} {tr('pts', 'نقطة')}
                         </div>
                       </button>
                     ))}
@@ -1249,7 +1249,7 @@ export function FastTouchMode({
                   <div className="flex items-center justify-between pb-1.5 border-b border-emerald-500/20 text-emerald-800 dark:text-emerald-200">
                     <div className="flex items-center gap-1.5 text-xs font-black">
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span>{isArabic ? 'عناصر مقدمة للطاولة (سابقاً)' : 'Served Items on Table'}</span>
+                      <span>{tr('Served Items on Table', 'عناصر مقدمة للطاولة سابقاً')}</span>
                     </div>
                     <span className="text-xs font-mono font-bold">{fmtCurrency(servedSubtotal)}</span>
                   </div>
@@ -1290,7 +1290,7 @@ export function FastTouchMode({
                               {fmtCurrency(itemTotal)}
                             </span>
                             <div className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
-                              {isArabic ? 'مقدم' : 'Served'}
+                              {tr('Served', 'مقدم')}
                             </div>
                           </div>
                         </div>
@@ -1302,7 +1302,7 @@ export function FastTouchMode({
 
               {loadingServedItems && (
                 <div className="p-3 text-center text-xs text-muted-foreground animate-pulse">
-                  {isArabic ? 'جاري تحميل الأصناف السابقة للطاولة...' : 'Loading served table items...'}
+                  {tr('Loading served table items...', 'جاري تحميل الأصناف السابقة للطاولة...')}
                 </div>
               )}
 
@@ -1310,7 +1310,7 @@ export function FastTouchMode({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-black text-foreground px-1">
                   <span>
-                    {isArabic ? 'أصناف جديدة قيد الطلب' : 'New Items in Cart'} ({cart.items.length})
+                    {tr('New Items in Cart', 'أصناف جديدة قيد الطلب')} ({cart.items.length})
                   </span>
                   {cart.items.length > 0 && (
                     <span className="font-mono text-brand font-bold">{fmtCurrency(cartSubtotal)}</span>
@@ -1319,9 +1319,7 @@ export function FastTouchMode({
 
                 {cart.items.length === 0 ? (
                   <div className="text-center py-6 px-4 border border-dashed border-border rounded-xl bg-muted/20 text-muted-foreground text-xs">
-                    {isArabic
-                      ? 'لا توجد أصناف جديدة مضافة. اضغط على أي صنف من القائمة لإضافته مباشرة بنقرة واحدة.'
-                      : 'Cart is empty. Tap any product on the right to add it directly.'}
+                    {tr('Cart is empty. Tap any product on the right to add it directly.', 'لا توجد أصناف جديدة مضافة. اضغط على أي صنف من القائمة لإضافته مباشرة بنقرة واحدة.')}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1845,7 +1843,7 @@ export function FastTouchMode({
               <div className="flex items-center gap-2">
                 <Trash2 className="h-5 w-5 text-amber-500" />
                 <h3 className="font-bold text-base text-foreground">
-                  {isArabic ? 'تسجيل هدر / معايرة سريعة' : '1-Tap Waste & Calibration'}
+                  {tr('1-Tap Waste & Calibration', 'تسجيل هدر / معايرة سريعة')}
                 </h3>
               </div>
               <button
@@ -1860,9 +1858,9 @@ export function FastTouchMode({
             {/* Waste Type Selector */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'calibration', label: isArabic ? 'معايرة صباحية' : 'Dial-In' },
-                { id: 'waste', label: isArabic ? 'تالف / منتهي' : 'Spoilage' },
-                { id: 'staff_meal', label: isArabic ? 'وجبة موظف' : 'Staff Meal' },
+                { id: 'calibration', label: tr('Morning Dial-In', 'معايرة صباحية') },
+                { id: 'waste', label: tr('Spoilage / Expired', 'تالف / منتهي') },
+                { id: 'staff_meal', label: tr('Staff Meal', 'وجبة موظف') },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -1882,14 +1880,14 @@ export function FastTouchMode({
             {/* Product Selector */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-foreground">
-                {isArabic ? 'الصنف المراد تسجيله' : 'Select Item / Recipe'}
+                {tr('Select Item / Recipe', 'الصنف المراد تسجيله')}
               </label>
               <select
                 value={wasteItemId}
                 onChange={(e) => setWasteItemId(e.target.value)}
                 className="w-full p-2.5 bg-muted/30 border border-border rounded-xl text-xs font-bold text-foreground outline-none focus:ring-1 focus:ring-brand"
               >
-                <option value="">-- {isArabic ? 'اختر صنف' : 'Select Product'} --</option>
+                <option value="">-- {tr('Select Product', 'اختر صنف')} --</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({fmtCurrency(p.price)})
@@ -1901,7 +1899,7 @@ export function FastTouchMode({
             {/* Quantity Stepper */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border">
               <span className="text-xs font-bold text-foreground">
-                {isArabic ? 'الكمية' : 'Portions / Quantity'}
+                {tr('Portions / Quantity', 'الكمية')}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -1928,8 +1926,8 @@ export function FastTouchMode({
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold h-11 rounded-xl shadow-xs cursor-pointer"
             >
               {isLoggingWaste
-                ? (isArabic ? 'جارِ التسجيل...' : 'Logging...')
-                : (isArabic ? 'تأكيد الخصم من المخزون' : 'Confirm Waste Deduction')}
+                ? tr('Logging Waste...', 'جارِ التسجيل...')
+                : tr('Confirm Waste Deduction', 'تأكيد الخصم من المخزون')}
             </Button>
           </div>
         </div>
@@ -1942,10 +1940,10 @@ export function FastTouchMode({
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <div>
                 <h3 className="font-bold text-base text-foreground">
-                  {isArabic ? 'تسوية عهدة السائقين (COD)' : 'In-House Driver COD Settlement'}
+                  {tr('In-House Driver COD Settlement', 'تسوية عهدة السائقين')}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {isArabic ? 'مراجعة وتسوية مبالغ التوصيل المعلقة في عهدة السائقين' : 'Review and reconcile pending cash held by in-house delivery drivers'}
+                  {tr('Review and reconcile pending cash held by in-house delivery drivers', 'مراجعة وتسوية مبالغ التوصيل المعلقة في عهدة السائقين')}
                 </p>
               </div>
               <button
@@ -1960,11 +1958,11 @@ export function FastTouchMode({
             <div className="max-h-64 overflow-y-auto space-y-2 pe-1">
               {loadingDriverSettlements ? (
                 <div className="py-8 text-center text-xs text-muted-foreground animate-pulse">
-                  {isArabic ? 'جارِ تحميل الطلبات المعلقة...' : 'Loading unsettled driver orders...'}
+                  {tr('Loading unsettled driver orders...', 'جارِ تحميل الطلبات المعلقة...')}
                 </div>
               ) : driverSettlements.length === 0 ? (
                 <div className="py-8 text-center text-xs text-emerald-600 font-bold">
-                  ✓ {isArabic ? 'جميع طلبات التوصيل مسواة، لا توجد عهدة معلقة' : 'All delivery orders are settled! No pending driver cash.'}
+                  ✓ {tr('All delivery orders are settled! No pending driver cash.', 'جميع طلبات التوصيل مسواة، لا توجد عهدة معلقة')}
                 </div>
               ) : (
                 driverSettlements.map((ord) => (
@@ -1974,10 +1972,10 @@ export function FastTouchMode({
                   >
                     <div>
                       <div className="font-bold text-foreground">
-                        Order #{ord.order_number || String(ord.id).slice(0, 8)}
+                        {tr('Order #', 'طلب رقم #')}{ord.order_number || String(ord.id).slice(0, 8)}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        Driver: <span className="font-semibold text-foreground">{ord.courier_name || 'In-House Courier'}</span>
+                        {tr('Driver', 'السائق')}: <span className="font-semibold text-foreground">{ord.courier_name || tr('In-House Courier', 'سائق المتجر')}</span>
                         {ord.delivery_channel_name && ` • Channel: ${ord.delivery_channel_name}`}
                       </div>
                     </div>
@@ -1995,7 +1993,7 @@ export function FastTouchMode({
             {driverSettlements.length > 0 && (
               <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-between">
                 <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
-                  {isArabic ? 'إجمالي المبالغ المعلقة' : 'Total Unsettled COD Cash:'}
+                  {tr('Total Unsettled COD Cash', 'إجمالي المبالغ المعلقة')}
                 </span>
                 <span className="font-mono font-bold text-sm text-blue-700 dark:text-blue-300">
                   {fmtCurrency(driverSettlements.reduce((sum, o) => sum + (Number(o.total ?? o.total_amount ?? 0)), 0))}
@@ -2009,7 +2007,7 @@ export function FastTouchMode({
                 onClick={() => setShowDriverSettlementModal(false)}
                 className="flex-1 rounded-xl text-xs font-bold h-10"
               >
-                {isArabic ? 'إغلاق' : 'Close'}
+                {tr('Close', 'إغلاق')}
               </Button>
               <Button
                 onClick={handleSettleDriverCod}
@@ -2017,8 +2015,8 @@ export function FastTouchMode({
                 className="flex-1 bg-brand hover:bg-brand/90 text-white font-bold rounded-xl text-xs h-10 cursor-pointer"
               >
                 {isSettlingDriver
-                  ? (isArabic ? 'جارِ التسوية...' : 'Settling...')
-                  : (isArabic ? 'تسوية وتوريد للدرج' : 'Settle All Into Cash Drawer')}
+                  ? tr('Settling COD...', 'جارِ التسوية...')
+                  : tr('Settle All Into Cash Drawer', 'تسوية وتوريد للدرج')}
               </Button>
             </div>
           </div>

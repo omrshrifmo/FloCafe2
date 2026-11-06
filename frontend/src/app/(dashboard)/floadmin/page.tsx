@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import api from '@/lib/api';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface FloAdminStats {
   revenueToday: number;
@@ -48,6 +49,7 @@ interface InventoryItemRecord {
 }
 
 export default function FloAdminPage() {
+  const { tr, isAr, dir } = useAppLanguage();
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<FloAdminStats>(() => {
     if (typeof window !== 'undefined') {
@@ -181,25 +183,27 @@ export default function FloAdminPage() {
   }, []);
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6" dir={dir}>
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-4">
         <div>
           <div className="flex items-center gap-2">
             <Building2 className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">FloAdmin Local Back-Office</h1>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+              {tr('FloAdmin Local Back-Office', 'إدارة فلو كافيه المركزية')}
+            </h1>
             <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-              100% Offline-First
+              {tr('100% Offline-First', 'نظام محلي دون اتصال 100%')}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Self-Hosted Multi-Store HQ Command, Financial P&amp;L, Inventory Valuation &amp; Operational Health
+            {tr('Self-Hosted Multi-Store HQ Command, Financial P&L, Inventory Valuation & Operational Health', 'لوحة التحكم الإدارية المركزية، الأرباح والخسائر، تقييم المخزون وصحة العمليات')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadData} disabled={loading} className="gap-1.5">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh Data
+            {tr('Refresh Data', 'تحديث البيانات')}
           </Button>
         </div>
       </div>
@@ -209,7 +213,7 @@ export default function FloAdminPage() {
         <Card className="bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center justify-between text-xs">
-              <span>Today&apos;s Net Revenue</span>
+              <span>{tr("Today's Net Revenue", 'صافي إيرادات اليوم')}</span>
               <DollarSign className="h-4 w-4 text-emerald-400" />
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-emerald-400">
@@ -217,14 +221,14 @@ export default function FloAdminPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            {stats.ordersToday} orders settled today
+            {stats.ordersToday} {tr('orders settled today', 'طلب مسوى اليوم')}
           </CardContent>
         </Card>
 
         <Card className="bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center justify-between text-xs">
-              <span>Total Recorded Sales</span>
+              <span>{tr('Total Recorded Sales', 'إجمالي المبيعات المسجلة')}</span>
               <TrendingUp className="h-4 w-4 text-primary" />
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-primary">
@@ -232,14 +236,14 @@ export default function FloAdminPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            {stats.ordersMonth} total recorded orders
+            {stats.ordersMonth} {tr('total recorded orders', 'إجمالي الطلبات المسجلة')}
           </CardContent>
         </Card>
 
         <Card className="bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center justify-between text-xs">
-              <span>Inventory Asset Value</span>
+              <span>{tr('Inventory Asset Value', 'القيمة التقديرية للمخزون')}</span>
               <Package className="h-4 w-4 text-amber-400" />
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-amber-400">
@@ -247,14 +251,14 @@ export default function FloAdminPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            {stats.totalProducts} tracked SKUs on hand
+            {stats.totalProducts} {tr('tracked SKUs on hand', 'صنف مخزني مفعل')}
           </CardContent>
         </Card>
 
         <Card className="bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center justify-between text-xs">
-              <span>Low-Stock Warnings</span>
+              <span>{tr('Low-Stock Warnings', 'تنبيهات نقص المخزون')}</span>
               <AlertTriangle className="h-4 w-4 text-destructive" />
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-destructive">
@@ -262,7 +266,7 @@ export default function FloAdminPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            Items requiring immediate replenishment
+            {tr('Items requiring immediate replenishment', 'أصناف تتطلب إعادة التوريد فوراً')}
           </CardContent>
         </Card>
       </div>
@@ -275,9 +279,9 @@ export default function FloAdminPage() {
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4 text-primary" />
-                Recent Orders Ledger
+                {tr('Recent Orders Ledger', 'سجل أحدث الطلبات')}
               </span>
-              <Badge variant="secondary" className="text-xs">Live</Badge>
+              <Badge variant="secondary" className="text-xs">{tr('Live', 'مباشر')}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -286,20 +290,20 @@ export default function FloAdminPage() {
                 {recentOrders.map((ord) => (
                   <div key={ord.id} className="p-3 flex items-center justify-between text-xs hover:bg-muted/30">
                     <div>
-                      <div className="font-semibold">Order #{ord.order_number || ord.id}</div>
+                      <div className="font-semibold">{tr('Order #', 'طلب رقم #')}{ord.order_number || ord.id}</div>
                       <div className="text-muted-foreground text-[11px]">
-                        {ord.created_at ? new Date(ord.created_at).toLocaleTimeString() : 'Recent'} • {ord.status}
+                        {ord.created_at ? new Date(ord.created_at).toLocaleTimeString() : tr('Recent', 'حديث')} • {ord.status}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="font-bold">${Number(ord.total || 0).toFixed(2)}</div>
-                      <Badge variant="outline" className="text-[10px] py-0">{ord.payment_status || 'settled'}</Badge>
+                      <Badge variant="outline" className="text-[10px] py-0">{ord.payment_status || tr('settled', 'مسوى')}</Badge>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-6 text-center text-xs text-muted-foreground">No recent transactions recorded.</div>
+              <div className="p-6 text-center text-xs text-muted-foreground">{tr('No recent transactions recorded.', 'لا توجد معاملات مسجلة مؤخراً.')}</div>
             )}
           </CardContent>
         </Card>
@@ -310,9 +314,9 @@ export default function FloAdminPage() {
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-400" />
-                Critical Low-Stock Feed
+                {tr('Critical Low-Stock Feed', 'سجل النقص الحرج في المخزون')}
               </span>
-              <Badge variant="outline" className="text-xs">{lowStockItems.length} Warnings</Badge>
+              <Badge variant="outline" className="text-xs">{lowStockItems.length} {tr('Warnings', 'تنبيهات')}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -323,12 +327,12 @@ export default function FloAdminPage() {
                     <div>
                       <div className="font-semibold">{item.name}</div>
                       <div className="text-muted-foreground text-[11px] font-mono">
-                        SKU: {item.sku || 'N/A'} • Unit: {item.unit || 'pcs'}
+                        {tr('SKU', 'الرمز')}: {item.sku || 'N/A'} • {tr('Unit', 'الوحدة')}: {item.unit || 'pcs'}
                       </div>
                     </div>
                     <div className="text-right">
                       <span className="font-bold text-destructive">{item.quantity || 0}</span>
-                      <span className="text-muted-foreground"> / min {item.min_quantity || 5}</span>
+                      <span className="text-muted-foreground"> / {tr('min', 'الحد الأدنى')} {item.min_quantity || 5}</span>
                     </div>
                   </div>
                 ))}
@@ -336,7 +340,7 @@ export default function FloAdminPage() {
             ) : (
               <div className="p-6 text-center text-xs text-emerald-400 flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-6 w-6" />
-                <span>All inventory stock levels are healthy!</span>
+                <span>{tr('All inventory stock levels are healthy!', 'كافة مستويات المخزون في وضع سليم ومكتمل!')}</span>
               </div>
             )}
           </CardContent>

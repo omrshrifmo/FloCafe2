@@ -954,6 +954,14 @@ export function initDatabase(recoverInterruptedReplacement = true, allowDuringSh
 
   runMigrations();
 
+  // Ensure supplies table safely guarantees both stock_quantity and quantity columns exist
+  try {
+    db.exec(`ALTER TABLE supplies ADD COLUMN quantity REAL DEFAULT 0;`);
+  } catch { }
+  try {
+    db.exec(`ALTER TABLE supplies ADD COLUMN stock_quantity REAL DEFAULT 0;`);
+  } catch { }
+
   db.pragma('foreign_keys = ON');
 
   runStartupIntegrityCheck();

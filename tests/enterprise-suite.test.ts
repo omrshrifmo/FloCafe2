@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.1', 'MCP server version is 4.7.1');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.2', 'MCP server version is 4.7.2');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.7.1', 'package.json version is 4.7.1');
+    assertEqualOrThrow(rootPackageJson.version, '4.7.2', 'package.json version is 4.7.2');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.1', 'owner builder config version is 4.7.1');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.2', 'owner builder config version is 4.7.2');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.7.1',
+      flocafe_version: '4.7.2',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.1', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.2', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,7 +2093,7 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.1', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.2', 'WebCrypto decrypted beacon matches flocafe_version');
 
     // ── Test 17: v4.7.0 Operating System Pillars Verification ──────────────────
     console.log('\n[17] Verifying FloCafe v4.7.0 Operating System Pillars...');
@@ -2267,7 +2267,7 @@ async function main() {
     const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
     let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
     if (!fsMod.existsSync(apkPath)) {
-      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.1-android.apk');
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.2-android.apk');
     }
     assertOrThrow(fsMod.existsSync(apkPath), `release APK must exist (checked ${apkPath})`);
 
@@ -2682,6 +2682,50 @@ async function main() {
       );
     }
     console.log('   All 9 frontend dashboard & component files strictly verified for useAppLanguage and tr().');
+
+    // ── Test 21: Thermal Hardware Integration & Deep Arabic Localization Audit (v4.7.2) ──
+    console.log('\n[21] Verifying Thermal Hardware Integration & Deep Arabic Localization Audit (v4.7.2)...');
+
+    // 21.1 Verify main/printers/thermal.ts wires renderThermalZReport
+    const thermalPrinterPath = path.resolve(__dirname, '..', 'main/printers/thermal.ts');
+    assertOrThrow(fs.existsSync(thermalPrinterPath), 'main/printers/thermal.ts exists');
+    const thermalPrinterCode = fs.readFileSync(thermalPrinterPath, 'utf8');
+    assertOrThrow(
+      thermalPrinterCode.includes('renderThermalZReport'),
+      'main/printers/thermal.ts must import and utilize renderThermalZReport'
+    );
+    assertOrThrow(
+      thermalPrinterCode.includes('../print/z-report'),
+      'main/printers/thermal.ts must reference ../print/z-report'
+    );
+    console.log('   Hardware thermal printer integration with renderThermalZReport verified.');
+
+    // 21.2 Deep Arabic Localization Audit across all 10 dashboard pages & components
+    const localizationAuditTargets = [
+      { path: 'frontend/src/app/(dashboard)/owner-assist/page.tsx', min: 25 },
+      { path: 'frontend/src/components/inventory/StocktakeManager.tsx', min: 25 },
+      { path: 'frontend/src/app/(dashboard)/inventory/page.tsx', min: 35 },
+      { path: 'frontend/src/app/(dashboard)/haccp/page.tsx', min: 30 },
+      { path: 'frontend/src/components/pos/FastTouchMode.tsx', min: 30 },
+      { path: 'frontend/src/app/(dashboard)/whatsapp/page.tsx', min: 20 },
+      { path: 'frontend/src/app/(dashboard)/floadmin/page.tsx', min: 20 },
+      { path: 'frontend/src/app/(dashboard)/florev/page.tsx', min: 20 },
+      { path: 'frontend/src/app/(dashboard)/orderflo/page.tsx', min: 20 },
+      { path: 'frontend/src/components/layout/Sidebar.tsx', min: 15 },
+    ];
+
+    for (const target of localizationAuditTargets) {
+      const targetFullPath = path.resolve(__dirname, '..', target.path);
+      assertOrThrow(fs.existsSync(targetFullPath), `Localized target exists: ${target.path}`);
+      const code = fs.readFileSync(targetFullPath, 'utf8');
+      const matches = code.match(/tr\([^)]*[\u0600-\u06FF]/g) || [];
+      assertOrThrow(
+        matches.length >= target.min,
+        `Localization threshold satisfied for ${target.path}: expected >= ${target.min}, got ${matches.length}`
+      );
+      console.log(`   ✓ ${target.path}: ${matches.length} tr() Arabic occurrences (min: ${target.min})`);
+    }
+    console.log('   All 10 dashboard pages and components strictly meet deep Arabic localization thresholds.');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

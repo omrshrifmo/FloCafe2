@@ -486,7 +486,7 @@ export default function HaccpPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Date</label>
+                <label className="block text-xs text-muted-foreground mb-1">{tr('Inspection Date', 'تاريخ التفتيش')}</label>
                 <input
                   type="date"
                   value={sanitationDate}
@@ -496,38 +496,38 @@ export default function HaccpPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Shift</label>
+                <label className="block text-xs text-muted-foreground mb-1">{tr('Shift Type', 'نوع الوردية')}</label>
                 <select
                   value={shiftFilter}
                   onChange={(e) => setShiftFilter(e.target.value)}
                   className="px-3 py-1.5 bg-background border border-border rounded-lg text-xs"
                 >
-                  <option value="all">All Shifts</option>
-                  <option value="opening">Opening</option>
-                  <option value="mid_shift">Mid-Shift</option>
-                  <option value="closing">Closing</option>
+                  <option value="all">{tr('All Shifts', 'جميع الورديات')}</option>
+                  <option value="opening">{tr('Opening Shift', 'وردية الافتتاح')}</option>
+                  <option value="mid_shift">{tr('Mid-Shift', 'منتصف الوردية')}</option>
+                  <option value="closing">{tr('Closing Shift', 'وردية الإغلاق')}</option>
                 </select>
               </div>
             </div>
 
             <Button size="sm" onClick={() => void loadChecklists()} disabled={loadingChecklists}>
-              Refresh
+              {tr('Refresh Tasks', 'تحديث المهام')}
             </Button>
           </div>
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Sanitation & Hygiene Tasks</h2>
+              <h2 className="text-base font-semibold text-foreground">{tr('Sanitation & Hygiene Tasks', 'مهام التعقيم والنظافة')}</h2>
               <span className="text-xs text-muted-foreground">
-                {checklists.filter((c) => c.is_completed === 1).length} / {checklists.length} completed
+                {checklists.filter((c) => c.is_completed === 1).length} / {checklists.length} {tr('completed', 'مكتملة')}
               </span>
             </div>
 
             <div className="divide-y divide-border">
               {loadingChecklists ? (
-                <div className="py-12 text-center text-muted-foreground">Loading tasks...</div>
+                <div className="py-12 text-center text-muted-foreground">{tr('Loading tasks...', 'جاري تحميل المهام...')}</div>
               ) : checklists.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground">No tasks scheduled for this shift.</div>
+                <div className="py-12 text-center text-muted-foreground">{tr('No tasks scheduled for this shift.', 'لا توجد مهام مجدولة لهذه الوردية.')}</div>
               ) : (
                 checklists.map((c) => (
                   <div
@@ -554,7 +554,7 @@ export default function HaccpPage() {
                           <span className="text-xs text-muted-foreground">{c.area}</span>
                           {c.verified_by && (
                             <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                              · Verified by {c.verified_by} ({formatDate(c.completed_at || '')})
+                              · {tr('Verified by', 'تم التحقق بواسطة')} {c.verified_by} ({formatDate(c.completed_at || '')})
                             </span>
                           )}
                         </div>
@@ -574,49 +574,49 @@ export default function HaccpPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Status Filter</label>
+                <label className="block text-xs text-muted-foreground mb-1">{tr('Status Filter', 'تصفية الحالة')}</label>
                 <select
                   value={ccpStatusFilter}
                   onChange={(e) => setCcpStatusFilter(e.target.value)}
                   className="px-3 py-1.5 bg-background border border-border rounded-lg text-xs"
                 >
-                  <option value="all">All Readings</option>
-                  <option value="pass">Pass</option>
-                  <option value="warning">Warning</option>
-                  <option value="critical_breach">Critical Breach</option>
+                  <option value="all">{tr('All Readings', 'جميع القراءات')}</option>
+                  <option value="pass">{tr('Pass', 'مطابق')}</option>
+                  <option value="warning">{tr('Warning', 'تحذير')}</option>
+                  <option value="critical_breach">{tr('Critical Breach', 'مخالفة حرجة')}</option>
                 </select>
               </div>
             </div>
 
             <Button size="sm" onClick={() => void loadCcpLogs()} disabled={loadingCcp}>
-              Refresh
+              {tr('Refresh Logs', 'تحديث السجل')}
             </Button>
           </div>
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Critical Control Point (CCP) Readings</h2>
-              <span className="text-xs text-muted-foreground">{ccpLogs.length} logs</span>
+              <h2 className="text-base font-semibold text-foreground">{tr('Critical Control Point Readings', 'قراءات النقاط الحرجة')}</h2>
+              <span className="text-xs text-muted-foreground">{ccpLogs.length} {tr('logs', 'سجل')}</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                   <tr>
-                    <th className="py-3 px-4 text-start font-medium">Timestamp</th>
-                    <th className="py-3 px-4 text-start font-medium">Station & CCP Category</th>
-                    <th className="py-3 px-4 text-start font-medium">Target Range</th>
-                    <th className="py-3 px-4 text-start font-medium">Recorded Value</th>
-                    <th className="py-3 px-4 text-start font-medium">Status</th>
-                    <th className="py-3 px-4 text-start font-medium">Corrective Action</th>
-                    <th className="py-3 px-4 text-start font-medium">Staff</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Timestamp', 'الوقت والتاريخ')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Station & Category', 'المحطة ونوع النقطة الحرجة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Target Range', 'النطاق المستهدف')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Recorded Value', 'القيمة المقاسة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Status', 'الحالة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Corrective Action', 'الإجراء التصحيحي')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Responsible Staff', 'الموظف المسؤول')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loadingCcp ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">Loading CCP logs...</td></tr>
+                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">{tr('Loading CCP logs...', 'جاري تحميل سجل درجات الحرارة...')}</td></tr>
                   ) : ccpLogs.length === 0 ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No CCP readings recorded.</td></tr>
+                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">{tr('No CCP readings recorded.', 'لا توجد قراءات نقاط حرجة مسجلة.')}</td></tr>
                   ) : (
                     ccpLogs.map((log) => (
                       <tr key={log.id} className="hover:bg-muted/30 transition-colors">
@@ -638,7 +638,11 @@ export default function HaccpPage() {
                             variant={log.status === 'pass' ? 'default' : log.status === 'warning' ? 'secondary' : 'destructive'}
                             className="capitalize"
                           >
-                            {log.status.replace('_', ' ')}
+                            {log.status === 'pass'
+                              ? tr('Pass', 'مطابق')
+                              : log.status === 'warning'
+                              ? tr('Warning', 'تحذير')
+                              : tr('Critical Breach', 'مخالفة حرجة')}
                           </Badge>
                         </td>
                         <td className="py-3.5 px-4 text-xs">
@@ -663,50 +667,50 @@ export default function HaccpPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Status</label>
+                <label className="block text-xs text-muted-foreground mb-1">{tr('Batch Status', 'حالة التشغيلة')}</label>
                 <select
                   value={batchStatusFilter}
                   onChange={(e) => setBatchStatusFilter(e.target.value)}
                   className="px-3 py-1.5 bg-background border border-border rounded-lg text-xs"
                 >
-                  <option value="all">All Batches</option>
-                  <option value="active">Active</option>
-                  <option value="expiring_soon">Expiring Soon</option>
-                  <option value="expired">Expired</option>
-                  <option value="discarded">Discarded</option>
+                  <option value="all">{tr('All Batches', 'جميع التشغيلات')}</option>
+                  <option value="active">{tr('Active', 'صالحة للاستخدام')}</option>
+                  <option value="expiring_soon">{tr('Expiring Soon', 'توشك على الانتهاء')}</option>
+                  <option value="expired">{tr('Expired', 'منتهية الصلاحية')}</option>
+                  <option value="discarded">{tr('Discarded', 'تم التخلص منها')}</option>
                 </select>
               </div>
             </div>
 
             <Button size="sm" onClick={() => void loadBatches()} disabled={loadingBatches}>
-              Refresh
+              {tr('Refresh Batches', 'تحديث التشغيلات')}
             </Button>
           </div>
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Perishable Inventory Batches & Lots</h2>
-              <span className="text-xs text-muted-foreground">{batches.length} batches</span>
+              <h2 className="text-base font-semibold text-foreground">{tr('Perishable Inventory Batches', 'تشغيلات المواد سريعة التلف')}</h2>
+              <span className="text-xs text-muted-foreground">{batches.length} {tr('batches', 'تشغيلة')}</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                   <tr>
-                    <th className="py-3 px-4 text-start font-medium">Batch #</th>
-                    <th className="py-3 px-4 text-start font-medium">Item Name</th>
-                    <th className="py-3 px-4 text-start font-medium">Quantity</th>
-                    <th className="py-3 px-4 text-start font-medium">Received Date</th>
-                    <th className="py-3 px-4 text-start font-medium">Expiry Date</th>
-                    <th className="py-3 px-4 text-start font-medium">Status</th>
-                    <th className="py-3 px-4 text-center font-medium">Action</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Batch #', 'رقم التشغيلة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Item Name', 'اسم المادة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Quantity', 'الكمية')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Received Date', 'تاريخ الاستلام')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Expiry Date', 'تاريخ الصلاحية')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Status', 'الحالة')}</th>
+                    <th className="py-3 px-4 text-center font-medium">{tr('Action', 'الإجراء')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loadingBatches ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">Loading batches...</td></tr>
+                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">{tr('Loading batches...', 'جاري تحميل التشغيلات...')}</td></tr>
                   ) : batches.length === 0 ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No perishable batches registered.</td></tr>
+                    <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">{tr('No perishable batches registered.', 'لا توجد تشغيلات سريعة التلف مسجلة.')}</td></tr>
                   ) : (
                     batches.map((b) => (
                       <tr key={b.id} className="hover:bg-muted/30 transition-colors">
@@ -750,10 +754,10 @@ export default function HaccpPage() {
                               onClick={() => void handleDiscardBatch(b.id)}
                               className="text-rose-600 hover:text-rose-700 hover:bg-rose-500/10 p-1.5 h-auto text-xs"
                             >
-                              Discard
+                              {tr('Discard Batch', 'إتلاف وتخلص')}
                             </Button>
                           ) : (
-                            <span className="text-xs text-muted-foreground">Discarded</span>
+                            <span className="text-xs text-muted-foreground">{tr('Discarded', 'تم التخلص منها')}</span>
                           )}
                         </td>
                       </tr>
@@ -771,7 +775,7 @@ export default function HaccpPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-card p-4 rounded-2xl border border-border space-y-2">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              {t('tabTemplates')}
+              {tr('Inspection Templates', 'نماذج التفتيش')}
             </h2>
             {templates.map((tpl) => (
               <button
@@ -801,7 +805,7 @@ export default function HaccpPage() {
                   <div>
                     <h2 className="text-xl font-bold text-foreground">{selectedTemplate.title}</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {t('colChecklistItem')}
+                      {tr('Checklist Items', 'بنود قائمة الفحص والتدقيق')}
                     </p>
                   </div>
                   <Badge variant="secondary" className="capitalize">
@@ -830,7 +834,7 @@ export default function HaccpPage() {
                                 {item.label}
                               </div>
                               <span className="text-xs text-muted-foreground block mt-0.5">
-                                {t('allowedRange', { min: item.min_temp ?? 0, max: item.max_temp ?? 0 })}
+                                {tr('Allowed Range', 'النطاق المسموح')}: {item.min_temp ?? 0}°C - {item.max_temp ?? 0}°C
                               </span>
                             </div>
 
@@ -845,7 +849,7 @@ export default function HaccpPage() {
                               />
                               {ans && (
                                 <Badge variant={ans.passed ? 'default' : 'destructive'}>
-                                  {ans.passed ? t('statusPass') : t('statusFail')}
+                                  {ans.passed ? tr('Pass', 'مطابق') : tr('Critical Breach', 'مخالفة حرجة')}
                                 </Badge>
                               )}
                             </div>
@@ -873,12 +877,12 @@ export default function HaccpPage() {
 
                 <div className="flex items-center justify-end pt-4 border-t border-border">
                   <Button onClick={handleSubmitRun} disabled={submittingRun}>
-                    {submittingRun ? t('submitting') : t('btnSubmitLog')}
+                    {submittingRun ? tr('Submitting Run...', 'جاري الحفظ...') : tr('Submit Inspection Run', 'اعتماد وحفظ التفتيش')}
                   </Button>
                 </div>
               </>
             ) : (
-              <div className="py-16 text-center text-muted-foreground">Select an audit template to begin inspection.</div>
+              <div className="py-16 text-center text-muted-foreground">{tr('Select an audit template to begin inspection.', 'اختر نموذج تفتيش للبدء.')}</div>
             )}
           </div>
         </div>
@@ -888,25 +892,25 @@ export default function HaccpPage() {
       {activeTab === 'runs' && (
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-foreground">Completed Inspection Runs</h2>
-            <span className="text-xs text-muted-foreground">{runs.length} runs</span>
+            <h2 className="text-base font-semibold text-foreground">{tr('Completed Inspection Runs', 'عمليات التفتيش المكتملة')}</h2>
+            <span className="text-xs text-muted-foreground">{runs.length} {tr('runs', 'عملية')}</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">Date</th>
-                  <th className="py-3 px-4 text-start font-medium">Template</th>
-                  <th className="py-3 px-4 text-start font-medium">Auditor</th>
-                  <th className="py-3 px-4 text-start font-medium">Score</th>
-                  <th className="py-3 px-4 text-start font-medium">Status</th>
-                  <th className="py-3 px-4 text-center font-medium">Review</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Date', 'التاريخ')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Template', 'النموذج')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Auditor', 'المفتش')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Score', 'الدرجة')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Status', 'الحالة')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{tr('Review', 'المراجعة')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {runs.length === 0 ? (
-                  <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No inspection runs recorded.</td></tr>
+                  <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">{tr('No inspection runs recorded.', 'لا توجد عمليات تفتيش مسجلة.')}</td></tr>
                 ) : (
                   runs.map((r) => (
                     <tr key={r.id} className="hover:bg-muted/30 transition-colors">
@@ -917,12 +921,12 @@ export default function HaccpPage() {
                         {r.template_title || `Template #${r.template_id}`}
                       </td>
                       <td className="py-3.5 px-4 text-xs text-muted-foreground">
-                        {r.submitted_by_name || 'Staff'}
+                        {r.submitted_by_name || tr('Staff', 'فريق العمل')}
                       </td>
                       <td className="py-3.5 px-4 font-bold">
                         {r.score_percent}%
                         {r.has_critical_failure === 1 && (
-                          <span className="text-xs text-rose-600 block">Critical Fail</span>
+                          <span className="text-xs text-rose-600 block">{tr('Critical Fail', 'رسوب حرج')}</span>
                         )}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap">
@@ -930,7 +934,7 @@ export default function HaccpPage() {
                           variant={r.status === 'approved' ? 'default' : r.status === 'rejected' ? 'destructive' : 'secondary'}
                           className="capitalize"
                         >
-                          {r.status}
+                          {r.status === 'approved' ? tr('Approved', 'معتمد') : r.status === 'rejected' ? tr('Rejected', 'مرفوض') : tr('Submitted', 'مقدم')}
                         </Badge>
                       </td>
                       <td className="py-3.5 px-4 text-center">
@@ -942,7 +946,7 @@ export default function HaccpPage() {
                               onClick={() => void handleReviewRun(r.id, 'approved')}
                               className="text-emerald-600 hover:text-emerald-700 h-7 text-xs"
                             >
-                              Approve
+                              {tr('Approve', 'موافقة')}
                             </Button>
                             <Button
                               size="sm"
@@ -950,12 +954,12 @@ export default function HaccpPage() {
                               onClick={() => void handleReviewRun(r.id, 'rejected')}
                               className="text-rose-600 hover:text-rose-700 h-7 text-xs"
                             >
-                              Reject
+                              {tr('Reject', 'رفض')}
                             </Button>
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground capitalize">
-                            {r.reviewed_by_name ? `By ${r.reviewed_by_name}` : 'Completed'}
+                            {r.reviewed_by_name ? `${tr('By', 'بواسطة')} ${r.reviewed_by_name}` : tr('Completed', 'مكتملة ومسواة')}
                           </span>
                         )}
                       </td>
@@ -973,7 +977,7 @@ export default function HaccpPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">Log CCP Temperature Check</h3>
+              <h3 className="text-lg font-bold text-foreground">{tr('Log CCP Temperature Check', 'تسجيل فحص درجة حرارة النقطة الحرجة')}</h3>
               <button
                 type="button"
                 onClick={() => setShowCcpModal(false)}
@@ -986,7 +990,7 @@ export default function HaccpPage() {
             <form onSubmit={handleCreateCcpLog} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Station Name *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Station Name', 'اسم المحطة')} *</label>
                   <input
                     type="text"
                     value={ccpForm.station_name}
@@ -997,7 +1001,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">CCP Category *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('CCP Category', 'نوع النقطة الحرجة')} *</label>
                   <input
                     type="text"
                     value={ccpForm.ccp_category}
@@ -1010,7 +1014,7 @@ export default function HaccpPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Target Min (°C)</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Target Min', 'الحد الأدنى')} (°C)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1021,7 +1025,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Target Max (°C)</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Target Max', 'الحد الأقصى')} (°C)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1032,7 +1036,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Recorded Value *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Recorded Value', 'القيمة المقاسة')} *</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1047,12 +1051,12 @@ export default function HaccpPage() {
 
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Corrective Action (Required if outside target range)
+                  {tr('Corrective Action', 'الإجراء التصحيحي')}
                 </label>
                 <textarea
                   value={ccpForm.corrective_action}
                   onChange={(e) => setCcpForm({ ...ccpForm, corrective_action: e.target.value })}
-                  placeholder="e.g. Adjusted thermostat, moved milk to walk-in cooler, discarded spoiled item"
+                  placeholder={tr('e.g. Adjusted thermostat or discarded spoiled item', 'مثال: تم ضبط الترموستات أو إتلاف المواد التالفة')}
                   rows={2}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
@@ -1060,10 +1064,10 @@ export default function HaccpPage() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowCcpModal(false)}>
-                  Cancel
+                  {tr('Cancel', 'إلغاء')}
                 </Button>
                 <Button type="submit">
-                  Log Reading
+                  {tr('Log Reading', 'تسجيل القراءة')}
                 </Button>
               </div>
             </form>
@@ -1076,7 +1080,7 @@ export default function HaccpPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">Register Perishable Batch</h3>
+              <h3 className="text-lg font-bold text-foreground">{tr('Register Perishable Batch', 'تسجيل تشغيلة مواد سريعة التلف')}</h3>
               <button
                 type="button"
                 onClick={() => setShowBatchModal(false)}
@@ -1089,7 +1093,7 @@ export default function HaccpPage() {
             <form onSubmit={handleCreateBatch} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Batch / Lot # *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Batch / Lot #', 'رقم التشغيلة / الدفعة')} *</label>
                   <input
                     type="text"
                     value={batchForm.batch_number}
@@ -1101,7 +1105,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Item Name *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Item Name', 'اسم المادة')} *</label>
                   <input
                     type="text"
                     value={batchForm.item_name}
@@ -1115,7 +1119,7 @@ export default function HaccpPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Quantity</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Quantity', 'الكمية')}</label>
                   <input
                     type="number"
                     step="any"
@@ -1127,7 +1131,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Unit</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Unit', 'الوحدة')}</label>
                   <input
                     type="text"
                     value={batchForm.unit}
@@ -1138,7 +1142,7 @@ export default function HaccpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Expiry Date *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Expiry Date', 'تاريخ الصلاحية')} *</label>
                   <input
                     type="date"
                     value={batchForm.expires_at}
@@ -1150,11 +1154,11 @@ export default function HaccpPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Notes</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Notes', 'الملاحظات')}</label>
                 <textarea
                   value={batchForm.notes}
                   onChange={(e) => setBatchForm({ ...batchForm, notes: e.target.value })}
-                  placeholder="Storage instructions or supplier notes"
+                  placeholder={tr('Storage instructions or supplier notes', 'تعليمات الحفظ أو ملاحظات المورد')}
                   rows={2}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
@@ -1162,10 +1166,10 @@ export default function HaccpPage() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowBatchModal(false)}>
-                  Cancel
+                  {tr('Cancel', 'إلغاء')}
                 </Button>
                 <Button type="submit">
-                  Register Batch
+                  {tr('Register Batch', 'تسجيل تشغيلة / دفعة جديدة')}
                 </Button>
               </div>
             </form>

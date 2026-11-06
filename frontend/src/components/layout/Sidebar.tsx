@@ -39,6 +39,7 @@ import { getLandingPage } from '@/components/layout/AuthGuard';
 import api from '@/lib/api';
 import { useConfirm } from '@/hooks/use-confirm';
 import { useThemeModeToggle } from '@/hooks/useThemeModeToggle';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import type { PermissionId } from '@shared/permissions';
 import { tenantCan } from '@/lib/permissions';
 import {
@@ -100,6 +101,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
 
 export default function AppSidebar() {
   const pathname = usePathname();
+  const { tr, isAr } = useAppLanguage();
   const { user, currentTenant, logout } = useAuthStore();
   const { tablesRequired, kdsEnabled, whatsappEnabled, setTablesRequired, setKdsEnabled, setWhatsappEnabled } = usePosSettingsStore();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -117,6 +119,51 @@ export default function AppSidebar() {
       ? tSettings('themeDark')
       : tSettings('themeSystem');
   const ThemeModeIcon = themeModeIcon;
+
+  const getLocalizedNavLabel = (item: NavItem): string => {
+    switch (item.href) {
+      case '/pos':
+        return tr('Point of Sale', 'نقطة البيع الكاشير');
+      case '/dashboard':
+        return tr('Dashboard & Analytics', 'لوحة التحكم والتحليلات');
+      case '/orders':
+        return tr('Orders & Receipts', 'الطلبات والفواتير');
+      case '/whatsapp':
+        return tr('WhatsApp Marketing', 'واتساب واستعادة العملاء');
+      case '/products':
+        return tr('Product Catalog', 'قائمة المنتجات والأصناف');
+      case '/bom':
+        return tr('BOM Costing & Yield', 'تكلفة الوصفات والإنتاج BOM');
+      case '/inventory':
+        return tr('Inventory & Purchasing', 'المخزون والمستودع والمشتريات');
+      case '/finance':
+        return tr('Finance & P&L', 'المالية والأرباح والمصروفات');
+      case '/haccp':
+        return tr('HACCP Safety & Hygiene', 'سلامة الغذاء والنظافة HACCP');
+      case '/tables':
+        return tr('Tables & Dine-In', 'إدارة الطاولات والصالة');
+      case '/settings?tab=kds':
+        return tr('Kitchen Display KDS', 'شاشة المطبخ KDS');
+      case '/customers':
+        return tr('Customers & Loyalty', 'العملاء وبرنامج الولاء');
+      case '/staff':
+        return tr('Staff & Permissions', 'الموظفون والصلاحيات');
+      case '/hrm':
+        return tr('HRM & Payroll Ledger', 'شؤون الموظفين والرواتب');
+      case '/floadmin':
+        return tr('FloAdmin HQ Fleet', 'إدارة الفروع المركزية FloAdmin');
+      case '/florev':
+        return tr('FloRev Live Sales', 'فلو ريف المبيعات المباشرة');
+      case '/orderflo':
+        return tr('OrderFlo QR Ordering', 'أوردر فلو للطلب الذاتي QR');
+      case '/owner-assist':
+        return tr('Owner Copilot Assist', 'مساعد المالك الذكي AI');
+      case '/settings':
+        return tr('System Settings', 'إعدادات النظام');
+      default:
+        return item.label || (item.labelKey ? t(item.labelKey) : '');
+    }
+  };
 
   const businessType = currentTenant?.business_type || 'restaurant';
   const navItems = ALL_NAV_ITEMS.filter((item) => {
@@ -210,7 +257,7 @@ export default function AppSidebar() {
               {navItems.map((item) => {
                 const [hrefPath, hrefQuery] = item.href.split('?');
                 const isActive = !hrefQuery && (pathname === hrefPath || pathname?.startsWith(hrefPath + '/'));
-                const itemLabel = item.label || (item.labelKey ? t(item.labelKey) : '');
+                const itemLabel = getLocalizedNavLabel(item);
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={itemLabel}>
@@ -251,11 +298,11 @@ export default function AppSidebar() {
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
                   className="rounded-xl border-0 bg-sidebar-accent/60 hover:bg-sidebar-accent hover:shadow-xs data-[state=open]:bg-sidebar-accent/90 transition-all h-9 px-3 font-normal group-data-[collapsible=icon]:h-8! group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:rounded-lg"
-                  tooltip={user?.name || user?.email || t('user')}
+                  tooltip={user?.name || user?.email || tr('User Account', 'حساب المستخدم')}
                 >
                   <UserCircle className="size-4 shrink-0 text-sidebar-primary" />
                   <span className="font-medium text-sm truncate group-data-[collapsible=icon]:hidden text-sidebar-foreground">
-                    {user?.name || user?.email || t('user')}
+                    {user?.name || user?.email || tr('User Account', 'حساب المستخدم')}
                   </span>
                   <ChevronUp className="ms-auto size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </SidebarMenuButton>
@@ -268,18 +315,18 @@ export default function AppSidebar() {
                 <DropdownMenuItem asChild className="cursor-pointer">
                   <Link href="/support" onClick={closeMobile} className="flex items-center gap-2">
                     <LifeBuoy className="size-4 shrink-0" />
-                    <span>{t('support')}</span>
+                    <span>{tr('Support & Helpdesk', 'الدعم الفني والمساعدة')}</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={async () => {
-                    if (await confirm(t('confirmLogout'))) logout();
+                    if (await confirm(tr('Are you sure you want to log out?', 'هل أنت متأكد من تسجيل الخروج؟'))) logout();
                   }}
                   className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/50 flex items-center gap-2"
                 >
                   <LogOut className="size-4 shrink-0" />
-                  <span>{t('logout')}</span>
+                  <span>{tr('Log Out', 'تسجيل الخروج')}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

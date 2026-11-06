@@ -225,7 +225,7 @@ export function StocktakeManager() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       {/* Session Active View */}
       {activeSession ? (
         <div className="bg-card rounded-2xl border border-border p-6 space-y-6">
@@ -233,34 +233,35 @@ export function StocktakeManager() {
             <div>
               <div className="flex items-center gap-3">
                 <Button variant="ghost" size="sm" onClick={() => setActiveSession(null)}>
-                  <RotateCcw className="h-4 w-4 me-1" /> {t('btnBack')}
+                  <RotateCcw className="h-4 w-4 me-1" /> {tr('Back to Sessions', 'العودة للجلسات')}
                 </Button>
                 <h2 className="text-xl font-bold text-foreground">
-                  {t('sessionTitle', { id: activeSession.id })}
+                  {tr('Stocktake Session #', 'جلسة جرد رقم #')}{activeSession.id}
                 </h2>
                 <Badge variant={activeSession.status === 'completed' ? 'secondary' : 'default'} className="capitalize">
-                  {activeSession.status}
+                  {activeSession.status === 'completed'
+                    ? tr('Completed', 'مكتملة ومسواة')
+                    : activeSession.status === 'in_progress'
+                    ? tr('In Progress', 'قيد الجرد الفعلي')
+                    : tr('Draft', 'مسودة')}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t('sessionMeta', {
-                  counter: activeSession.counter_name || 'Staff',
-                  date: formatDate(activeSession.created_at),
-                })}
+                {tr('Auditor', 'المسؤول')}: {activeSession.counter_name || tr('Staff', 'فريق العمل')} • {tr('Date', 'التاريخ')}: {formatDate(activeSession.created_at)}
               </p>
             </div>
 
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
-                <Printer className="h-4 w-4" /> {t('btnPrintVariance')}
+                <Printer className="h-4 w-4" /> {tr('Print Variance Slip', 'طباعة إيصال الفروقات')}
               </Button>
               {activeSession.status !== 'completed' && (
                 <>
                   <Button variant="secondary" size="sm" onClick={handleSaveDraft}>
-                    {t('btnSaveDraft')}
+                    {tr('Save Draft', 'حفظ كمسودة')}
                   </Button>
                   <Button size="sm" onClick={() => setShowFinalizeModal(true)} className="gap-1.5">
-                    <CheckCircle2 className="h-4 w-4" /> {t('btnFinalize')}
+                    <CheckCircle2 className="h-4 w-4" /> {tr('Finalize & Adjust', 'اعتماد وتسوية الجرد')}
                   </Button>
                 </>
               )}
@@ -275,7 +276,7 @@ export function StocktakeManager() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('searchItemsPlaceholder')}
+                placeholder={tr('Search items by name...', 'البحث عن صنف بالاسم...')}
                 className="w-full ps-9 pe-4 py-2 bg-background border border-border rounded-lg text-sm"
               />
             </div>
@@ -313,11 +314,11 @@ export function StocktakeManager() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">{t('colSupplyName')}</th>
-                  <th className="py-3 px-4 text-center font-medium">{t('colUnit')}</th>
-                  <th className="py-3 px-4 text-end font-medium">{t('colExpectedStock')}</th>
-                  <th className="py-3 px-4 text-center font-medium w-36">{t('colPhysicalCount')}</th>
-                  <th className="py-3 px-4 text-end font-medium">{t('colVariance')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Supply / Raw Material', 'المادة الخام / الصنف')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{tr('Unit', 'الوحدة')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{tr('Expected Stock', 'الرصيد الدفتري')}</th>
+                  <th className="py-3 px-4 text-center font-medium w-36">{tr('Physical Count', 'العد الفعلي')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{tr('Variance', 'الفارق')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -365,14 +366,14 @@ export function StocktakeManager() {
             <div>
               <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
                 <ClipboardList className="h-5 w-5 text-brand" />
-                {t('title')}
+                {tr('Stocktaking & Physical Inventory Audits', 'إدارة جلسات الجرد والمطابقة الفعلية')}
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {t('subtitle')}
+                {tr('Audit physical counts against system stock, track discrepancies, and auto-adjust balances', 'مطابقة الرصيد الفعلي مع رصيد النظام، تتبع الفروقات، والتسوية الآلية للمخزون')}
               </p>
             </div>
             <Button onClick={() => setShowNewModal(true)} className="gap-1.5">
-              <Plus className="h-4 w-4" /> {t('startNewStocktake')}
+              <Plus className="h-4 w-4" /> {tr('Start New Stocktake', 'بدء جلسة جرد جديدة')}
             </Button>
           </div>
 
@@ -380,19 +381,19 @@ export function StocktakeManager() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                 <tr>
-                  <th className="py-3 px-4 text-start font-medium">{t('colSessionNumber')}</th>
-                  <th className="py-3 px-4 text-start font-medium">{t('colScope')}</th>
-                  <th className="py-3 px-4 text-start font-medium">{t('colCounter')}</th>
-                  <th className="py-3 px-4 text-start font-medium">{t('colCreatedDate')}</th>
-                  <th className="py-3 px-4 text-center font-medium">{t('colStatus')}</th>
-                  <th className="py-3 px-4 text-end font-medium">{t('colActions')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Session #', 'رقم الجلسة')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Audit Scope', 'نطاق الجرد')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Responsible Auditor', 'المسؤول عن العد')}</th>
+                  <th className="py-3 px-4 text-start font-medium">{tr('Creation Date', 'تاريخ الإنشاء')}</th>
+                  <th className="py-3 px-4 text-center font-medium">{tr('Status', 'الحالة')}</th>
+                  <th className="py-3 px-4 text-end font-medium">{tr('Actions', 'الإجراءات')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {sessions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-muted-foreground">
-                      {t('noSessions')}
+                      {tr('No stocktake sessions found. Start a new session to begin.', 'لا توجد جلسات جرد سابقة. ابدأ جلسة جديدة للبدء.')}
                     </td>
                   </tr>
                 ) : (
@@ -400,7 +401,7 @@ export function StocktakeManager() {
                     <tr key={sess.id} className="hover:bg-muted/30">
                       <td className="py-3.5 px-4 font-bold text-foreground">#{sess.id}</td>
                       <td className="py-3.5 px-4 text-xs capitalize text-muted-foreground">{sess.scope}</td>
-                      <td className="py-3.5 px-4 text-xs text-foreground">{sess.counter_name || 'Staff'}</td>
+                      <td className="py-3.5 px-4 text-xs text-foreground">{sess.counter_name || tr('Staff', 'فريق العمل')}</td>
                       <td className="py-3.5 px-4 text-xs text-muted-foreground">{formatDate(sess.created_at)}</td>
                       <td className="py-3.5 px-4 text-center">
                         <Badge
@@ -413,12 +414,16 @@ export function StocktakeManager() {
                           }
                           className="capitalize"
                         >
-                          {sess.status}
+                          {sess.status === 'completed'
+                            ? tr('Completed', 'مكتملة ومسواة')
+                            : sess.status === 'in_progress'
+                            ? tr('In Progress', 'قيد الجرد الفعلي')
+                            : tr('Draft', 'مسودة')}
                         </Badge>
                       </td>
                       <td className="py-3.5 px-4 text-end">
                         <Button size="sm" variant="ghost" onClick={() => openSession(sess)}>
-                          {sess.status === 'completed' ? t('viewReport') : t('continueCount')}
+                          {sess.status === 'completed' ? tr('View Audit Report', 'عرض تقرير الجرد') : tr('Continue Count', 'متابعة العد')}
                         </Button>
                       </td>
                     </tr>
@@ -435,7 +440,7 @@ export function StocktakeManager() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">{t('modalStartTitle')}</h3>
+              <h3 className="text-lg font-bold text-foreground">{tr('Start New Stocktake Session', 'بدء جلسة جرد مخزني جديدة')}</h3>
               <button
                 type="button"
                 onClick={() => setShowNewModal(false)}
@@ -447,36 +452,36 @@ export function StocktakeManager() {
 
             <form onSubmit={handleCreateSession} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('scopeLabel')}</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Stocktake Scope', 'نطاق الجرد')}</label>
                 <select
                   value={newScope}
                   onChange={(e) => setNewScope(e.target.value)}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 >
-                  <option value="all">{t('scopeAll')}</option>
-                  <option value="bar">{t('scopeBar')}</option>
-                  <option value="kitchen">{t('scopeKitchen')}</option>
-                  <option value="packaging">{t('scopePackaging')}</option>
+                  <option value="all">{tr('All Inventory Items', 'جميع أصناف المخزون')}</option>
+                  <option value="bar">{tr('Bar & Beverage Materials', 'خامات ومشروبات البار')}</option>
+                  <option value="kitchen">{tr('Kitchen & Food Supplies', 'خامات وأغذية المطبخ')}</option>
+                  <option value="packaging">{tr('Packaging & Disposables', 'مواد التعبئة والتغليف')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('counterStaffLabel')}</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Auditor / Staff Name', 'اسم مسؤول الجرد')}</label>
                 <input
                   type="text"
                   value={newCounter}
                   onChange={(e) => setNewCounter(e.target.value)}
-                  placeholder={t('counterStaffPlaceholder')}
+                  placeholder={tr('e.g. Ahmed - Head Bartender', 'مثال: أحمد - رئيس البار')}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">{t('notesLabel')}</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Audit Notes - Optional', 'ملاحظات الجرد - اختياري')}</label>
                 <textarea
                   value={newNotes}
                   onChange={(e) => setNewNotes(e.target.value)}
-                  placeholder={t('notesPlaceholder')}
+                  placeholder={tr('e.g. End of month inventory count', 'مثال: جرد نهاية الشهر الدوري')}
                   rows={2}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 />
@@ -484,9 +489,9 @@ export function StocktakeManager() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowNewModal(false)}>
-                  {tCommon('cancel')}
+                  {tr('Cancel', 'إلغاء')}
                 </Button>
-                <Button type="submit">{t('btnStartSession')}</Button>
+                <Button type="submit">{tr('Start Counting Session', 'بدء جلسة العد')}</Button>
               </div>
             </form>
           </div>
@@ -498,7 +503,7 @@ export function StocktakeManager() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">{t('modalFinalizeTitle')}</h3>
+              <h3 className="text-lg font-bold text-foreground">{tr('Finalize & Reconcile Stocktake', 'اعتماد وتسوية فروقات الجرد')}</h3>
               <button
                 type="button"
                 onClick={() => setShowFinalizeModal(false)}
@@ -511,11 +516,11 @@ export function StocktakeManager() {
             <form onSubmit={handleFinalize} className="p-6 space-y-4">
               <div className="p-4 bg-muted/40 rounded-xl space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{t('lblTotalDiscrepancy')}</span>
-                  <span className="font-bold text-foreground">{fmtNum(calculateTotalDiscrepancy())} {t('units')}</span>
+                  <span className="text-muted-foreground">{tr('Total Count Discrepancy', 'إجمالي الفروقات المحسوبة')}</span>
+                  <span className="font-bold text-foreground">{fmtNum(calculateTotalDiscrepancy())} {tr('Units', 'وحدة')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('finalizeNotice')}
+                  {tr('Approving this stocktake will immediately update on-hand stock and log discrepancy movements in the audit ledger.', 'اعتماد هذا الجرد سيقوم فوراً بتحديث رصيد المخزون الفعلي وتسجيل حركات التسوية في سجل التدقيق.')}
                 </p>
               </div>
 
@@ -523,14 +528,14 @@ export function StocktakeManager() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600">
                     <AlertTriangle className="h-4 w-4" />
-                    {t('managerOverrideRequired', { threshold: activeSession?.variance_threshold || 50 })}
+                    {tr('Manager PIN Authorization Required - Variance Exceeds Threshold', 'يلزم إدخال رمز المدير للاعتماد - الفروقات تتجاوز الحد المسموح')}
                   </div>
                   <input
                     type="password"
                     maxLength={6}
                     value={managerPin}
                     onChange={(e) => setManagerPin(e.target.value)}
-                    placeholder={t('managerPinPlaceholder')}
+                    placeholder={tr('Enter 4-6 digit manager PIN', 'أدخل رمز المدير المكون من 4 إلى 6 أرقام')}
                     className="w-full text-center tracking-widest text-lg px-4 py-2.5 bg-background border border-border rounded-xl font-mono focus:outline-hidden focus:ring-2 focus:ring-brand"
                     required
                   />
@@ -539,10 +544,10 @@ export function StocktakeManager() {
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
                 <Button type="button" variant="outline" onClick={() => setShowFinalizeModal(false)}>
-                  {tCommon('cancel')}
+                  {tr('Cancel', 'إلغاء')}
                 </Button>
                 <Button type="submit" disabled={finalizing}>
-                  {finalizing ? t('finalizing') : t('btnConfirmAdjustments')}
+                  {finalizing ? tr('Finalizing & Adjusting...', 'جاري الاعتماد والتسوية...') : tr('Confirm Inventory Adjustments', 'تأكيد التسويات المخزنية')}
                 </Button>
               </div>
             </form>

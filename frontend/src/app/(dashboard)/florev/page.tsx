@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import api from '@/lib/api';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface OrderItem {
   id: string | number;
@@ -37,6 +38,7 @@ interface CashSessionItem {
 
 export default function FloRevPage() {
   const router = useRouter();
+  const { tr, isAr, dir } = useAppLanguage();
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -145,22 +147,22 @@ export default function FloRevPage() {
   }, []);
 
   return (
-    <div className="p-3 md:p-6 max-w-xl mx-auto space-y-4 pb-20">
+    <div className="p-3 md:p-6 max-w-xl mx-auto space-y-4 pb-20" dir={dir}>
       {/* Mobile Header Bar */}
       <div className="flex items-center justify-between border-b border-border/40 pb-3">
         <div className="flex items-center gap-2">
           <Smartphone className="h-6 w-6 text-primary" />
           <div>
-            <h1 className="text-xl font-bold tracking-tight">FloRev Live</h1>
-            <p className="text-[11px] text-muted-foreground">Mobile Manager &amp; Owner Companion</p>
+            <h1 className="text-xl font-bold tracking-tight">{tr('FloRev Live', 'فلو ريف المباشر')}</h1>
+            <p className="text-[11px] text-muted-foreground">{tr('Mobile Manager & Owner Companion', 'تطبيق المالك والمدير لمتابعة المبيعات الحية')}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30 gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Live Sync
+            {tr('Live Sync', 'مزامنة حية')}
           </Badge>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadMetrics}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadMetrics} title={tr('Refresh live metrics', 'تحديث المؤشرات الحية')}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
@@ -170,15 +172,16 @@ export default function FloRevPage() {
       <Card className="bg-gradient-to-br from-primary/20 via-card to-card border-primary/30 shadow-lg">
         <CardContent className="p-5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>TODAY&apos;S NET SALES</span>
+            <span>{tr("TODAY'S NET SALES", 'صافي مبيعات اليوم')}</span>
+            <span className="text-[10px] font-bold text-primary uppercase">{tr('Live Revenue', 'إيراد لحظي')}</span>
             <DollarSign className="h-4 w-4 text-primary" />
           </div>
           <div className="text-4xl font-extrabold tracking-tight mt-1 text-foreground">
             ${metrics.todaySales.toFixed(2)}
           </div>
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/40 text-xs">
-            <span className="text-muted-foreground">{metrics.ordersCount} total orders settled</span>
-            <span className="font-semibold text-primary">Avg: ${metrics.avgOrderValue.toFixed(2)}</span>
+            <span className="text-muted-foreground">{metrics.ordersCount} {tr('total orders settled', 'إجمالي الطلبات المسواة')}</span>
+            <span className="font-semibold text-primary">{tr('Avg', 'المتوسط')}: ${metrics.avgOrderValue.toFixed(2)}</span>
           </div>
         </CardContent>
       </Card>
@@ -188,60 +191,60 @@ export default function FloRevPage() {
         {/* Open Tables */}
         <Card className="p-4 bg-card/60">
           <div className="flex items-center justify-between text-muted-foreground text-xs">
-            <span>Dine-In Tables</span>
+            <span>{tr('Dine-In Tables', 'طاولات الصالة')}</span>
             <Layers className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-2xl font-bold mt-2">{metrics.openTables}</div>
-          <div className="text-[10px] text-muted-foreground mt-1">Currently seated</div>
+          <div className="text-[10px] text-muted-foreground mt-1">{tr('Currently seated', 'مشغولة حالياً')}</div>
         </Card>
 
         {/* Kitchen KDS Queue */}
         <Card className="p-4 bg-card/60">
           <div className="flex items-center justify-between text-muted-foreground text-xs">
-            <span>Kitchen Queue</span>
+            <span>{tr('Kitchen Queue', 'قائمة انتظار المطبخ')}</span>
             <ChefHat className="h-4 w-4 text-cyan-400" />
           </div>
           <div className="text-2xl font-bold mt-2">{metrics.kdsQueueLength}</div>
-          <div className="text-[10px] text-muted-foreground mt-1">Tickets in preparation</div>
+          <div className="text-[10px] text-muted-foreground mt-1">{tr('Tickets in preparation', 'طلبات قيد التحضير')}</div>
         </Card>
 
         {/* Cash Drawer Shift */}
         <Card className="p-4 bg-card/60">
           <div className="flex items-center justify-between text-muted-foreground text-xs">
-            <span>Cash Shift</span>
+            <span>{tr('Cash Shift', 'وردية الصندوق النقدية')}</span>
             <CreditCard className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-bold mt-2">
             ${metrics.cashDrawerExpected.toFixed(2)}
           </div>
           <div className="text-[10px] text-muted-foreground mt-1">
-            {metrics.activeShiftOpen ? 'Drawer open & tracked' : 'No active shift'}
+            {metrics.activeShiftOpen ? tr('Drawer open & tracked', 'الدرج مفتوح ومتابع دفترياً') : tr('No active shift', 'لا توجد وردية مفتوحة')}
           </div>
         </Card>
 
         {/* System Health */}
         <Card className="p-4 bg-card/60">
           <div className="flex items-center justify-between text-muted-foreground text-xs">
-            <span>Security &amp; License</span>
+            <span>{tr('Security & License', 'الأمان والتراخيص')}</span>
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
           </div>
-          <div className="text-sm font-semibold mt-2 text-emerald-400">Offline Verified</div>
-          <div className="text-[10px] text-muted-foreground mt-1">Hardware cryptosealed</div>
+          <div className="text-sm font-semibold mt-2 text-emerald-400">{tr('Offline Verified', 'موثق ومحمي دون اتصال')}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">{tr('Hardware cryptosealed', 'محمي بتشفير العتاد')}</div>
         </Card>
       </div>
 
       {/* Quick Actions Footer */}
       <div className="p-3 bg-muted/20 border border-border/40 rounded-xl flex items-center justify-around text-xs">
         <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => router.push('/pos')}>
-          Go to POS
+          {tr('Go to POS', 'الانتقال إلى نقطة البيع')}
         </Button>
         <div className="h-4 w-[1px] bg-border" />
         <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => router.push('/owner-control')}>
-          Owner Fleet
+          {tr('Owner Fleet', 'منظومة المالك')}
         </Button>
         <div className="h-4 w-[1px] bg-border" />
         <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => router.push('/orderflo')}>
-          OrderFlo
+          {tr('OrderFlo', 'أوردر فلو للطلبات')}
         </Button>
       </div>
     </div>

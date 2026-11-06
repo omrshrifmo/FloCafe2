@@ -19,6 +19,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import api from '@/lib/api';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface TableRecord {
   id: string | number;
@@ -38,6 +39,7 @@ interface OrderRecord {
 }
 
 export default function OrderFloPage() {
+  const { tr, isAr, dir } = useAppLanguage();
   const [loading, setLoading] = useState(false);
   const [tables, setTables] = useState<TableRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -180,29 +182,31 @@ export default function OrderFloPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6" dir={dir}>
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-4">
         <div>
           <div className="flex items-center gap-2">
             <QrCode className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">OrderFlo Self-Hosted Hub</h1>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+              {tr('OrderFlo Self-Hosted Hub', 'منظومة أوردر فلو المستقلة')}
+            </h1>
             <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-              0% Commission
+              {tr('0% Commission', 'عمولة 0%')}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Self-Hosted QR Table Ordering, Counter Self-Service Kiosks &amp; Direct Delivery Management
+            {tr('Self-Hosted QR Table Ordering, Counter Self-Service Kiosks & Direct Delivery Management', 'الطلب الذاتي عبر رمز الاستجابة السريعة (QR) على الطاولات، أجهزة الكشك الذاتي، وإدارة التوصيل المباشر')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadData} disabled={loading} className="gap-1.5">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh Queue
+            {tr('Refresh Queue', 'تحديث القائمة')}
           </Button>
           <Button size="sm" className="gap-1.5" onClick={() => window.open('/qr', '_blank')}>
             <ExternalLink className="h-4 w-4" />
-            Launch Table QR Menu
+            {tr('Launch Table QR Menu', 'فتح قائمة QR للطاولات')}
           </Button>
         </div>
       </div>
@@ -211,13 +215,13 @@ export default function OrderFloPage() {
       <Tabs defaultValue="incoming" className="w-full">
         <TabsList className="grid grid-cols-3 max-w-md mb-4">
           <TabsTrigger value="incoming" className="text-xs">
-            Live Incoming ({pendingOrders.length})
+            {tr('Live Incoming', 'الطلبات الواردة الحية')} ({pendingOrders.length})
           </TabsTrigger>
           <TabsTrigger value="tables" className="text-xs">
-            Table QR Generator
+            {tr('Table QR Generator', 'إنشاء باركود QR للطاولات')}
           </TabsTrigger>
           <TabsTrigger value="kiosk" className="text-xs">
-            Kiosk &amp; Delivery
+            {tr('Kiosk & Delivery', 'الكشك الذاتي والتوصيل')}
           </TabsTrigger>
         </TabsList>
 
@@ -228,10 +232,10 @@ export default function OrderFloPage() {
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <ShoppingBag className="h-4 w-4 text-primary" />
-                  Incoming Digital Orders Approval Queue
+                  {tr('Incoming Digital Orders Approval Queue', 'قائمة انتظار واعتماد الطلبات الرقمية')}
                 </span>
                 <Badge variant="secondary" className="text-xs">
-                  {pendingOrders.length} Pending
+                  {pendingOrders.length} {tr('Pending', 'قيد الانتظار')}
                 </Badge>
               </CardTitle>
             </CardHeader>
@@ -242,19 +246,19 @@ export default function OrderFloPage() {
                     <div key={ord.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/30">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm">Order #{ord.order_number || ord.id}</span>
+                          <span className="font-bold text-sm">{tr('Order #', 'طلب رقم #')}{ord.order_number || ord.id}</span>
                           <Badge variant="outline" className="text-[10px]">
                             {ord.order_type || 'dine-in'}
                           </Badge>
                           {Boolean(ord.table_id) && (
                             <Badge variant="secondary" className="text-[10px]">
-                              Table {ord.table_name || ord.table_id}
+                              {tr('Table', 'طاولة')} {ord.table_name || ord.table_id}
                             </Badge>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2">
                           <Clock className="h-3.5 w-3.5" />
-                          <span>{ord.created_at ? new Date(ord.created_at).toLocaleTimeString() : 'Just now'}</span>
+                          <span>{ord.created_at ? new Date(ord.created_at).toLocaleTimeString() : tr('Just now', 'الآن')}</span>
                           <span>•</span>
                           <span className="font-semibold text-foreground">${Number(ord.total || 0).toFixed(2)}</span>
                         </div>
@@ -267,7 +271,7 @@ export default function OrderFloPage() {
                           onClick={() => handleApproveOrder(ord.id)}
                         >
                           <CheckCircle2 className="h-4 w-4" />
-                          Accept &amp; Send to KDS
+                          {tr('Accept & Send to KDS', 'قبول وإرسال للمطبخ')}
                         </Button>
                         <Button
                           size="sm"
@@ -276,7 +280,7 @@ export default function OrderFloPage() {
                           onClick={() => handleRejectOrder(ord.id)}
                         >
                           <XCircle className="h-4 w-4" />
-                          Decline
+                          {tr('Decline', 'رفض')}
                         </Button>
                       </div>
                     </div>
@@ -285,8 +289,8 @@ export default function OrderFloPage() {
               ) : (
                 <div className="p-10 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
                   <CheckCircle2 className="h-8 w-8 text-emerald-400" />
-                  <span className="font-semibold text-sm">Incoming queue is clear</span>
-                  <span>Direct QR and kiosk orders appear here instantly when placed by diners.</span>
+                  <span className="font-semibold text-sm">{tr('Incoming queue is clear', 'قائمة الطلبات الواردة فارغة')}</span>
+                  <span>{tr('Direct QR and kiosk orders appear here instantly when placed by diners.', 'ستظهر طلبات QR وأجهزة الكشك الذاتي هنا فور إرسالها من العملاء.')}</span>
                 </div>
               )}
             </CardContent>
@@ -298,7 +302,7 @@ export default function OrderFloPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="md:col-span-1">
               <CardHeader className="pb-3 border-b border-border/30">
-                <CardTitle className="text-sm">Restaurant Floor Tables</CardTitle>
+                <CardTitle className="text-sm">{tr('Restaurant Floor Tables', 'طاولات الصالة')}</CardTitle>
               </CardHeader>
               <CardContent className="p-2 space-y-1">
                 {tables.map((table) => {
@@ -313,7 +317,7 @@ export default function OrderFloPage() {
                     >
                       <span className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 text-primary" />
-                        {table.name || `Table ${table.id}`}
+                        {table.name || `${tr('Table', 'طاولة')} ${table.id}`}
                       </span>
                       <Badge variant="outline" className="text-[10px] capitalize">
                         {table.status || 'available'}
@@ -327,20 +331,20 @@ export default function OrderFloPage() {
             <Card className="md:col-span-2">
               <CardHeader className="pb-3 border-b border-border/30">
                 <CardTitle className="text-sm flex items-center justify-between">
-                  <span>Self-Ordering Standee: {selectedTable?.name || 'Table Selected'}</span>
-                  <Badge variant="secondary">0% Fees</Badge>
+                  <span>{tr('Self-Ordering Standee', 'لوحة الطلب الذاتي للطاولة')}: {selectedTable?.name || tr('Table Selected', 'طاولة مختارة')}</span>
+                  <Badge variant="secondary">{tr('0% Fees', 'بدون أي رسوم إضافية')}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 flex flex-col items-center justify-center space-y-4">
                 {selectedTable ? (
                   <>
                     <div className="p-6 bg-white rounded-2xl shadow-md border flex flex-col items-center">
-                      <div className="text-black font-extrabold text-base mb-2">SCAN TO ORDER</div>
+                      <div className="text-black font-extrabold text-base mb-2">{tr('SCAN TO ORDER', 'امسح الباركود للطلب')}</div>
                       <div className="h-44 w-44 bg-neutral-900 rounded-xl p-2 flex flex-col items-center justify-center text-center text-white text-xs">
                         <QrCode className="h-28 w-28 text-white" />
-                        <span className="font-mono text-[10px] text-white/80 mt-1">Table {selectedTable.name}</span>
+                        <span className="font-mono text-[10px] text-white/80 mt-1">{tr('Table', 'طاولة')} {selectedTable.name}</span>
                       </div>
-                      <div className="text-neutral-600 font-medium text-xs mt-3">FloCafe Digital Dining</div>
+                      <div className="text-neutral-600 font-medium text-xs mt-3">{tr('FloCafe Digital Dining', 'تجربة الضيافة الرقمية من فلو كافيه')}</div>
                     </div>
 
                     <div className="w-full max-w-sm space-y-2">
@@ -355,7 +359,7 @@ export default function OrderFloPage() {
                           onClick={() => copyQrLink(selectedTable.id)}
                         >
                           <Copy className="h-3.5 w-3.5" />
-                          {copiedTableId === String(selectedTable.id) ? 'Copied URL!' : 'Copy Table Link'}
+                          {copiedTableId === String(selectedTable.id) ? tr('Copied URL!', 'تم نسخ الرابط!') : tr('Copy Table Link', 'نسخ رابط الطاولة')}
                         </Button>
                         <Button
                           size="sm"
@@ -363,13 +367,13 @@ export default function OrderFloPage() {
                           onClick={() => window.open(getTableQrLink(selectedTable.id), '_blank')}
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
-                          Test Diner View
+                          {tr('Test Diner View', 'معاينة صفحة العميل')}
                         </Button>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="text-xs text-muted-foreground">Select a table to generate its QR standee.</div>
+                  <div className="text-xs text-muted-foreground">{tr('Select a table to generate its QR standee.', 'اختر طاولة لإنشاء بطاقة الباركود الخاصة بها.')}</div>
                 )}
               </CardContent>
             </Card>
@@ -383,19 +387,19 @@ export default function OrderFloPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Store className="h-4 w-4 text-primary" />
-                  Self-Service Ordering Kiosks
+                  {tr('Self-Service Ordering Kiosks', 'أجهزة الكشك للطلب الذاتي')}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Run customer-facing counter tablets in full-screen locked kiosk mode.
+                  {tr('Run customer-facing counter tablets in full-screen locked kiosk mode.', 'تشغيل شاشات وأجهزة التابلت بوضع الكشك المقفل للطلب الذاتي.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Lock an Android tablet or iPad onto the ordering menu so walk-in customers can order and pay autonomously at the counter.
+                  {tr('Lock an Android tablet or iPad onto the ordering menu so walk-in customers can order and pay autonomously at the counter.', 'تثبيت جهاز لوحي لعرض القائمة وتمكين الزبائن من الطلب والدفع ذاتياً على الكاونتر.')}
                 </p>
                 <Button size="sm" className="w-full gap-2 text-xs" onClick={() => window.open('/qr?mode=kiosk', '_blank')}>
                   <ExternalLink className="h-4 w-4" />
-                  Launch Counter Kiosk Mode
+                  {tr('Launch Counter Kiosk Mode', 'تشغيل وضع كشك الطلب الذاتي')}
                 </Button>
               </CardContent>
             </Card>
@@ -404,19 +408,19 @@ export default function OrderFloPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Truck className="h-4 w-4 text-primary" />
-                  Direct Customer Delivery Orders
+                  {tr('Direct Customer Delivery Orders', 'طلبات التوصيل المباشرة للعملاء')}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Accept commission-free delivery orders directly from your local website.
+                  {tr('Accept commission-free delivery orders directly from your local website.', 'استقبال طلبات التوصيل دون أي عمولات وسيطة مباشرة من المتجر.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Integrated with local customer address capture and phone WhatsApp delivery notifications without any aggregator margins.
+                  {tr('Integrated with local customer address capture and phone WhatsApp delivery notifications without any aggregator margins.', 'مدمج مع تحديد عناوين العملاء وإشعارات التوصيل عبر واتساب دون خصم أي عمولات منصات.')}
                 </p>
                 <Button size="sm" variant="outline" className="w-full gap-2 text-xs" onClick={() => window.open('/delivery', '_blank')}>
                   <ExternalLink className="h-4 w-4" />
-                  Open Delivery Dispatch
+                  {tr('Open Delivery Dispatch', 'فتح لوحة توجيه التوصيل')}
                 </Button>
               </CardContent>
             </Card>

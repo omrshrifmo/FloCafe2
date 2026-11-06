@@ -48,6 +48,8 @@ import {
 import { renderBillDocumentToClassicLines, renderClassicReceiptViaDocument } from './document-classic';
 import { renderBillDocumentToCompactLines, renderCompactReceiptViaDocument } from './document-compact';
 import { renderKotDocumentToLines, renderKotViaDocument } from './document-kot';
+import { renderThermalZReport } from '../print/z-report';
+export { renderThermalZReport } from '../print/z-report';
 import {
   isThermalTextRepresentable,
   type ThermalCodePage,
@@ -2667,7 +2669,7 @@ function pushZReportRow(lines: string[], label: SemanticLabel, value: string, co
  * raster renderer instead of refusing to print. A non-fatal `PrintWarning`
  * is attached to the result so the caller can surface the fallback if needed.
  */
-export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?: any): Promise<DispatchResult & { bytes?: Buffer; connection_type?: string }> {
+export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?: any): Promise<DispatchResult & { bytes?: Buffer; connection_type?: string; commands?: any[] }> {
   try {
     if (signal?.aborted) return { ok: false, detail: 'Print cancelled during shutdown' };
     const printer = targetPrinter || getPrinterConfig();
@@ -2675,11 +2677,15 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
     const { columns, capabilities } = resolvePrinterContext(printer, false);
     const zWithMarker = { ...z, __isReprint: !!z?.__isReprint };
     const warnings: PrintWarning[] = [];
-    const { sections, cols, lang } = buildZReportSections(zWithMarker, { columns, capabilities });
+    const { sections, cols, lang: zLang } = buildZReportSections(zWithMarker, { columns, capabilities });
+
+    const closureType = (z as any)?.closure_type === 'pre_blind_cashier' ? 'pre_blind_cashier' : 'full_day_close';
+    const lang = (z as any)?.language === 'en' ? 'en' : 'ar';
+    const rendered = renderThermalZReport(z, closureType, lang, printer?.columns || columns || 42);
 
     // Probe for financial-row failures before committing to bytes.
     const probeWarnings: PrintWarning[] = [];
-    buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, probeWarnings);
+    buildEscPos(sections, false, { cutMode: 'full', language: zLang, columns: cols, capabilities }, probeWarnings);
 
     const stylePrefs = parsePrintStylePreferences(getSettingValue('print_style_preferences'));
     const resolvedReceiptStyle = resolveEffectivePrintStyle(stylePrefs, 'receipt');
@@ -2752,7 +2758,9 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         };
       }
     } else {
-      baseBody = buildEscPos(sections, false, { cutMode: 'full', language: lang, columns: cols, capabilities }, warnings);
+      baseBody = (rendered.bytes && rendered.bytes.length > 0)
+        ? rendered.bytes
+        : buildEscPos(sections, false, { cutMode: 'full', language: zLang, columns: cols, capabilities }, warnings);
     }
 
     const data = appendCashDrawerPulse(baseBody);
@@ -2765,11 +2773,11 @@ export async function printZReport(z: any, signal?: AbortSignal, targetPrinter?:
         result = await printViaUSB(data, printer.name, signal);
         break;
       case 'webusb':
-        return { ok: true, bytes: data, connection_type: 'webusb', ...(warnings.length > 0 ? { warnings } : {}) };
+        return { ok: true, bytes: data, commands: rendered.commands, connection_type: 'webusb', ...(warnings.length > 0 ? { warnings } : {}) };
       default:
         result = { ok: false, detail: `Unsupported connection type: ${printer.connection_type}` };
     }
-    return { ...result, bytes: data, connection_type: printer.connection_type, ...(warnings.length > 0 ? { warnings } : {}) };
+    return { ...result, bytes: data, commands: rendered.commands, connection_type: printer.connection_type, ...(warnings.length > 0 ? { warnings } : {}) };
   } catch (error: any) {
     console.error('[Printer] Z-report dispatch failed:', error);
     return { ok: false, detail: error?.message };

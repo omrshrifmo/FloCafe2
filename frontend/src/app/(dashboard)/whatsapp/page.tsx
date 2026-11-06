@@ -22,6 +22,7 @@ import { useFormatDate } from '@/hooks/useFormatDate';
 import { dialCodeFor, parsePhone } from '@/lib/phone';
 import { Ltr } from '@/components/layout/Ltr';
 import { tenantCan } from '@/lib/permissions';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface WhatsAppStatus {
   enabled: boolean;
@@ -201,6 +202,7 @@ export default function WhatsAppPage() {
   const tKind = useTranslations('whatsapp.kind');
   const tLastError = useTranslations('whatsapp.lastError');
   const tApiError = useTranslations('whatsapp.apiError');
+  const { tr, isAr, dir } = useAppLanguage();
   const { confirm, ConfirmDialog } = useConfirm();
   const setWhatsappEnabled = usePosSettingsStore((s) => s.setWhatsappEnabled);
   const { currentTenant } = useAuthStore();
@@ -934,10 +936,10 @@ export default function WhatsAppPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Receipt className="size-4 text-brand" />
-                  Automated Checkout Receipts
+                  {tr('Automated Checkout Receipts', 'إيصالات الدفع الآلية عبر واتساب')}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Instantly dispatch an itemized WhatsApp receipt to the customer upon payment completion.
+                  {tr('Instantly dispatch an itemized WhatsApp receipt to the customer upon payment completion.', 'إرسال فاتورة إلكترونية مفصلة تلقائياً للعميل على واتساب فور إتمام الدفع.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-xs">
@@ -949,13 +951,13 @@ export default function WhatsAppPage() {
                     className="size-4 accent-brand rounded"
                   />
                   <div>
-                    <span className="font-semibold text-foreground block">Auto-Send WhatsApp Receipt</span>
-                    <span className="text-muted-foreground text-[11px]">Sends branded receipt + loyalty stamp progress on order checkout</span>
+                    <span className="font-semibold text-foreground block">{tr('Auto-Send WhatsApp Receipt', 'إرسال الإيصال تلقائياً عبر واتساب')}</span>
+                    <span className="text-muted-foreground text-[11px]">{tr('Sends branded receipt and loyalty stamp progress on order checkout', 'إرسال فاتورة المتجر الرسمية مع رصيد بطاقة الأختام ونقاط الولاء فور إغلاق الطلب')}</span>
                   </div>
                 </label>
                 <div className="flex justify-end">
                   <Button size="sm" onClick={handleSaveWinbackSettings} disabled={savingWinbackSettings} className="text-xs">
-                    {savingWinbackSettings ? 'Saving...' : 'Save Receipt Setting'}
+                    {savingWinbackSettings ? tr('Saving...', 'جاري الحفظ...') : tr('Save Receipt Setting', 'حفظ إعدادات الإيصال')}
                   </Button>
                 </div>
               </CardContent>
@@ -965,16 +967,16 @@ export default function WhatsAppPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Sparkles className="size-4 text-purple-500" />
-                  14-Day Inactive Customer Win-Back
+                  {tr('14-Day Inactive Customer Win-Back', 'محرك استعادة العملاء المنقطعين')}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Automatically engage lapsed customers with an exclusive win-back voucher.
+                  {tr('Automatically engage lapsed customers with an exclusive win-back voucher.', 'إعادة تنشيط العملاء المنقطعين تلقائياً عبر كوبونات خصم حصرية مخصصة.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="font-medium text-foreground">Inactive Days Threshold</label>
+                    <label className="font-medium text-foreground">{tr('Inactive Days Threshold', 'الحد الأدنى لأيام الانقطاع')}</label>
                     <Input
                       type="number"
                       min={7}
@@ -985,7 +987,7 @@ export default function WhatsAppPage() {
                     />
                   </div>
                   <div>
-                    <label className="font-medium text-foreground">Discount Percent (%)</label>
+                    <label className="font-medium text-foreground">{tr('Discount Percent (%)', 'نسبة الخصم المئوية (%)')}</label>
                     <Input
                       type="number"
                       min={5}
@@ -998,7 +1000,7 @@ export default function WhatsAppPage() {
                 </div>
 
                 <div>
-                  <label className="font-medium text-foreground">Message Template</label>
+                  <label className="font-medium text-foreground">{tr('Message Template', 'قالب رسالة الاستعادة')}</label>
                   <textarea
                     rows={2}
                     value={winbackTemplate}
@@ -1006,12 +1008,12 @@ export default function WhatsAppPage() {
                     placeholder="Hi {name}! We miss seeing you at {store}. Enjoy {discount}% OFF with code {code}!"
                     className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                   />
-                  <span className="text-[10px] text-muted-foreground">Variables: &#123;name&#125;, &#123;store&#125;, &#123;discount&#125;, &#123;code&#125;</span>
+                  <span className="text-[10px] text-muted-foreground">{tr('Template variables: name, store, discount, code', 'المتغيرات المتاحة: الاسم، المتجر، نسبة الخصم، كود القسيمة')}</span>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-1">
                   <Button size="sm" onClick={handleSaveWinbackSettings} disabled={savingWinbackSettings} className="text-xs">
-                    {savingWinbackSettings ? 'Saving...' : 'Save Win-Back Settings'}
+                    {savingWinbackSettings ? tr('Saving...', 'جاري الحفظ...') : tr('Save Win-Back Settings', 'حفظ إعدادات الاستعادة')}
                   </Button>
                 </div>
               </CardContent>
@@ -1022,9 +1024,9 @@ export default function WhatsAppPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <div>
-                <CardTitle className="text-base">Inactive Customers Preview ({candidates.length})</CardTitle>
+                <CardTitle className="text-base">{tr('Inactive Customers Preview', 'معاينة العملاء المنقطعين المؤهلين')} ({candidates.length})</CardTitle>
                 <CardDescription className="text-xs">
-                  Customers with no visits in &gt;= {inactiveDays} days who haven&apos;t received a voucher in 30 days.
+                  {tr('Customers with no visits in target days who have not received a voucher recently', 'العملاء الذين لم يزوروا المتجر خلال المدة المحددة ولم يستلموا قسيمة مؤخراً')}
                 </CardDescription>
               </div>
               <Button
@@ -1035,31 +1037,31 @@ export default function WhatsAppPage() {
                 className="text-xs bg-purple-600 hover:bg-purple-700 text-white"
               >
                 <Gift className="size-3.5 me-1.5" />
-                {dispatchingWinback ? 'Dispatching...' : `Dispatch Win-Back Campaign (${candidates.length})`}
+                {dispatchingWinback ? tr('Dispatching...', 'جاري الإرسال...') : `${tr('Dispatch Win-Back Campaign', 'إطلاق حملة الاستعادة')} (${candidates.length})`}
               </Button>
             </CardHeader>
             <CardContent>
               {loadingWinback ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">Loading candidates...</div>
+                <div className="py-8 text-center text-xs text-muted-foreground">{tr('Loading candidates...', 'جاري فحص العملاء المنقطعين...')}</div>
               ) : candidates.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">No inactive customers eligible right now! Great job on retention.</div>
+                <div className="py-8 text-center text-xs text-muted-foreground">{tr('No inactive customers eligible right now! Great job on retention.', 'لا يوجد عملاء منقطعون حالياً! معدل احتفاظ ممتاز بالعملاء.')}</div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Last Order</TableHead>
-                      <TableHead className="text-end">Days Inactive</TableHead>
+                      <TableHead>{tr('Customer Name', 'اسم العميل')}</TableHead>
+                      <TableHead>{tr('Phone Number', 'رقم الهاتف')}</TableHead>
+                      <TableHead>{tr('Last Order Date', 'تاريخ آخر طلب')}</TableHead>
+                      <TableHead className="text-end">{tr('Days Inactive', 'أيام الانقطاع')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {candidates.slice(0, 10).map((cand) => (
                       <TableRow key={cand.id}>
-                        <TableCell className="font-semibold text-xs">{cand.name || 'Valued Guest'}</TableCell>
+                        <TableCell className="font-semibold text-xs">{cand.name || tr('Valued Guest', 'عميل مميز')}</TableCell>
                         <TableCell className="font-mono text-xs">{cand.phone}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{fmt(cand.last_order_at)}</TableCell>
-                        <TableCell className="text-end font-bold text-rose-500 text-xs">{cand.days_inactive} days</TableCell>
+                        <TableCell className="text-end font-bold text-rose-500 text-xs">{cand.days_inactive} {tr('days', 'يوم')}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1071,24 +1073,24 @@ export default function WhatsAppPage() {
           {/* Sent Win-Back Vouchers History */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Win-Back Vouchers Issued ({vouchers.length})</CardTitle>
+              <CardTitle className="text-base">{tr('Win-Back Vouchers Issued', 'سجل قسائم الخصم الصادرة')} ({vouchers.length})</CardTitle>
               <CardDescription className="text-xs">
-                Live track voucher dispatch, redemption rate, and expiry.
+                {tr('Live track voucher dispatch, redemption rate, and expiry.', 'تتبع حي لإرسال الكوبونات ومعدلات الاستخدام وتواريخ الانتهاء.')}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {vouchers.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">No win-back vouchers issued yet.</div>
+                <div className="py-8 text-center text-xs text-muted-foreground">{tr('No win-back vouchers issued yet.', 'لم يتم إصدار كوبونات استعادة بعد.')}</div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Voucher Code</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Discount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Sent At</TableHead>
-                      <TableHead>Expires</TableHead>
+                      <TableHead>{tr('Voucher Code', 'كود الخصم')}</TableHead>
+                      <TableHead>{tr('Customer', 'العميل')}</TableHead>
+                      <TableHead>{tr('Discount', 'الخصم')}</TableHead>
+                      <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                      <TableHead>{tr('Sent At', 'تاريخ الإرسال')}</TableHead>
+                      <TableHead>{tr('Expires', 'تاريخ الصلاحية')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1096,10 +1098,10 @@ export default function WhatsAppPage() {
                       <TableRow key={v.id}>
                         <TableCell className="font-mono font-bold text-xs text-purple-600 dark:text-purple-400">{v.voucher_code}</TableCell>
                         <TableCell className="text-xs">{v.customer_name || v.customer_phone}</TableCell>
-                        <TableCell className="text-xs font-semibold">{v.discount_pct}% OFF</TableCell>
+                        <TableCell className="text-xs font-semibold">{v.discount_pct}% {tr('OFF', 'خصم')}</TableCell>
                         <TableCell>
                           <Badge variant={v.status === 'redeemed' ? 'secondary' : v.status === 'expired' ? 'destructive' : 'outline'} className="text-[10px] uppercase">
-                            {v.status}
+                            {v.status === 'redeemed' ? tr('Redeemed', 'تم الاستخدام') : v.status === 'expired' ? tr('Expired', 'منتهي الصلاحية') : tr('Pending', 'قيد الانتظار')}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{fmt(v.sent_at)}</TableCell>

@@ -141,40 +141,40 @@ export default function OwnerAssistPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">{t('kpiLowInventory')}</span>
+              <span className="text-xs font-medium text-muted-foreground">{tr('Low Stock Alerts', 'تنبيهات انخفاض المخزون')}</span>
               <AlertTriangle className={`size-4 ${alerts.low_inventory_count > 0 ? 'text-amber-500' : 'text-muted-foreground'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.low_inventory_count}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {t('kpiLowInventory')}
+              {tr('Items below critical reorder point', 'أصناف تحت حد إعادة الطلب الحرج')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">{t('kpiRecipesExceeding')}</span>
+              <span className="text-xs font-medium text-muted-foreground">{tr('High Food Cost Recipes', 'وصفات تتجاوز تكلفة الطعام')}</span>
               <Layers className={`size-4 ${alerts.recipes_exceeding_food_cost_target > 0 ? 'text-red-500' : 'text-green-500'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.recipes_exceeding_food_cost_target}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {t('kpiRecipesExceeding')}
+              {tr('Exceeding 35% target food cost', 'تتجاوز نسبة التكلفة المستهدفة 35%')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">{t('kpiHaccpBreaches')}</span>
+              <span className="text-xs font-medium text-muted-foreground">{tr('HACCP Critical Breaches', 'مخالفات سلامة الغذاء الحرجة')}</span>
               <ShieldAlert className={`size-4 ${alerts.haccp_critical_breaches_last_7d > 0 ? 'text-red-500' : 'text-green-500'}`} />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">{alerts.haccp_critical_breaches_last_7d}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {t('kpiHaccpBreaches')}
+              {tr('Temperature breaches in last 7 days', 'تجاوزات درجات الحرارة في آخر 7 أيام')}
             </p>
           </div>
 
           <div className="p-4 bg-card border border-border rounded-xl shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">{t('kpiLaborRatio')}</span>
+              <span className="text-xs font-medium text-muted-foreground">{tr('Labor to Revenue Ratio', 'نسبة تكلفة العمالة إلى الإيراد')}</span>
               <Activity className="size-4 text-brand" />
             </div>
             <p className="text-2xl font-bold text-foreground mt-2">
@@ -184,7 +184,7 @@ export default function OwnerAssistPage() {
               variant={alerts.labor_ratio_status === 'healthy' ? 'secondary' : 'destructive'}
               className="mt-1 text-[10px] px-1.5 py-0"
             >
-              {alerts.labor_ratio_status === 'healthy' ? t('healthyBadge') : t('attentionBadge')}
+              {alerts.labor_ratio_status === 'healthy' ? tr('Healthy', 'وضع سليم') : tr('Attention Needed', 'يتطلب متابعة فورية')}
             </Badge>
           </div>
         </div>
@@ -196,10 +196,10 @@ export default function OwnerAssistPage() {
           <div>
             <h2 className="text-base font-bold text-foreground flex items-center gap-2">
               <TrendingUp className="size-5 text-brand" />
-              {t('matrixTitle')}
+              {tr('Menu Engineering Matrix', 'مصفوفة تحليل وهندسة قائمة الطعام')}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {t('matrixSubtitle')}
+              {tr('BCG Matrix: Stars, Plowhorses, Puzzles, and Dogs based on volume and contribution margin', 'تصنيف بوسطن للأصناف: نجوم، أبطال بيع، ألغاز، وأصناف متعثرة بناء على الحجم وهامش المساهمة')}
             </p>
           </div>
 
@@ -211,7 +211,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('all')}
               className="text-xs h-7"
             >
-              {t('filterAll', { count: matrix.length })}
+              {tr('All Items', 'جميع الأصناف')} ({matrix.length})
             </Button>
             <Button
               variant={activeFilter === 'Star' ? 'default' : 'outline'}
@@ -219,7 +219,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Star')}
               className="text-xs h-7 border-green-500/40 text-green-700 dark:text-green-400"
             >
-              ⭐ {t('filterStars', { count: starsCount })}
+              ⭐ {tr('Stars', 'نجوم')} ({starsCount})
             </Button>
             <Button
               variant={activeFilter === 'Plowhorse' ? 'default' : 'outline'}
@@ -227,7 +227,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Plowhorse')}
               className="text-xs h-7 border-blue-500/40 text-blue-700 dark:text-blue-400"
             >
-              🐎 {t('filterPlowhorses', { count: plowhorsesCount })}
+              🐎 {tr('Plowhorses', 'أبطال بيع')} ({plowhorsesCount})
             </Button>
             <Button
               variant={activeFilter === 'Puzzle' ? 'default' : 'outline'}
@@ -235,7 +235,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Puzzle')}
               className="text-xs h-7 border-amber-500/40 text-amber-700 dark:text-amber-400"
             >
-              🧩 {t('filterPuzzles', { count: puzzlesCount })}
+              🧩 {tr('Puzzles', 'ألغاز ربحية')} ({puzzlesCount})
             </Button>
             <Button
               variant={activeFilter === 'Dog' ? 'default' : 'outline'}
@@ -243,7 +243,7 @@ export default function OwnerAssistPage() {
               onClick={() => setActiveFilter('Dog')}
               className="text-xs h-7 border-red-500/40 text-red-700 dark:text-red-400"
             >
-              🐕 {t('filterDogs', { count: dogsCount })}
+              🐕 {tr('Dogs', 'أصناف متعثرة')} ({dogsCount})
             </Button>
           </div>
         </div>
@@ -252,15 +252,15 @@ export default function OwnerAssistPage() {
           <table className="w-full text-xs">
             <thead className="bg-muted text-muted-foreground font-semibold">
               <tr>
-                <th className="p-2.5 text-start">{t('colProduct')}</th>
-                <th className="p-2.5 text-start">{t('colProduct')}</th>
-                <th className="p-2.5 text-end">{t('colPriceCost')}</th>
-                <th className="p-2.5 text-end">{t('colPriceCost')}</th>
-                <th className="p-2.5 text-end">{t('colMargin')}</th>
-                <th className="p-2.5 text-end">{t('colUnitsSold')}</th>
-                <th className="p-2.5 text-end">{t('colRevenue')}</th>
-                <th className="p-2.5 text-center">{t('colClassification')}</th>
-                <th className="p-2.5 text-start">{t('colRecommendation')}</th>
+                <th className="p-2.5 text-start">{tr('Product Name', 'اسم الصنف')}</th>
+                <th className="p-2.5 text-start">{tr('Category', 'التصنيف')}</th>
+                <th className="p-2.5 text-end">{tr('Price', 'سعر البيع')}</th>
+                <th className="p-2.5 text-end">{tr('Unit Cost', 'تكلفة الوحدة')}</th>
+                <th className="p-2.5 text-end">{tr('Contribution Margin', 'هامش المساهمة')}</th>
+                <th className="p-2.5 text-end">{tr('Units Sold', 'الوحدات المباعة')}</th>
+                <th className="p-2.5 text-end">{tr('Total Revenue', 'إجمالي الإيرادات')}</th>
+                <th className="p-2.5 text-center">{tr('Classification', 'التصنيف')}</th>
+                <th className="p-2.5 text-start">{tr('Recommended Action', 'التوصية الإدارية')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -288,7 +288,13 @@ export default function OwnerAssistPage() {
                           : 'border-red-500 text-red-600 bg-red-500/10'
                       }`}
                     >
-                      {item.classification}
+                      {item.classification === 'Star'
+                        ? tr('Star', 'نجم')
+                        : item.classification === 'Plowhorse'
+                        ? tr('Plowhorse', 'بطل بيع')
+                        : item.classification === 'Puzzle'
+                        ? tr('Puzzle', 'لغز')
+                        : tr('Dog', 'متعثر')}
                     </Badge>
                   </td>
                   <td className="p-2.5 text-muted-foreground">{item.action_recommendation}</td>
@@ -297,7 +303,7 @@ export default function OwnerAssistPage() {
               {filteredMatrix.length === 0 && (
                 <tr>
                   <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                    {tCommon('no')}
+                    {tr('No items match the selected filter', 'لا توجد أصناف تطابق التصفية المحددة')}
                   </td>
                 </tr>
               )}
@@ -311,17 +317,17 @@ export default function OwnerAssistPage() {
         <div>
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             <Sliders className="size-5 text-brand" />
-            {t('simTitle')}
+            {tr('What-If Scenario Simulator', 'محاكي السيناريوهات والقرارات المالية')}
           </h2>
           <p className="text-xs text-muted-foreground">
-            {t('simSubtitle')}
+            {tr('Model price changes, sales growth, and cost inflation to preview net profit impact', 'توقع أثر تعديل الأسعار ونمو المبيعات وتضخم التكاليف على صافي الأرباح')}
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 bg-muted/30 rounded-lg border border-border/70">
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>{t('lblPriceChange')}</span>
+              <span>{tr('Selling Price Adjustment', 'تعديل أسعار البيع')}</span>
               <span className="font-bold text-brand">{priceChangePct > 0 ? `+${priceChangePct}` : priceChangePct}%</span>
             </label>
             <input
@@ -337,7 +343,7 @@ export default function OwnerAssistPage() {
 
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>{t('lblVolumeGrowth')}</span>
+              <span>{tr('Sales Volume Growth', 'نمو حجم المبيعات')}</span>
               <span className="font-bold text-brand">{volumeGrowthPct > 0 ? `+${volumeGrowthPct}` : volumeGrowthPct}%</span>
             </label>
             <input
@@ -353,7 +359,7 @@ export default function OwnerAssistPage() {
 
           <div>
             <label className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>{t('lblCostInflation')}</span>
+              <span>{tr('Cost Inflation', 'تضخم تكلفة المواد')}</span>
               <span className="font-bold text-brand">{costInflationPct > 0 ? `+${costInflationPct}` : costInflationPct}%</span>
             </label>
             <input
@@ -371,30 +377,30 @@ export default function OwnerAssistPage() {
         {/* Projected Results */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">{t('simProjectedRevenue')}</span>
+            <span className="text-[11px] text-muted-foreground">{tr('Projected Revenue', 'الإيرادات المتوقعة')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simRevenue)}</p>
-            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineRevenue)}</span>
+            <span className="text-[10px] text-muted-foreground">{tr('Baseline', 'الأساس')}: {fmtCurrency(baselineRevenue)}</span>
           </div>
 
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">{t('simBaselineRevenue')}</span>
+            <span className="text-[11px] text-muted-foreground">{tr('Projected COGS', 'تكلفة البضاعة المتوقعة')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simCogs)}</p>
-            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineCogs)}</span>
+            <span className="text-[10px] text-muted-foreground">{tr('Baseline', 'الأساس')}: {fmtCurrency(baselineCogs)}</span>
           </div>
 
           <div className="p-3 bg-card border border-border rounded-lg">
-            <span className="text-[11px] text-muted-foreground">{t('simProjectedProfit')}</span>
+            <span className="text-[11px] text-muted-foreground">{tr('Projected Gross Profit', 'مجمل الربح المتوقع')}</span>
             <p className="text-base font-bold text-foreground mt-0.5">{fmtCurrency(simGrossProfit)}</p>
-            <span className="text-[10px] text-muted-foreground">{t('simBaselineRevenue')} {fmtCurrency(baselineGrossProfit)}</span>
+            <span className="text-[10px] text-muted-foreground">{tr('Baseline', 'الأساس')}: {fmtCurrency(baselineGrossProfit)}</span>
           </div>
 
           <div className={`p-3 rounded-lg border ${profitDelta >= 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-            <span className="text-[11px] font-medium text-foreground">{t('simProjectedDelta')}</span>
+            <span className="text-[11px] font-medium text-foreground">{tr('Net Profit Delta', 'فرق صافي الربح')}</span>
             <p className={`text-base font-bold mt-0.5 ${profitDelta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               {profitDelta >= 0 ? `+${fmtCurrency(profitDelta)}` : fmtCurrency(profitDelta)}
             </p>
             <span className="text-[10px] text-muted-foreground">
-              {baselineGrossProfit > 0 ? `${((profitDelta / baselineGrossProfit) * 100).toFixed(1)}%` : 'N/A'}
+              {baselineGrossProfit > 0 ? `${((profitDelta / baselineGrossProfit) * 100).toFixed(1)}%` : tr('N/A', 'غير متاح')}
             </span>
           </div>
         </div>
