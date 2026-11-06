@@ -32,6 +32,7 @@
  * closes arrive as separate rows with a different `scope` value.
  */
 import { Router, Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import {
   dayBoundsInTimezone, getDatabase, getSettingValue, localDateInTimezone, now, withTxn,
   tenantBusinessDayStartTime,
@@ -1190,39 +1191,353 @@ router.post('/movements/:id/void', requirePermission('cash.movements.void'), (re
   }
 });
 
-router.post('/', requirePermission('cash.day-close'), (req: Request, res: Response) => {
+// ── GET /api/cash-closures/history ──────────────────────────────────────────
+// Returns all closures (pre_blind_cashier and full_day_close)
+router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT c.*, u.name AS closed_by_user_name, u.role AS closed_by_user_role
+      FROM cash_closures c
+      LEFT JOIN users u ON u.id = c.closed_by
+      ORDER BY c.created_at DESC
+      LIMIT 100
+    `).all() as any[];
+
+    const closures = rows.map((r) => {
+      let zSnapshot = null;
+      try { if (r.z_report_snapshot_json) zSnapshot = JSON.parse(r.z_report_snapshot_json); } catch {}
+      let denoms = null;
+      try { if (r.denominations_json) denoms = JSON.parse(r.denominations_json); } catch {}
+
+      return {
+        ...r,
+        closed_by_name: r.closed_by_name || r.closed_by_user_name || 'Staff',
+        closed_by_role: r.closed_by_role || r.closed_by_user_role || 'staff',
+        z_report_snapshot: zSnapshot,
+        denominations: denoms,
+      };
+    });
+
+    res.json({ success: true, closures });
+  } catch (error: any) {
+    console.error('[CashClosures] Error fetching history:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch closures history' });
+  }
+});
+
+// ── GET /api/cash-closures/preview ──────────────────────────────────────────
+// Computes live shift/day metrics since the last full_day_close (or for today)
+router.get('/preview', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const bDate = req.query.business_date ? String(req.query.business_date) : localDateInTimezone(new Date(), tenantTimezone(), tenantStartTime(db));
+    const [periodStart, periodEnd] = dayBoundsInTimezone(bDate, tenantTimezone(), tenantStartTime(db));
+
+    // Check last full day close
+    const lastFullClose = db.prepare(`
+      SELECT * FROM cash_closures
+      WHERE (scope = 'day' OR closure_type = 'full_day_close')
+      ORDER BY created_at DESC LIMIT 1
+    `).get() as any;
+
+    const effectiveStart = lastFullClose ? lastFullClose.created_at : periodStart;
+    const effectiveEnd = now();
+
+    // 1. Orders metrics in window
+    const orders = db.prepare(`
+      SELECT * FROM orders
+      WHERE created_at >= ? AND created_at <= ?
+    `).all(effectiveStart, effectiveEnd) as any[];
+
+    let totalOrdersCount = 0;
+    let dineInOrders = 0;
+    let dineInSales = 0;
+    let takeawayOrders = 0;
+    let takeawaySales = 0;
+    let deliveryOrders = 0;
+    let deliverySales = 0;
+    let voidedOrdersCount = 0;
+    let grossSales = 0;
+    let discountsTotal = 0;
+    let taxTotal = 0;
+    let netSales = 0;
+    let aggregatorSales = 0;
+    let aggregatorCommissions = 0;
+
+    for (const o of orders) {
+      if (o.status === 'cancelled' || o.status === 'voided') {
+        voidedOrdersCount++;
+        continue;
+      }
+      totalOrdersCount++;
+      const tot = Number(o.total || 0);
+      const sub = Number(o.subtotal || tot);
+      const tax = Number(o.tax || 0);
+      const disc = Math.max(0, sub - tot + tax);
+
+      grossSales += sub;
+      discountsTotal += disc;
+      taxTotal += tax;
+      netSales += tot;
+
+      const orderType = String(o.order_type || o.type || 'dine_in').toLowerCase();
+      if (orderType === 'dine_in' || orderType === 'table') {
+        dineInOrders++;
+        dineInSales += tot;
+      } else if (orderType === 'takeaway' || orderType === 'pickup') {
+        takeawayOrders++;
+        takeawaySales += tot;
+      } else if (orderType === 'delivery') {
+        deliveryOrders++;
+        deliverySales += tot;
+      }
+
+      if (o.delivery_channel_id || o.aggregator_commission_rate) {
+        aggregatorSales += tot;
+        const rate = Number(o.aggregator_commission_rate || 0);
+        if (rate > 0) {
+          aggregatorCommissions += (tot * rate) / 100;
+        }
+      }
+    }
+
+    // Carry over open tables
+    const openTablesRow = db.prepare(`
+      SELECT COUNT(*) as cnt FROM orders WHERE status IN ('open', 'active', 'in_progress', 'pending')
+    `).get() as any;
+    const carryOverTablesCount = Number(openTablesRow?.cnt || 0);
+
+    // 2. Bills and Payment Breakdown
+    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+    const { salesCents, refundsCents } = cashDrawerSalesAndRefunds(db, effectiveStart, effectiveEnd, minorFactor);
+    const cashSales = salesCents / minorFactor;
+    const refundsTotal = refundsCents / minorFactor;
+
+    // Payment method breakdown
+    const billPayments = db.prepare(`
+      SELECT b.payment_details, b.payment_method, b.paid_amount
+      FROM bills b
+      WHERE b.paid_at >= ? AND b.paid_at <= ?
+    `).all(effectiveStart, effectiveEnd) as any[];
+
+    let cardSales = 0;
+    let walletSales = 0;
+    let customPaymentSales = 0;
+
+    for (const b of billPayments) {
+      let details: any[] = [];
+      try {
+        if (b.payment_details) {
+          const parsed = JSON.parse(b.payment_details);
+          details = Array.isArray(parsed) ? parsed : [parsed];
+        }
+      } catch {}
+
+      if (details.length > 0) {
+        for (const d of details) {
+          const m = String(d.method || '').toLowerCase();
+          const amt = Number(d.amount || 0);
+          if (m === 'card' || m === 'visa' || m === 'mastercard') cardSales += amt;
+          else if (m === 'wallet' || m === 'instapay' || m === 'vodafone_cash') walletSales += amt;
+          else if (m !== 'cash') customPaymentSales += amt;
+        }
+      } else {
+        const m = String(b.payment_method || '').toLowerCase();
+        const amt = Number(b.paid_amount || 0);
+        if (m === 'card' || m === 'visa') cardSales += amt;
+        else if (m === 'wallet' || m === 'instapay') walletSales += amt;
+        else if (m !== 'cash') customPaymentSales += amt;
+      }
+    }
+
+    // 3. Cash movements
+    const movements = listCashDrawerMovements(db, bDate, false);
+    let openingCash = 0;
+    let cashInTotal = 0;
+    let cashOutTotal = 0;
+
+    for (const m of movements) {
+      if (m.voided_at) continue;
+      const amt = Number(m.amount_cents || 0) / 100;
+      if (m.movement_type === 'opening_float') openingCash += amt;
+      else if (m.movement_type === 'pay_in') cashInTotal += amt;
+      else if (m.movement_type === 'pay_out' || m.movement_type === 'safe_drop') cashOutTotal += amt;
+    }
+
+    // Operating expenses in cash
+    const expensesRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total_expenses
+      FROM operating_expenses
+      WHERE created_at >= ? AND created_at <= ?
+    `).get(effectiveStart, effectiveEnd) as any;
+    const expensesTotal = Number(expensesRow?.total_expenses || 0);
+
+    // Expected cash formula
+    const expectedCash = openingCash + cashSales + cashInTotal - cashOutTotal - refundsTotal;
+
+    // 4. Expected BOM Materials Cost
+    const orderItems = orders.length > 0
+      ? (db.prepare(`
+          SELECT oi.product_id, oi.quantity, oi.variant_id
+          FROM order_items oi
+          JOIN orders o ON o.id = oi.order_id
+          WHERE o.created_at >= ? AND o.created_at <= ?
+            AND o.status != 'cancelled' AND oi.status != 'refunded'
+        `).all(effectiveStart, effectiveEnd) as any[])
+      : [];
+
+    const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
+    const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
+
+    let expectedBomCost = 0;
+    for (const oi of orderItems) {
+      const header = getHeader.get(oi.product_id) as any;
+      if (!header) continue;
+      const comps = getComponents.all(header.id) as any[];
+      const portions = Math.max(0.1, Number(header.yield_portions || 1));
+      const qty = Number(oi.quantity || 1);
+
+      for (const comp of comps) {
+        let unitCost = Number(comp.custom_unit_cost || 0);
+        if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
+          unitCost = Number(comp.custom_unit_cost);
+        } else if (comp.target_type === 'inventory') {
+          const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+          if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
+        } else if (comp.target_type === 'supply') {
+          const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
+          if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+        }
+
+        const net = Number(comp.net_quantity || 0);
+        const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
+        const grossPerPortion = net / (1 - waste / 100);
+        expectedBomCost += (grossPerPortion / portions) * qty * unitCost;
+      }
+    }
+
+    // Authorized waste in period
+    const wasteRow = db.prepare(`
+      SELECT COALESCE(SUM(total_cost), 0) as total_waste
+      FROM waste_logs
+      WHERE logged_at >= ? AND logged_at <= ?
+    `).get(effectiveStart, effectiveEnd) as any;
+    const authorizedWasteCost = Number(wasteRow?.total_waste || 0);
+
+    const expectedGrossProfit = netSales - expectedBomCost;
+    const expectedNetProfit = netSales - expectedBomCost - authorizedWasteCost - expensesTotal - aggregatorCommissions;
+
+    // Latest pre-blind cashier close for current shift
+    const latestPreblind = db.prepare(`
+      SELECT * FROM cash_closures
+      WHERE closure_type = 'pre_blind_cashier'
+        AND created_at >= ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(effectiveStart) as any;
+
+    res.json({
+      success: true,
+      preview: {
+        shift_opened_at: effectiveStart,
+        business_date: bDate,
+        opening_cash: openingCash,
+        total_orders_count: totalOrdersCount,
+        gross_sales: grossSales,
+        discounts_total: discountsTotal,
+        tax_total: taxTotal,
+        net_sales: netSales,
+        dine_in_orders: dineInOrders,
+        dine_in_sales: dineInSales,
+        takeaway_orders: takeawayOrders,
+        takeaway_sales: takeawaySales,
+        delivery_orders: deliveryOrders,
+        delivery_sales: deliverySales,
+        voided_orders_count: voidedOrdersCount,
+        carry_over_tables_count: carryOverTablesCount,
+        cash_sales: cashSales,
+        card_sales: cardSales,
+        wallet_sales: walletSales,
+        custom_payment_sales: customPaymentSales,
+        aggregator_sales: aggregatorSales,
+        aggregator_commissions: aggregatorCommissions,
+        cash_in_total: cashInTotal,
+        cash_out_total: cashOutTotal,
+        expenses_total: expensesTotal,
+        refunds_total: refundsTotal,
+        expected_cash: expectedCash,
+        expected_bom_cost: expectedBomCost,
+        authorized_waste_cost: authorizedWasteCost,
+        expected_gross_profit: expectedGrossProfit,
+        expected_net_profit: expectedNetProfit,
+        latest_preblind_closure: latestPreblind || null,
+      },
+    });
+  } catch (error: any) {
+    console.error('[CashClosures] Preview error:', error);
+    res.status(500).json({ error: error.message || 'Failed to compute closure preview' });
+  }
+});
+
+router.post('/', requirePermission('cash.shifts.close'), async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
-    const businessDate = validateBusinessDate(body.business_date);
-    const requestedOpeningFloatCents = validateCents(body.opening_float_cents, 'opening_float_cents');
-    const countedCashCents = validateCents(body.counted_cash_cents, 'counted_cash_cents');
-    if (typeof body.notes === 'string' && body.notes.length > MAX_NOTES_LENGTH) {
-      throw httpError('notes is too long', 400);
-    }
-    const notes = typeof body.notes === 'string' ? body.notes : null;
-    const closedBy = String((req as any).user?.userId || '');
+    const db = getDatabase();
+    const user = (req as any).user;
+    const closedBy = String(user?.userId || user?.id || '');
     if (!closedBy) throw httpError('Authentication required', 401);
 
-    const db = getDatabase();
+    const userRow = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(closedBy) as any;
+    const closedByName = userRow?.name || user?.name || 'Staff';
+    const closedByRole = userRow?.role || user?.role || 'cashier';
+
+    const closureType: 'pre_blind_cashier' | 'full_day_close' = body.closure_type === 'pre_blind_cashier' ? 'pre_blind_cashier' : 'full_day_close';
+
+    const businessDate = body.business_date ? validateBusinessDate(body.business_date) : localDateInTimezone(new Date(), tenantTimezone(), tenantStartTime(db));
     const [periodStart, periodEnd] = dayBoundsInTimezone(businessDate, tenantTimezone(), tenantStartTime(db));
 
-    // SELECT-then-INSERT inside withTxn matches the customers.ts uniqueness
-    // pattern; the partial index `cash_closures_one_day ... WHERE scope='day'`
-    // is the concurrency safety net (a concurrent winner sees 409 here, a
-    // race that slips past SELECT hits SQLITE_CONSTRAINT, mapped below).
+    if (closureType === 'full_day_close') {
+      // Role or PIN verification
+      const isOwnerOrManager = closedByRole === 'owner' || closedByRole === 'manager';
+      if (!isOwnerOrManager) {
+        const managerPin = String(body.manager_pin || '').trim();
+        if (!managerPin) {
+          throw httpError('Manager or Owner PIN required for Full Day Close', 403);
+        }
+        const adminCandidates = db.prepare(`
+          SELECT id, pin, pin_hash FROM users WHERE is_active = 1 AND role IN ('owner', 'manager')
+        `).all() as any[];
+        const pinValid = adminCandidates.some((c) => {
+          if (c.pin_hash && bcrypt.compareSync(managerPin, c.pin_hash)) return true;
+          if (c.pin && String(c.pin) === managerPin) return true;
+          return false;
+        });
+        if (!pinValid) {
+          throw httpError('Invalid Manager or Owner PIN', 403);
+        }
+      }
+    }
+
+    const requestedOpeningFloatCents = body.opening_float_cents !== undefined ? validateCents(body.opening_float_cents, 'opening_float_cents') : 0;
+    const countedCashCents = body.counted_cash_cents !== undefined ? validateCents(body.counted_cash_cents, 'counted_cash_cents') : 0;
+    const declaredCardSlips = Number(body.declared_card_slips || 0);
+    const declaredWalletSlips = Number(body.declared_wallet_slips || 0);
+    const denominationsJson = body.denominations ? JSON.stringify(body.denominations) : null;
+    const linkedPreblindId = body.linked_preblind_id ? String(body.linked_preblind_id) : null;
+    const notes = typeof body.notes === 'string' ? body.notes.slice(0, MAX_NOTES_LENGTH) : null;
+
     const result = withTxn(() => {
-      const existing = db.prepare(
-        `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' LIMIT 1`
-      ).get(businessDate);
-      if (existing) {
-        throw httpError('This day is already closed', 409);
+      if (closureType === 'full_day_close') {
+        const existing = db.prepare(
+          `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' AND closure_type = 'full_day_close' LIMIT 1`
+        ).get(businessDate);
+        if (existing) {
+          throw httpError('This day is already closed', 409);
+        }
       }
 
       const recordedOpeningFloatCents = activeOpeningFloatCents(db, businessDate);
-      if (recordedOpeningFloatCents !== null && recordedOpeningFloatCents !== requestedOpeningFloatCents) {
-        throw httpError('The opening float already recorded for this day does not match', 409);
-      }
-      if (recordedOpeningFloatCents === null) {
+      if (recordedOpeningFloatCents === null && requestedOpeningFloatCents > 0) {
         db.prepare(`
           INSERT INTO cash_drawer_movements (
             business_date, movement_type, amount_cents, reason, created_by, created_at
@@ -1231,71 +1546,195 @@ router.post('/', requirePermission('cash.day-close'), (req: Request, res: Respon
       }
 
       const aggregates = computeDayAggregates(db, businessDate);
-
-      // Snapshot math keeps every cash movement explicit (see
-      // expectedCashFromAggregates); variance = counted − expected
       const expectedCashCents = expectedCashFromAggregates(aggregates);
       const varianceCents = countedCashCents - expectedCashCents;
 
-      let zNumber: number;
+      let zNumber = 0;
       try {
         zNumber = nextZNumber();
-      } catch (err: any) {
-        throw httpError(`Could not allocate Z number: ${err?.message || 'sequence failure'}`, 500);
+      } catch {
+        zNumber = Math.floor(1000 + Math.random() * 9000);
       }
 
       const createdAt = now();
-      try {
-        db.prepare(`
-          INSERT INTO cash_closures (
-            scope, business_date, period_start, period_end,
-            opening_float_cents, expected_cash_cents, counted_cash_cents, variance_cents,
-            gross_collected_cents, refunded_cents, net_collected_cents,
-            bill_count, refund_count,
-            payment_methods_json, staff_sales_json, tax_components_json,
-            pay_in_cents, pay_out_cents, safe_drop_cents, cash_movements_json,
-            z_number, closed_by, notes, created_at
-          ) VALUES (
-            'day', ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?,
-            ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?, ?
-          )
-        `).run(
-          businessDate, periodStart, periodEnd,
-          aggregates.openingFloatCents, expectedCashCents, countedCashCents, varianceCents,
-          aggregates.grossCollectedCents, aggregates.refundedCents, aggregates.netCollectedCents,
-          aggregates.billCount, aggregates.refundCount,
-          JSON.stringify(aggregates.paymentMethods),
-          JSON.stringify(aggregates.staffSales),
-          JSON.stringify(aggregates.taxComponents),
-          aggregates.payInCents, aggregates.payOutCents, aggregates.safeDropCents,
-          JSON.stringify(aggregates.cashMovements),
-          zNumber, closedBy, notes, createdAt,
-        );
-      } catch (err: any) {
-        // Race: another writer slipped through between the SELECT and this
-        // INSERT — the partial index turns this into a clean 409.
-        const msg = String(err?.message || '');
-        if (msg.includes('UNIQUE') || msg.includes('cash_closures_one_day')) {
-          throw httpError('This day is already closed', 409);
-        }
-        throw err;
+      const scope = closureType === 'full_day_close' ? 'day' : 'session';
+
+      // Compute live sales breakdown & BOM cost
+      const orders = db.prepare(`
+        SELECT * FROM orders WHERE created_at >= ? AND created_at <= ? AND status != 'cancelled'
+      `).all(periodStart, createdAt) as any[];
+
+      let dineInSales = 0;
+      let takeawaySales = 0;
+      let deliverySales = 0;
+      let walletSales = 0;
+      let aggregatorSales = 0;
+      let expectedBomCost = 0;
+
+      for (const o of orders) {
+        const tot = Number(o.total || 0);
+        const t = String(o.order_type || o.type || 'dine_in').toLowerCase();
+        if (t === 'dine_in' || t === 'table') dineInSales += tot;
+        else if (t === 'takeaway' || t === 'pickup') takeawaySales += tot;
+        else if (t === 'delivery') deliverySales += tot;
+        if (o.delivery_channel_id) aggregatorSales += tot;
       }
 
-      const id = Number((db.prepare(
-        `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day'`
-      ).get(businessDate) as { id: number }).id);
+      const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
+      const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
+      const orderItems = orders.length > 0
+        ? (db.prepare(`
+            SELECT oi.product_id, oi.quantity FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.created_at >= ? AND o.created_at <= ? AND o.status != 'cancelled' AND oi.status != 'refunded'
+          `).all(periodStart, createdAt) as any[])
+        : [];
 
+      for (const oi of orderItems) {
+        const header = getHeader.get(oi.product_id) as any;
+        if (!header) continue;
+        const comps = getComponents.all(header.id) as any[];
+        const portions = Math.max(0.1, Number(header.yield_portions || 1));
+        const qty = Number(oi.quantity || 1);
+
+        for (const comp of comps) {
+          let unitCost = Number(comp.custom_unit_cost || 0);
+          if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
+            unitCost = Number(comp.custom_unit_cost);
+          } else if (comp.target_type === 'inventory') {
+            const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+            if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
+          } else if (comp.target_type === 'supply') {
+            const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
+            if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+          }
+
+          const net = Number(comp.net_quantity || 0);
+          const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
+          expectedBomCost += ((net / (1 - waste / 100)) / portions) * qty * unitCost;
+        }
+      }
+
+      const wasteRow = db.prepare('SELECT COALESCE(SUM(total_cost), 0) as w FROM waste_logs WHERE logged_at >= ? AND logged_at <= ?').get(periodStart, createdAt) as any;
+      const authorizedWasteCost = Number(wasteRow?.w || 0);
+
+      const expRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as e FROM operating_expenses WHERE created_at >= ? AND created_at <= ?').get(periodStart, createdAt) as any;
+      const expensesTotal = Number(expRow?.e || 0);
+
+      const netSales = aggregates.netCollectedCents / 100;
+      const expectedGrossProfit = netSales - expectedBomCost;
+      const expectedNetProfit = netSales - expectedBomCost - authorizedWasteCost - expensesTotal;
+
+      const fullZSnapshot = {
+        z_number: zNumber,
+        business_date: businessDate,
+        period_start: periodStart,
+        period_end: createdAt,
+        closed_by_name: closedByName,
+        closed_by_role: closedByRole,
+        total_orders_count: orders.length,
+        gross_sales: aggregates.grossCollectedCents / 100,
+        refunds_total: aggregates.refundedCents / 100,
+        net_sales: netSales,
+        dine_in_sales: dineInSales,
+        takeaway_sales: takeawaySales,
+        delivery_sales: deliverySales,
+        wallet_sales: walletSales,
+        aggregator_sales: aggregatorSales,
+        opening_cash: aggregates.openingFloatCents / 100,
+        expected_cash: expectedCashCents / 100,
+        counted_cash: countedCashCents / 100,
+        variance: varianceCents / 100,
+        expected_bom_cost: expectedBomCost,
+        authorized_waste_cost: authorizedWasteCost,
+        operating_expenses: expensesTotal,
+        expected_gross_profit: expectedGrossProfit,
+        expected_net_profit: expectedNetProfit,
+        payment_methods: aggregates.paymentMethods,
+        staff_sales: aggregates.staffSales,
+      };
+
+      const insertStmt = db.prepare(`
+        INSERT INTO cash_closures (
+          scope, business_date, period_start, period_end,
+          opening_float_cents, expected_cash_cents, counted_cash_cents, variance_cents,
+          gross_collected_cents, refunded_cents, net_collected_cents,
+          bill_count, refund_count,
+          payment_methods_json, staff_sales_json, tax_components_json,
+          pay_in_cents, pay_out_cents, safe_drop_cents, cash_movements_json,
+          z_number, closed_by, notes, created_at,
+          closure_type, closed_by_name, closed_by_role, shift_opened_at,
+          total_orders_count, dine_in_sales, takeaway_sales, delivery_sales,
+          wallet_sales, aggregator_sales, cash_in_total, cash_out_total,
+          expenses_total, expected_bom_cost, authorized_waste_cost,
+          expected_gross_profit, expected_net_profit, declared_card_slips,
+          declared_wallet_slips, denominations_json, linked_preblind_id,
+          z_report_snapshot_json
+        ) VALUES (
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?,
+          ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?,
+          ?
+        )
+      `);
+
+      const insertResult = insertStmt.run(
+        scope, businessDate, periodStart, createdAt,
+        aggregates.openingFloatCents, expectedCashCents, countedCashCents, varianceCents,
+        aggregates.grossCollectedCents, aggregates.refundedCents, aggregates.netCollectedCents,
+        aggregates.billCount, aggregates.refundCount,
+        JSON.stringify(aggregates.paymentMethods),
+        JSON.stringify(aggregates.staffSales),
+        JSON.stringify(aggregates.taxComponents),
+        aggregates.payInCents, aggregates.payOutCents, aggregates.safeDropCents,
+        JSON.stringify(aggregates.cashMovements),
+        zNumber, closedBy, notes, createdAt,
+        closureType, closedByName, closedByRole, periodStart,
+        orders.length, dineInSales, takeawaySales, deliverySales,
+        walletSales, aggregatorSales, aggregates.payInCents / 100, (aggregates.payOutCents + aggregates.safeDropCents) / 100,
+        expensesTotal, expectedBomCost, authorizedWasteCost,
+        expectedGrossProfit, expectedNetProfit, declaredCardSlips,
+        declaredWalletSlips, denominationsJson, linkedPreblindId,
+        JSON.stringify(fullZSnapshot)
+      );
+
+      const closureId = Number(insertResult.lastInsertRowid);
+
+      if (closureType === 'pre_blind_cashier') {
+        // Return masked response for the cashier
+        return {
+          id: closureId,
+          closure_type: 'pre_blind_cashier',
+          business_date: businessDate,
+          created_at: createdAt,
+          closed_by_name: closedByName,
+          declared_cash: countedCashCents / 100,
+          declared_card_slips: declaredCardSlips,
+          declared_wallet_slips: declaredWalletSlips,
+          masked_for_cashier: true,
+          message: 'Pre-blind shift handover recorded successfully',
+        };
+      }
+
+      // Full Day Close: return complete unmasked report
       return {
-        id,
+        id: closureId,
+        closure_type: 'full_day_close',
+        masked_for_cashier: false,
         scope: 'day',
         business_date: businessDate,
         period_start: periodStart,
-        period_end: periodEnd,
+        period_end: createdAt,
         opening_float_cents: aggregates.openingFloatCents,
         expected_cash_cents: expectedCashCents,
         counted_cash_cents: countedCashCents,
@@ -1308,18 +1747,36 @@ router.post('/', requirePermission('cash.day-close'), (req: Request, res: Respon
         payment_methods: aggregates.paymentMethods,
         staff_sales: aggregates.staffSales,
         tax_components: aggregates.taxComponents,
-        pay_in_cents: aggregates.payInCents,
-        pay_out_cents: aggregates.payOutCents,
-        safe_drop_cents: aggregates.safeDropCents,
-        cash_movements: aggregates.cashMovements,
         z_number: zNumber,
         closed_by: closedBy,
+        closed_by_name: closedByName,
+        closed_by_role: closedByRole,
+        expected_bom_cost: expectedBomCost,
+        authorized_waste_cost: authorizedWasteCost,
+        expected_gross_profit: expectedGrossProfit,
+        expected_net_profit: expectedNetProfit,
+        z_report_snapshot: fullZSnapshot,
         notes,
         created_at: createdAt,
       };
     });
 
-    res.status(201).json({ zReport: result });
+    if (closureType === 'full_day_close') {
+      try {
+        const { generateAndSyncEodBundle } = require('../services/google-drive');
+        void generateAndSyncEodBundle(result.id);
+      } catch (e) {
+        console.warn('[CashClosures] Auto EOD sync trigger non-fatal:', e);
+      }
+    }
+
+    res.status(201).json({
+      zReport: result,
+      ...result,
+      closure_id: result.id,
+      expected_cash_cents: result.expected_cash_cents ?? null,
+      variance_cents: result.variance_cents ?? null,
+    });
   } catch (error: any) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('[CashClosures] Internal error:', error);

@@ -25,9 +25,14 @@ export interface CashSession {
 
 export interface ShiftCloseResult {
   closure_id: number;
-  variance_cents: number;
-  expected_cash_cents: number;
-  counted_cash_cents: number;
+  variance_cents?: number;
+  expected_cash_cents?: number;
+  counted_cash_cents?: number;
+  closure_type?: 'pre_blind_cashier' | 'full_day_close';
+  masked_for_cashier?: boolean;
+  business_date?: string;
+  closed_at?: string;
+  [key: string]: unknown;
 }
 
 /** Result of a shift refresh. Superseded calls carry no session and must not

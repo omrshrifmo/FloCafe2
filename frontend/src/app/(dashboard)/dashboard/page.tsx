@@ -6,11 +6,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Banknote, BarChart3, CalendarDays, ChefHat, ChevronDown, ClipboardList, Clock, Download, FileSpreadsheet, FileText, Hourglass, LayoutGrid, Lock, Minus, ReceiptText, RotateCcw, Tags, Timer, TrendingUp, Trophy, Wallet, Search, Package, type LucideIcon } from 'lucide-react';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Banknote, BarChart3, CalendarDays, ChefHat, ChevronDown, ClipboardList, Clock, Download, FileSpreadsheet, FileText, Hourglass, LayoutGrid, Lock, Minus, ReceiptText, RotateCcw, Tags, Timer, TrendingUp, Trophy, Wallet, Search, Package, Printer, type LucideIcon } from 'lucide-react';
 import { useTranslations, useLocale, type AppConfig } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { CashCloseModal } from '@/components/dashboard/CashCloseModal';
+import { ShiftCloseModal } from '@/components/dashboard/ShiftCloseModal';
 import { useCashClose } from '@/hooks/useCashClose';
+import { useCashSession } from '@/hooks/useCashSession';
+import { printCenteredZReportSlip } from '@/lib/printer/printCenteredZReportSlip';
 import toast from 'react-hot-toast';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useFormatDate } from '@/hooks/useFormatDate';
@@ -374,9 +377,33 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner, canViewFinancials, periodMode, range.startDate, range.endDate]);
 
+  interface ClosureHistorySummary {
+    id: string | number;
+    closure_type?: string;
+    counted_cash_cents?: number;
+    declared_cash?: number;
+    expected_cash_cents?: number;
+    variance?: number;
+    variance_cents?: number;
+    z_number?: string | number;
+    business_date?: string;
+    created_at: string;
+    closed_by_name?: string;
+    [key: string]: unknown;
+  }
+
   // Day-close wizard lives in useCashClose + CashCloseModal; the page
   // only opens it and mounts it.
   const cashClose = useCashClose();
+  const shift = useCashSession();
+  const [shiftCloseMode, setShiftCloseMode] = useState<'pre_blind_cashier' | 'full_day_close'>('pre_blind_cashier');
+  const [closuresHistory, setClosuresHistory] = useState<ClosureHistorySummary[]>([]);
+
+  useEffect(() => {
+    api.get('/cash-closures/history')
+      .then((res) => setClosuresHistory((res.data?.closures || []) as ClosureHistorySummary[]))
+      .catch(() => {});
+  }, []);
 
   const downloadBlob = (data: Blob, filename: string) => {
     const url = URL.createObjectURL(data);
@@ -896,11 +923,27 @@ export default function DashboardPage() {
 
           <Button
             type="button"
-            onClick={cashClose.openCloseModal}
-            className="h-10 rounded-xl bg-brand px-4 text-white shadow-sm hover:bg-brand-hover"
+            variant="outline"
+            onClick={() => {
+              setShiftCloseMode('pre_blind_cashier');
+              shift.setCloseModalOpen(true);
+            }}
+            className="h-10 rounded-xl border-amber-600/40 bg-amber-500/10 text-amber-700 px-3 text-xs font-bold hover:bg-amber-500/20"
           >
-            <Lock size={14} />
-            {t('closeShift')}
+            <Lock size={13} className="me-1" />
+            {isAr ? 'إغلاق وردية مبدئي أعمى' : 'Pre-Blind Close'}
+          </Button>
+
+          <Button
+            type="button"
+            onClick={() => {
+              setShiftCloseMode('full_day_close');
+              shift.setCloseModalOpen(true);
+            }}
+            className="h-10 rounded-xl bg-brand px-4 text-white shadow-sm hover:bg-brand-hover text-xs font-bold"
+          >
+            <Lock size={14} className="me-1" />
+            {isAr ? 'إغلاق اليوم الشامل (Z-Report)' : 'Full Day Close (Z)'}
           </Button>
 
           <DropdownMenu>
@@ -1543,9 +1586,101 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* Shifts & Closures History Section */}
+            <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-brand/10 text-brand font-bold">
+                    <Lock size={16} />
+                  </span>
+                  <div>
+                    <h2 className="font-semibold text-foreground">
+                      {isAr ? 'سجل الورديات وإغلاقات اليوم والتقارير' : 'Shifts & Day Closures History'}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      {isAr ? 'عرض تقارير تسليمات الكاشير وإغلاقات اليوم الشاملة Z-Report' : 'Recent Pre-Blind Cashier Handovers & Full Day Z-Reports'}
+                    </p>
+                  </div>
+                </div>
+
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/cash-closures">
+                    {isAr ? 'عرض الكل' : 'View All'}
+                    <ArrowRight size={13} className="ms-1" />
+                  </Link>
+                </Button>
+              </div>
+
+              {closuresHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {isAr ? 'لا توجد إغلاقات مسجلة بعد.' : 'No shift closures recorded yet.'}
+                </p>
+              ) : (
+                <div className="grid gap-2">
+                  {closuresHistory.slice(0, 5).map((c) => {
+                    const isPreBlind = c.closure_type === 'pre_blind_cashier';
+                    const counted = c.counted_cash_cents ? c.counted_cash_cents / 100 : (c.declared_cash || 0);
+                    const expected = c.expected_cash_cents ? c.expected_cash_cents / 100 : 0;
+                    const variance = c.variance !== undefined ? c.variance : (c.variance_cents ? c.variance_cents / 100 : 0);
+
+                    return (
+                      <div key={c.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-xl bg-muted/30 border border-border/80 gap-2 text-xs">
+                        <div>
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <span className={isPreBlind ? 'text-amber-700' : 'text-brand'}>
+                              {isPreBlind ? (isAr ? 'تسليم وردية كاشير مبدئي' : 'Cashier Pre-Blind') : `Z-Report #${c.z_number || c.id}`}
+                            </span>
+                            <span className="text-[11px] font-normal text-muted-foreground font-mono">
+                              • {c.business_date} {new Date(c.created_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <span className="text-muted-foreground text-[11px]">
+                            {isAr ? 'بواسطة' : 'By'}: <strong>{c.closed_by_name || 'Staff'}</strong>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 font-mono">
+                          <div>
+                            <span className="text-muted-foreground text-[10px] block">{isAr ? 'الفعلي' : 'Physical'}</span>
+                            <span className="font-bold">{fmt(counted)}</span>
+                          </div>
+                          {!isPreBlind && (
+                            <>
+                              <div>
+                                <span className="text-muted-foreground text-[10px] block">{isAr ? 'المتوقع' : 'Expected'}</span>
+                                <span className="font-bold">{fmt(expected)}</span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground text-[10px] block">{isAr ? 'الفارق' : 'Variance'}</span>
+                                <span className={`font-bold ${Math.abs(variance) < 0.01 ? 'text-green-600' : variance > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                                  {variance > 0 ? `+${fmt(variance)}` : fmt(variance)}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => printCenteredZReportSlip(c, isAr ? 'ar' : 'en', c.closure_type || 'full_day_close')}
+                            className="h-7 text-xs font-bold gap-1"
+                          >
+                            <Printer size={12} />
+                            {isAr ? 'طباعة' : 'Print'}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
+
+      {/* Modals */}
+      <ShiftCloseModal model={shift} mode={shiftCloseMode} onModeChange={setShiftCloseMode} />
     </div>
   );
 }

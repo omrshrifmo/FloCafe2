@@ -5904,7 +5904,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE TABLE IF NOT EXISTS purchase_order_items (
           id TEXT PRIMARY KEY,
           purchase_order_id TEXT NOT NULL,
-          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply', 'custom')),
           target_id TEXT NOT NULL,
           item_name TEXT NOT NULL,
           unit TEXT NOT NULL,
@@ -5934,7 +5934,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE TABLE IF NOT EXISTS stocktake_lines (
           id TEXT PRIMARY KEY,
           stocktake_id TEXT NOT NULL,
-          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply', 'custom')),
           target_id TEXT NOT NULL,
           item_name TEXT NOT NULL,
           unit TEXT NOT NULL,
@@ -5964,7 +5964,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE TABLE IF NOT EXISTS bom_components (
           id TEXT PRIMARY KEY,
           bom_id TEXT NOT NULL,
-          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply')),
+          target_type TEXT NOT NULL DEFAULT 'inventory' CHECK (target_type IN ('inventory', 'supply', 'custom')),
           target_id TEXT NOT NULL,
           component_name TEXT NOT NULL,
           unit TEXT NOT NULL,
@@ -6510,6 +6510,54 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ('fiscal_seller_name', 'FloCafe'),
           ('fiscal_vat_number', '300000000000003'),
           ('eod_gdrive_sync_enabled', 'true');
+      `);
+    },
+  },
+  {
+    version: 113,
+    name: 'v113_standalone_bom_and_preblind_closures',
+    up: () => {
+      // 1. Extend bom_components for Standalone BOM & Custom Materials
+      const bomCols = getColumns(db, 'bom_components');
+      if (bomCols.length > 0) {
+        if (!bomCols.includes('custom_material_name')) db.exec('ALTER TABLE bom_components ADD COLUMN custom_material_name TEXT');
+        if (!bomCols.includes('custom_unit')) db.exec("ALTER TABLE bom_components ADD COLUMN custom_unit TEXT DEFAULT 'g'");
+        if (!bomCols.includes('custom_unit_cost')) db.exec('ALTER TABLE bom_components ADD COLUMN custom_unit_cost REAL DEFAULT 0');
+        if (!bomCols.includes('cost_source')) db.exec("ALTER TABLE bom_components ADD COLUMN cost_source TEXT DEFAULT 'auto'");
+      }
+
+      // 2. Extend cash_closures for Pre-Blind Cashier Close & Detailed Z-Report/BOM Snapshots
+      const closureCols = getColumns(db, 'cash_closures');
+      if (closureCols.length > 0) {
+        if (!closureCols.includes('closure_type')) db.exec("ALTER TABLE cash_closures ADD COLUMN closure_type TEXT NOT NULL DEFAULT 'full_day_close'");
+        if (!closureCols.includes('closed_by_name')) db.exec('ALTER TABLE cash_closures ADD COLUMN closed_by_name TEXT');
+        if (!closureCols.includes('closed_by_role')) db.exec('ALTER TABLE cash_closures ADD COLUMN closed_by_role TEXT');
+        if (!closureCols.includes('shift_opened_at')) db.exec('ALTER TABLE cash_closures ADD COLUMN shift_opened_at TEXT');
+        if (!closureCols.includes('total_orders_count')) db.exec('ALTER TABLE cash_closures ADD COLUMN total_orders_count INTEGER NOT NULL DEFAULT 0');
+        if (!closureCols.includes('dine_in_sales')) db.exec('ALTER TABLE cash_closures ADD COLUMN dine_in_sales REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('takeaway_sales')) db.exec('ALTER TABLE cash_closures ADD COLUMN takeaway_sales REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('delivery_sales')) db.exec('ALTER TABLE cash_closures ADD COLUMN delivery_sales REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('wallet_sales')) db.exec('ALTER TABLE cash_closures ADD COLUMN wallet_sales REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('aggregator_sales')) db.exec('ALTER TABLE cash_closures ADD COLUMN aggregator_sales REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('cash_in_total')) db.exec('ALTER TABLE cash_closures ADD COLUMN cash_in_total REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('cash_out_total')) db.exec('ALTER TABLE cash_closures ADD COLUMN cash_out_total REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('expenses_total')) db.exec('ALTER TABLE cash_closures ADD COLUMN expenses_total REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('expected_bom_cost')) db.exec('ALTER TABLE cash_closures ADD COLUMN expected_bom_cost REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('authorized_waste_cost')) db.exec('ALTER TABLE cash_closures ADD COLUMN authorized_waste_cost REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('expected_gross_profit')) db.exec('ALTER TABLE cash_closures ADD COLUMN expected_gross_profit REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('expected_net_profit')) db.exec('ALTER TABLE cash_closures ADD COLUMN expected_net_profit REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('declared_card_slips')) db.exec('ALTER TABLE cash_closures ADD COLUMN declared_card_slips REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('declared_wallet_slips')) db.exec('ALTER TABLE cash_closures ADD COLUMN declared_wallet_slips REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('denominations_json')) db.exec('ALTER TABLE cash_closures ADD COLUMN denominations_json TEXT');
+        if (!closureCols.includes('linked_preblind_id')) db.exec('ALTER TABLE cash_closures ADD COLUMN linked_preblind_id TEXT');
+        if (!closureCols.includes('z_report_snapshot_json')) db.exec('ALTER TABLE cash_closures ADD COLUMN z_report_snapshot_json TEXT');
+      }
+
+      // 3. Default settings for Standalone BOM Mode & Pre-Blind Cashier Close
+      db.exec(`
+        INSERT OR IGNORE INTO settings (key, value) VALUES
+          ('bom_work_without_inventory', 'true'),
+          ('bom_costing_mode', 'hybrid');
       `);
     },
   },

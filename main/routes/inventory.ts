@@ -183,40 +183,47 @@ router.post(['/waste-logs', '/waste'], requirePermission('inventory.manage'), (r
             const grossPerPortion = net / (1 - wastePct / 100);
             const deductQty = (grossPerPortion / portions) * qty;
 
-            if (comp.target_type === 'inventory') {
+            if (comp.target_type === 'custom') {
+              const unitCost = Number(comp.custom_unit_cost || 0);
+              totalCost += deductQty * unitCost;
+            } else if (comp.target_type === 'inventory') {
               const inv = db.prepare('SELECT cost_per_unit, quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-              const unitCost = Number(inv?.cost_per_unit || 0);
+              const unitCost = Number(inv?.cost_per_unit || comp.custom_unit_cost || 0);
               totalCost += deductQty * unitCost;
 
-              db.prepare('UPDATE inventory_items SET quantity = quantity - ?, updated_at = ? WHERE id = ?')
-                .run(deductQty, timestamp, comp.target_id);
-              const after = Number(inv?.quantity || 0) - deductQty;
-              db.prepare(`
-                INSERT INTO stock_logs (
-                  target_type, target_id, quantity_delta, stock_after, unit,
-                  reason, reference_type, reference_id, actor_user_id, created_at
-                ) VALUES ('inventory', ?, ?, ?, ?, ?, 'waste_log', ?, ?, ?)
-              `).run(
-                comp.target_id, -deductQty, after, inv?.unit || comp.unit,
-                `Waste (${waste_type}): ${prod.name}`, wasteId, actor, timestamp
-              );
+              if (inv) {
+                db.prepare('UPDATE inventory_items SET quantity = quantity - ?, updated_at = ? WHERE id = ?')
+                  .run(deductQty, timestamp, comp.target_id);
+                const after = Number(inv?.quantity || 0) - deductQty;
+                db.prepare(`
+                  INSERT INTO stock_logs (
+                    target_type, target_id, quantity_delta, stock_after, unit,
+                    reason, reference_type, reference_id, actor_user_id, created_at
+                  ) VALUES ('inventory', ?, ?, ?, ?, ?, 'waste_log', ?, ?, ?)
+                `).run(
+                  comp.target_id, -deductQty, after, inv?.unit || comp.unit,
+                  `Waste (${waste_type}): ${prod.name}`, wasteId, actor, timestamp
+                );
+              }
             } else {
               const sup = db.prepare('SELECT cost_cents, stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
-              const unitCost = Number(sup?.cost_cents || 0) / 100;
+              const unitCost = Number(sup?.cost_cents ? (Number(sup.cost_cents) / 100) : (comp.custom_unit_cost || 0));
               totalCost += deductQty * unitCost;
 
-              db.prepare('UPDATE supplies SET stock_quantity = stock_quantity - ?, quantity = COALESCE(quantity, stock_quantity) - ?, updated_at = ? WHERE id = ?')
-                .run(deductQty, deductQty, timestamp, comp.target_id);
-              const after = Number(sup?.stock_quantity || 0) - deductQty;
-              db.prepare(`
-                INSERT INTO stock_logs (
-                  target_type, target_id, quantity_delta, stock_after, unit,
-                  reason, reference_type, reference_id, actor_user_id, created_at
-                ) VALUES ('supply', ?, ?, ?, ?, ?, 'waste_log', ?, ?, ?)
-              `).run(
-                comp.target_id, -deductQty, after, sup?.base_unit || comp.unit,
-                `Waste (${waste_type}): ${prod.name}`, wasteId, actor, timestamp
-              );
+              if (sup) {
+                db.prepare('UPDATE supplies SET stock_quantity = stock_quantity - ?, quantity = COALESCE(quantity, stock_quantity) - ?, updated_at = ? WHERE id = ?')
+                  .run(deductQty, deductQty, timestamp, comp.target_id);
+                const after = Number(sup?.stock_quantity || 0) - deductQty;
+                db.prepare(`
+                  INSERT INTO stock_logs (
+                    target_type, target_id, quantity_delta, stock_after, unit,
+                    reason, reference_type, reference_id, actor_user_id, created_at
+                  ) VALUES ('supply', ?, ?, ?, ?, ?, 'waste_log', ?, ?, ?)
+                `).run(
+                  comp.target_id, -deductQty, after, sup?.base_unit || comp.unit,
+                  `Waste (${waste_type}): ${prod.name}`, wasteId, actor, timestamp
+                );
+              }
             }
           }
         }

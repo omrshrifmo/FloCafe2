@@ -41,6 +41,7 @@ import { financeRoutes } from './finance';
 import { stocktakeRoutes } from './stocktake';
 import { purchasingRoutes } from './purchasing';
 import { bomCostingRoutes } from './bom-costing';
+import { bomRoutes } from './bom';
 import { hrmPayrollRoutes } from './hrm-payroll';
 import { ownerAssistRoutes } from './owner-assist';
 import { hrRoutes } from './hr';
@@ -193,6 +194,7 @@ export function registerRoutes(app: Express): void {
   app.use('/api/stocktake', stocktakeRoutes);
   app.use('/api/purchasing', purchasingRoutes);
   app.use('/api/bom-costing', bomCostingRoutes);
+  app.use('/api/bom', bomRoutes);
   app.use('/api/hrm', hrmPayrollRoutes);
   app.use('/api/owner-assist', ownerAssistRoutes);
   app.use('/api/hr', hrRoutes);

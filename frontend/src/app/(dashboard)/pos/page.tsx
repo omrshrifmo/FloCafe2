@@ -113,6 +113,7 @@ export default function POSPage() {
   const { confirm, ConfirmDialog } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
   const shift = useCashSession();
+  const [shiftCloseMode, setShiftCloseMode] = useState<'pre_blind_cashier' | 'full_day_close'>('pre_blind_cashier');
   // Shift actions follow the same owner/manager/cashier group as the
   // backend route gates (backend still enforces; this only hides the entry).
   const canUseShift = tenantCan(currentTenant, 'cash.shifts.view');
@@ -1308,7 +1309,18 @@ export default function POSPage() {
             toast.error(result.error || shift.shiftLoadFailedMessage);
             return;
           }
-          if (result.session) shift.setCloseModalOpen(true); else shift.setOpenModalOpen(true);
+          if (result.session) {
+            setShiftCloseMode('pre_blind_cashier');
+            shift.setCloseModalOpen(true);
+          } else {
+            shift.setOpenModalOpen(true);
+          }
+        }}
+        onShowFullDayClose={async () => {
+          const result = await shift.refresh();
+          if (result.status !== 'ok') return;
+          setShiftCloseMode('full_day_close');
+          shift.setCloseModalOpen(true);
         }}
         shiftHasOpenSession={!!shift.session}
         shiftLoading={shift.loading}
@@ -1391,7 +1403,7 @@ export default function POSPage() {
       {/* Modals */}
       <CashDrawerMovementModal model={cashDrawer} />
       <ShiftOpenModal model={shift} />
-      <ShiftCloseModal model={shift} />
+      <ShiftCloseModal model={shift} mode={shiftCloseMode} onModeChange={setShiftCloseMode} />
       {isRestaurant && showTablePicker && (
         <TablePickerModal
           tables={tables}

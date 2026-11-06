@@ -1,6 +1,6 @@
 # Maintainer: Omar Shrif <https://github.com/omrshrifmo>
 pkgname=flocafe-sentinel
-pkgver=4.6.1
+pkgver=4.7.0
 pkgrel=1
 pkgdesc="FloCafe Sovereign Offline-First POS & Sentinel OS Daemon"
 arch=('x86_64')

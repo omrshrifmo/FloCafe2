@@ -16,6 +16,7 @@ interface Props {
   onShowTablePicker: () => void;
   onShowCashMovement: () => void;
   onShowShift: () => void;
+  onShowFullDayClose?: () => void;
   shiftHasOpenSession: boolean;
   shiftLoading: boolean;
   shiftError: string | null;
@@ -25,7 +26,7 @@ interface Props {
   onToggleFastTouch?: () => void;
 }
 
-export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovement, onShowShift, shiftHasOpenSession, shiftLoading, shiftError, canUseShift, fullscreen, onToggleFullscreen, onToggleFastTouch }: Props) {
+export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovement, onShowShift, onShowFullDayClose, shiftHasOpenSession, shiftLoading, shiftError, canUseShift, fullscreen, onToggleFullscreen, onToggleFastTouch }: Props) {
   const cart = useCartStore();
   const { currentTenant } = useAuthStore();
   const tablesRequired = usePosSettingsStore((s) => s.tablesRequired);
@@ -131,17 +132,31 @@ export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovemen
         </button>
 
         {canUseShift && (
-          <button
-            type="button"
-            onClick={onShowShift}
-            disabled={shiftLoading}
-            className="touch-target shrink-0 gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted active:bg-muted whitespace-nowrap disabled:opacity-50"
-            title={shiftError ?? (shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift'))}
-            aria-label={shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift')}
-          >
-            {shiftHasOpenSession ? <Lock size={16} /> : <LockOpen size={16} />}
-            <span className="hidden sm:inline">{shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift')}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onShowShift}
+              disabled={shiftLoading}
+              className="touch-target shrink-0 gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted active:bg-muted whitespace-nowrap disabled:opacity-50"
+              title={shiftError ?? (shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift'))}
+              aria-label={shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift')}
+            >
+              {shiftHasOpenSession ? <Lock size={16} /> : <LockOpen size={16} />}
+              <span className="hidden sm:inline">{shiftHasOpenSession ? tDashboard('closeShiftSession') : tDashboard('openShift')}</span>
+            </button>
+
+            {onShowFullDayClose && (
+              <button
+                type="button"
+                onClick={onShowFullDayClose}
+                className="touch-target shrink-0 gap-1 rounded-lg border border-brand/40 bg-brand/10 px-2.5 text-xs font-bold text-brand transition-colors hover:bg-brand/20 active:bg-brand/25 whitespace-nowrap"
+                title="Full Day Close Z-Report"
+                aria-label="Full Day Close Z-Report"
+              >
+                <span>Z-Report</span>
+              </button>
+            )}
+          </div>
         )}
 
         <div className="shrink-0">

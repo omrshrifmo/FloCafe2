@@ -38,5 +38,5 @@
   "detectedAt": "2026-09-26T14:22:48.686Z",
   "appliedAt": "2026-09-26T17:54:11.260Z",
   "userPlan": "accept-detected",
-  "rationale": "Git analysis: 1288 tracked files, 42 branches (2 local, 42 remote), 1272 commits (37 last 30d), 1 author (30d), high activity, ~52 KB git objects. Remote git (https://github.com/omrshrifmo/FloCafe2.git): 42 remote branches, 1 remote author (30d), via cache. Collaborative or multi-branch product — full sync and attribution."
+  "rationale": "Git analysis: 1288 tracked files, 42 branches (2 local, 42 remote), 1273 commits (38 last 30d), 1 author (30d), high activity, ~53 KB git objects. Remote git (https://github.com/omrshrifmo/FloCafe2.git): 42 remote branches, 1 remote author (30d), via cache. Collaborative or multi-branch product — full sync and attribution."
 }

@@ -15,11 +15,15 @@ import {
   Save,
   AlertTriangle,
   CheckCircle2,
+  Package,
+  BarChart3,
+  RefreshCw,
 } from 'lucide-react';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface BomComponent {
   id?: string;
-  target_type: 'inventory' | 'supply';
+  target_type: 'inventory' | 'supply' | 'custom';
   target_id: string;
   component_name: string;
   unit: string;
@@ -32,6 +36,10 @@ interface BomComponent {
   addon_id?: string | null;
   portion_multiplier?: number;
   replaces_target_id?: string | null;
+  custom_material_name?: string | null;
+  custom_unit?: string | null;
+  custom_unit_cost?: number;
+  cost_source?: 'auto' | 'manual' | 'inventory';
 }
 
 interface PrepRecipeComponent {
@@ -98,16 +106,126 @@ interface ProductBom {
   costing: ProductCosting;
 }
 
+interface SoldItemRow {
+  product_id: string;
+  product_name: string;
+  category_name: string;
+  qty_sold: number;
+  unit_price: number;
+  total_revenue: number;
+  unit_bom_cost: number;
+  total_expected_cost: number;
+  expected_profit: number;
+  expected_margin_pct: number;
+}
+
+interface ExpectedMaterialRow {
+  material_id: string;
+  material_name: string;
+  unit: string;
+  source_type: string;
+  qty_used_by_sales: number;
+  qty_used_by_waste: number;
+  qty_used_by_prep_batches: number;
+  total_expected_qty_used: number;
+  total_expected_quantity?: number;
+  unit_cost: number;
+  total_expected_cost: number;
+  current_stock: number;
+}
+
+interface ExpectedUsageResponse {
+  success: boolean;
+  summary: {
+    total_items_sold: number;
+    expected_revenue: number;
+    expected_materials_cost: number;
+    expected_profit_without_expenses: number;
+    expected_margin_pct_without_expenses: number;
+    authorized_waste_cost: number;
+    operating_expenses_total: number;
+    expected_net_profit_with_expenses: number;
+  };
+  sold_items_breakdown: SoldItemRow[];
+  expected_materials_breakdown: ExpectedMaterialRow[];
+}
+
 export default function BomPage() {
   const t = useTranslations('bomCosting');
   const tCommon = useTranslations('common');
   const fmtCurrency = useFormatCurrency();
+  const { isAr } = useAppLanguage();
 
-  const [activeTab, setActiveTab] = useState<'bom' | 'prep'>('bom');
+  const [activeTab, setActiveTab] = useState<'bom' | 'prep' | 'expected_usage'>('bom');
+  const [costingMode, setCostingMode] = useState<'standalone' | 'linked'>('standalone');
   const [products, setProducts] = useState<ProductBom[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<ProductBom | null>(null);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Expected Usage & Profit state
+  const [usagePeriod, setUsagePeriod] = useState<'today' | '7days' | 'month'>('today');
+  const [usageData, setUsageData] = useState<ExpectedUsageResponse | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+
+  const loadExpectedUsage = useCallback(async () => {
+    setLoadingUsage(true);
+    let from = '';
+    let to = '';
+    const now = new Date();
+    if (usagePeriod === 'today') {
+      from = now.toISOString().slice(0, 10);
+      to = from;
+    } else if (usagePeriod === '7days') {
+      const d = new Date(Date.now() - 7 * 86400000);
+      from = d.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    } else if (usagePeriod === 'month') {
+      const d = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = d.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    }
+    try {
+      const res = await api.get('/bom/expected-usage-and-profit', { params: { from, to } });
+      setUsageData(res.data as ExpectedUsageResponse);
+    } catch {
+      setUsageData(null);
+    } finally {
+      setLoadingUsage(false);
+    }
+  }, [usagePeriod]);
+
+  useEffect(() => {
+    if (activeTab !== 'expected_usage') return;
+    let active = true;
+    let from = '';
+    let to = '';
+    const now = new Date();
+    if (usagePeriod === 'today') {
+      from = now.toISOString().slice(0, 10);
+      to = from;
+    } else if (usagePeriod === '7days') {
+      const d = new Date(Date.now() - 7 * 86400000);
+      from = d.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    } else if (usagePeriod === 'month') {
+      const d = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = d.toISOString().slice(0, 10);
+      to = now.toISOString().slice(0, 10);
+    }
+    api.get('/bom/expected-usage-and-profit', { params: { from, to } })
+      .then((res) => {
+        if (!active) return;
+        setUsageData(res.data as ExpectedUsageResponse);
+      })
+      .catch(() => {
+        if (!active) return;
+        setUsageData(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeTab, usagePeriod]);
 
   // Available inventory & supplies for adding lines
   const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; unit: string; cost_per_unit?: number }>>([]);
@@ -252,6 +370,25 @@ export default function BomPage() {
     };
   }, [selectProduct, t]);
 
+  const addCustomMaterialDirectly = () => {
+    setComponentsList([
+      ...componentsList,
+      {
+        target_type: 'custom',
+        target_id: `custom-${Date.now()}`,
+        component_name: isAr ? 'خامة مباشرة جديدة' : 'New Direct Material',
+        custom_material_name: isAr ? 'خامة مباشرة جديدة' : 'New Direct Material',
+        unit: 'g',
+        custom_unit: 'g',
+        net_quantity: 10,
+        waste_pct: 0,
+        live_unit_cost: 0.5,
+        custom_unit_cost: 0.5,
+        cost_source: 'manual',
+      },
+    ]);
+  };
+
   const addComponentLine = () => {
     if (inventoryItems.length > 0) {
       const first = inventoryItems[0];
@@ -265,6 +402,8 @@ export default function BomPage() {
           net_quantity: 1,
           waste_pct: 0,
           live_unit_cost: Number(first.cost_per_unit || 0),
+          custom_unit_cost: Number(first.cost_per_unit || 0),
+          cost_source: 'auto',
         },
       ]);
     } else if (supplyItems.length > 0) {
@@ -279,8 +418,12 @@ export default function BomPage() {
           net_quantity: 1,
           waste_pct: 0,
           live_unit_cost: Number(first.cost_cents || 0) / 100,
+          custom_unit_cost: Number(first.cost_cents || 0) / 100,
+          cost_source: 'auto',
         },
       ]);
+    } else {
+      addCustomMaterialDirectly();
     }
   };
 
@@ -359,7 +502,6 @@ export default function BomPage() {
   const liveFullyLoadedCost = liveDirectCostPerPortion + liveOverhead;
   const price = Number(selectedProduct?.product.price || 0);
   const liveFoodCostPct = price > 0 ? (liveDirectCostPerPortion / price) * 100 : 0;
-  const liveContributionMargin = price - liveFullyLoadedCost;
   const liveExceedsTarget = liveFoodCostPct > Number(headerForm.target_food_cost_pct || 30);
 
   const filteredProducts = products.filter((p) =>
@@ -374,22 +516,48 @@ export default function BomPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Layers className="size-6 text-brand" />
-            {t('title')}
+            {isAr ? 'قوائم المكونات والتكاليف (BOM)' : t('title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {t('subtitle')}
+            {isAr ? 'حساب تكلفة الخامات، الأرباح المتوقعة، ودفعات التحضير المسبق مع المخزون أو بدونه' : t('subtitle')}
           </p>
         </div>
+
+        {/* Operation Mode Banner & Toggle */}
+        <div className="flex items-center gap-2 bg-muted/60 p-1 rounded-xl border border-border text-xs">
+          <span className="font-semibold text-muted-foreground px-2">
+            {isAr ? 'وضع التشغيل:' : 'Mode:'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCostingMode('standalone')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              costingMode === 'standalone' ? 'bg-amber-500/20 text-amber-700 border border-amber-500/30' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {isAr ? 'الوضع المستقل (بدون مخزون)' : 'Standalone (No Inventory)'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCostingMode('linked')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              costingMode === 'linked' ? 'bg-brand/20 text-brand border border-brand/30' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {isAr ? 'الوضع المتكامل (ERP)' : 'Linked ERP'}
+          </button>
+        </div>
+
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-border p-1 bg-muted/40">
             <button
               type="button"
               onClick={() => setActiveTab('bom')}
               className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                activeTab === 'bom' ? 'bg-background shadow-xs text-foreground' : 'text-muted-foreground hover:text-foreground'
+                activeTab === 'bom' ? 'bg-background shadow-xs text-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Product BOM Recipes
+              {isAr ? 'وصفات الأصناف (BOM)' : 'Product BOM Recipes'}
             </button>
             <button
               type="button"
@@ -398,32 +566,57 @@ export default function BomPage() {
                 if (prepRecipes.length === 0) loadPrepRecipes();
               }}
               className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                activeTab === 'prep' ? 'bg-background shadow-xs text-foreground' : 'text-muted-foreground hover:text-foreground'
+                activeTab === 'prep' ? 'bg-background shadow-xs text-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Prep Batches & Sub-Recipes
+              {isAr ? 'دفعات التحضير المسبق' : 'Prep Batches'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('expected_usage')}
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                activeTab === 'expected_usage' ? 'bg-background shadow-xs text-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {isAr ? '📊 الخامات والأرباح المتوقعة' : '📊 Sold Items & Profit'}
             </button>
           </div>
-          {activeTab === 'bom' ? (
+
+          {activeTab === 'bom' && (
             <Button
               variant="default"
               size="sm"
               onClick={handleSave}
               disabled={saving || !selectedProduct}
-              className="flex items-center gap-1.5"
+              className="flex items-center gap-1.5 bg-brand text-white font-bold"
             >
               <Save className="size-4" />
-              {saving ? t('saving') : t('btnSaveRecipe')}
+              {saving ? t('saving') : (isAr ? 'حفظ الوصفة' : t('btnSaveRecipe'))}
             </Button>
-          ) : (
+          )}
+
+          {activeTab === 'prep' && (
             <Button
               variant="default"
               size="sm"
               onClick={() => setShowNewPrepModal(true)}
-              className="flex items-center gap-1.5 bg-brand text-white"
+              className="flex items-center gap-1.5 bg-brand text-white font-bold"
             >
               <Plus className="size-4" />
-              New Prep Recipe
+              {isAr ? 'وصفة تحضير جديدة' : 'New Prep Recipe'}
+            </Button>
+          )}
+
+          {activeTab === 'expected_usage' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadExpectedUsage}
+              disabled={loadingUsage}
+              className="gap-1.5 text-xs font-bold"
+            >
+              <RefreshCw size={13} className={loadingUsage ? 'animate-spin' : ''} />
+              {isAr ? 'تحديث' : 'Refresh'}
             </Button>
           )}
         </div>
@@ -443,14 +636,14 @@ export default function BomPage() {
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Storage: <span className="font-medium text-foreground">{prep.storage_area}</span> • Shelf Life: <span className="font-medium text-foreground">{prep.shelf_life_hours}h</span>
+                    {isAr ? 'منطقة التخزين:' : 'Storage:'} <span className="font-medium text-foreground">{prep.storage_area}</span> • {isAr ? 'مدة الصلاحية:' : 'Shelf Life:'} <span className="font-medium text-foreground">{prep.shelf_life_hours}h</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Prep Time: {prep.prep_time_minutes} min • Labor Rate: {fmtCurrency(prep.labor_rate_per_hour)}/hr
+                    {isAr ? 'وقت التحضير:' : 'Prep Time:'} {prep.prep_time_minutes} min • {isAr ? 'تكلفة العمالة:' : 'Labor Rate:'} {fmtCurrency(prep.labor_rate_per_hour)}/hr
                   </p>
 
                   <div className="mt-3 border-t border-border/60 pt-2">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase">Raw Ingredients ({prep.components?.length || 0}):</span>
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase">{isAr ? 'المكونات الخام' : 'Raw Ingredients'} ({prep.components?.length || 0}):</span>
                     <ul className="text-xs space-y-1 mt-1 text-muted-foreground max-h-24 overflow-y-auto">
                       {(prep.components || []).map((c, i) => (
                         <li key={i} className="flex justify-between">
@@ -463,7 +656,7 @@ export default function BomPage() {
                 </div>
 
                 <div className="pt-2 border-t border-border flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Produces into Inventory SKU</span>
+                  <span className="text-xs text-muted-foreground">{isAr ? 'يُنتج في صنف مخزون' : 'Produces into Inventory SKU'}</span>
                   <Button
                     size="sm"
                     variant="default"
@@ -473,14 +666,14 @@ export default function BomPage() {
                     }}
                     className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
                   >
-                    Produce Batch
+                    {isAr ? 'إنتاج دفعة' : 'Produce Batch'}
                   </Button>
                 </div>
               </div>
             ))}
             {prepRecipes.length === 0 && !loadingPrep && (
               <div className="col-span-full py-12 text-center text-muted-foreground bg-card border border-border rounded-xl">
-                No prep recipes configured yet. Click &quot;New Prep Recipe&quot; above to create one.
+                {isAr ? 'لم يتم إعداد وصفات تحضير مسبق بعد. اضغط "وصفة تحضير جديدة" أعلاه للإنشاء.' : 'No prep recipes configured yet. Click "New Prep Recipe" above to create one.'}
               </div>
             )}
           </div>
@@ -489,14 +682,14 @@ export default function BomPage() {
           {showProduceModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
               <div className="w-full max-w-md rounded-2xl bg-card border border-border p-6 shadow-2xl animate-in fade-in zoom-in-95 space-y-4">
-                <h3 className="font-bold text-lg text-foreground">Produce Batch: {showProduceModal.name}</h3>
+                <h3 className="font-bold text-lg text-foreground">{isAr ? 'إنتاج دفعة:' : 'Produce Batch:'} {showProduceModal.name}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Will deduct raw ingredients from stock, increment prepared SKU in inventory, and auto-register an active perishable lot in HACCP batches.
+                  {isAr ? 'سيتم خصم المكونات الخام من المخزون، وزيادة الصنف المحضر، وتسجيل دفعة جديدة في HACCP تلقائياً.' : 'Will deduct raw ingredients from stock, increment prepared SKU in inventory, and auto-register an active perishable lot in HACCP batches.'}
                 </p>
 
                 <div>
                   <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
-                    Batch Multiplier (Base Yield: {showProduceModal.yield_quantity} {showProduceModal.yield_unit})
+                    {isAr ? 'مضاعف الدفعة (الناتج الأساسي:' : 'Batch Multiplier (Base Yield:'} {showProduceModal.yield_quantity} {showProduceModal.yield_unit})
                   </label>
                   <div className="flex gap-2">
                     {[1, 2, 3, 5].map((mult) => (
@@ -521,7 +714,7 @@ export default function BomPage() {
                     onClick={() => setShowProduceModal(null)}
                     className="flex-1"
                   >
-                    Cancel
+                    {isAr ? 'إلغاء' : 'Cancel'}
                   </Button>
                   <Button
                     type="button"
@@ -529,7 +722,7 @@ export default function BomPage() {
                     onClick={handleProduceBatch}
                     className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
-                    {producing ? 'Producing...' : 'Confirm Production'}
+                    {producing ? (isAr ? 'جارٍ الإنتاج...' : 'Producing...') : (isAr ? 'تأكيد الإنتاج' : 'Confirm Production')}
                   </Button>
                 </div>
               </div>
@@ -540,13 +733,13 @@ export default function BomPage() {
           {showNewPrepModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
               <div className="w-full max-w-lg rounded-2xl bg-card border border-border p-6 shadow-2xl animate-in fade-in zoom-in-95 space-y-4 max-h-[90vh] overflow-y-auto">
-                <h3 className="font-bold text-lg text-foreground">Create Prep Recipe (Sub-Recipe)</h3>
+                <h3 className="font-bold text-lg text-foreground">{isAr ? 'إنشاء وصفة تحضير مسبق (وصفة فرعية)' : 'Create Prep Recipe (Sub-Recipe)'}</h3>
                 <form onSubmit={handleCreatePrepRecipe} className="space-y-3">
                   <div>
-                    <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Recipe Name</label>
+                    <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'اسم الوصفة' : 'Recipe Name'}</label>
                     <input
                       type="text"
-                      placeholder="e.g. Cold Brew Concentrate"
+                      placeholder={isAr ? 'مثال: مركز القهوة الباردة' : 'e.g. Cold Brew Concentrate'}
                       value={newPrepForm.name}
                       onChange={(e) => setNewPrepForm({ ...newPrepForm, name: e.target.value })}
                       className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
@@ -555,14 +748,14 @@ export default function BomPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Target Prepared SKU in Inventory</label>
+                    <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'صنف الإخراج المستهدف في المخزون' : 'Target Prepared SKU in Inventory'}</label>
                     <select
                       value={newPrepForm.output_target_id}
                       onChange={(e) => setNewPrepForm({ ...newPrepForm, output_target_id: e.target.value })}
                       className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                       required
                     >
-                      <option value="">Select prepared SKU...</option>
+                      <option value="">{isAr ? 'اختر صنف التحضير...' : 'Select prepared SKU...'}</option>
                       {inventoryItems.map((inv) => (
                         <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit})</option>
                       ))}
@@ -571,7 +764,7 @@ export default function BomPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Yield Quantity</label>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'كمية الناتج' : 'Yield Quantity'}</label>
                       <input
                         type="number"
                         min="1"
@@ -582,7 +775,7 @@ export default function BomPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Yield Unit</label>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'وحدة الناتج' : 'Yield Unit'}</label>
                       <input
                         type="text"
                         value={newPrepForm.yield_unit}
@@ -595,7 +788,7 @@ export default function BomPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Shelf Life (Hours)</label>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'مدة الصلاحية (بالساعات)' : 'Shelf Life (Hours)'}</label>
                       <input
                         type="number"
                         min="1"
@@ -606,7 +799,7 @@ export default function BomPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">Storage Area</label>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">{isAr ? 'منطقة التخزين' : 'Storage Area'}</label>
                       <input
                         type="text"
                         value={newPrepForm.storage_area}
@@ -619,10 +812,10 @@ export default function BomPage() {
 
                   <div className="flex gap-2 pt-2">
                     <Button type="button" variant="outline" onClick={() => setShowNewPrepModal(false)} className="flex-1">
-                      Cancel
+                      {isAr ? 'إلغاء' : 'Cancel'}
                     </Button>
                     <Button type="submit" className="flex-1 bg-brand text-white">
-                      Save Prep Recipe
+                      {isAr ? 'حفظ وصفة التحضير' : 'Save Prep Recipe'}
                     </Button>
                   </div>
                 </form>
@@ -806,15 +999,26 @@ export default function BomPage() {
                     <div>
                       <h3 className="text-sm font-bold text-foreground">{t('tabIngredients', { count: enrichedLines.length })}</h3>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addComponentLine}
-                      className="flex items-center gap-1 text-xs"
-                    >
-                      <Plus className="size-3.5" />
-                      {t('btnAddLine')}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addCustomMaterialDirectly}
+                        className="flex items-center gap-1 text-xs border-amber-600/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 font-bold"
+                      >
+                        <Plus className="size-3.5" />
+                        {isAr ? '+ إضافة خامة مباشرة بدون مخزون' : '+ Add Custom Material Directly'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addComponentLine}
+                        className="flex items-center gap-1 text-xs"
+                      >
+                        <Plus className="size-3.5" />
+                        {isAr ? '+ إضافة من المخزون' : t('btnAddLine')}
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto border border-border rounded-lg">
@@ -837,30 +1041,42 @@ export default function BomPage() {
                         {enrichedLines.map((line, idx) => (
                           <tr key={idx} className="hover:bg-muted/20">
                             <td className="p-2.5">
-                              <select
-                                value={line.target_id}
-                                onChange={(e) => updateComponent(idx, { target_id: e.target.value })}
-                                className="w-full p-1.5 bg-background border border-border rounded text-xs"
-                              >
-                                <optgroup label="Raw Inventory">
-                                  {inventoryItems.map((inv) => (
-                                    <option key={inv.id} value={inv.id}>
-                                      {inv.name} ({inv.unit})
-                                    </option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label="Packaging & Supplies">
-                                  {supplyItems.map((sup) => (
-                                    <option key={sup.id} value={sup.id}>
-                                      {sup.name} ({sup.base_unit})
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              </select>
+                              {line.target_type === 'custom' ? (
+                                <input
+                                  type="text"
+                                  value={line.custom_material_name || line.component_name || ''}
+                                  onChange={(e) => updateComponent(idx, { custom_material_name: e.target.value, component_name: e.target.value })}
+                                  placeholder={isAr ? 'اسم الخامة' : 'Material Name'}
+                                  className="w-full p-1.5 bg-background border border-amber-500/50 rounded text-xs font-semibold"
+                                />
+                              ) : (
+                                <select
+                                  value={line.target_id}
+                                  onChange={(e) => updateComponent(idx, { target_id: e.target.value })}
+                                  className="w-full p-1.5 bg-background border border-border rounded text-xs"
+                                >
+                                  <optgroup label="Raw Inventory">
+                                    {inventoryItems.map((inv) => (
+                                      <option key={inv.id} value={inv.id}>
+                                        {inv.name} ({inv.unit})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                  <optgroup label="Packaging & Supplies">
+                                    {supplyItems.map((sup) => (
+                                      <option key={sup.id} value={sup.id}>
+                                        {sup.name} ({sup.base_unit})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                </select>
+                              )}
                             </td>
                             <td className="p-2.5">
-                              <span className="capitalize text-muted-foreground">
-                                {line.target_type}
+                              <span className={`capitalize text-xs font-semibold px-1.5 py-0.5 rounded ${
+                                line.target_type === 'custom' ? 'bg-amber-500/20 text-amber-700' : 'text-muted-foreground'
+                              }`}>
+                                {line.target_type === 'custom' ? (isAr ? 'مباشرة' : 'Direct') : line.target_type}
                               </span>
                             </td>
                             <td className="p-2.5 text-end">
@@ -873,7 +1089,18 @@ export default function BomPage() {
                                 className="w-16 p-1 bg-background border border-border rounded text-end text-xs"
                               />
                             </td>
-                            <td className="p-2.5 text-muted-foreground">{line.unit}</td>
+                            <td className="p-2.5 text-muted-foreground">
+                              {line.target_type === 'custom' ? (
+                                <input
+                                  type="text"
+                                  value={line.custom_unit || line.unit || 'g'}
+                                  onChange={(e) => updateComponent(idx, { custom_unit: e.target.value, unit: e.target.value })}
+                                  className="w-12 p-1 bg-background border border-border rounded text-xs"
+                                />
+                              ) : (
+                                line.unit
+                              )}
+                            </td>
                             <td className="p-2.5 text-end">
                               <input
                                 type="number"
@@ -906,8 +1133,22 @@ export default function BomPage() {
                                 ))}
                               </select>
                             </td>
-                            <td className="p-2.5 text-end text-muted-foreground">
-                              {fmtCurrency(line.unitCost)}
+                            <td className="p-2.5 text-end">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={line.custom_unit_cost !== undefined ? line.custom_unit_cost : line.unitCost}
+                                onChange={(e) => {
+                                  const cost = parseFloat(e.target.value) || 0;
+                                  updateComponent(idx, {
+                                    custom_unit_cost: cost,
+                                    live_unit_cost: cost,
+                                    cost_source: 'manual',
+                                  });
+                                }}
+                                className="w-16 p-1 bg-background border border-border rounded text-end text-xs font-semibold"
+                              />
                             </td>
                             <td className="p-2.5 text-end font-semibold text-foreground">
                               {fmtCurrency(line.lineCost)}
@@ -942,6 +1183,173 @@ export default function BomPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 📊 Sold Items Expected Materials Used, Expected Cost & Expected Profit Tab */}
+      {activeTab === 'expected_usage' && (
+        <div className="space-y-6 flex-1 min-h-0 overflow-y-auto">
+          {/* Controls Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-card p-4 rounded-xl border border-border">
+            <div>
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <BarChart3 className="size-5 text-brand" />
+                {isAr
+                  ? 'الخامات المتوقع استهلاكها والتكلفة والربح المتوقع للمبيعات'
+                  : 'Sold Items Expected Materials, Cost & Expected Profit'}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {isAr
+                  ? 'يعمل بالنظام المستقل 100% دون الحاجة لجرد أو مشتريات أو مصروفات، أو بالنظام المتكامل'
+                  : 'Functions 100% standalone without inventory/purchasing/expenses or fully integrated'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground">{isAr ? 'الفترة:' : 'Period:'}</span>
+              <div className="flex rounded-lg border border-border p-1 bg-muted/40 text-xs">
+                {(['today', '7days', 'month'] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setUsagePeriod(p)}
+                    className={`px-3 py-1 font-semibold rounded-md transition-colors ${
+                      usagePeriod === p ? 'bg-background shadow-xs text-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {p === 'today' ? (isAr ? 'اليوم' : 'Today') : p === '7days' ? (isAr ? 'آخر 7 أيام' : 'Last 7 Days') : (isAr ? 'هذا الشهر' : 'This Month')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {loadingUsage ? (
+            <div className="p-16 text-center text-sm text-muted-foreground">
+              <RefreshCw className="size-6 animate-spin mx-auto mb-2 text-brand" />
+              {isAr ? 'جار تحليل المبيعات والوصفات وحساب الخامات والأرباح...' : 'Calculating sold items, BOM expected usage and profits...'}
+            </div>
+          ) : !usageData?.summary ? (
+            <div className="p-12 text-center text-muted-foreground bg-card rounded-xl border border-border">
+              <Package className="size-8 mx-auto mb-2 opacity-50" />
+              <p>{isAr ? 'لا توجد بيانات مبيعات في هذه الفترة.' : 'No sold items data for this period.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-card p-4 rounded-xl border border-border space-y-1">
+                  <span className="text-xs text-muted-foreground font-semibold">{isAr ? 'إيرادات الأصناف المباعة' : 'Sold Items Revenue'}</span>
+                  <div className="text-xl font-black text-foreground">{fmtCurrency(usageData.summary.expected_revenue)}</div>
+                  <span className="text-[11px] text-muted-foreground">{usageData.summary.total_items_sold} {isAr ? 'قطعة مباعة' : 'items sold'}</span>
+                </div>
+
+                <div className="bg-card p-4 rounded-xl border border-border space-y-1">
+                  <span className="text-xs text-muted-foreground font-semibold">{isAr ? 'التكلفة المتوقعة للخامات (BOM)' : 'Expected Materials Cost'}</span>
+                  <div className="text-xl font-black text-amber-600">{fmtCurrency(usageData.summary.expected_materials_cost)}</div>
+                  <span className="text-[11px] text-muted-foreground">{isAr ? 'بناءً على مقادير وصفات الأصناف' : 'Based on item recipes'}</span>
+                </div>
+
+                <div className="bg-card p-4 rounded-xl border border-green-500/30 bg-green-500/5 space-y-1">
+                  <span className="text-xs text-green-700 font-semibold">{isAr ? 'الربح المتوقع (مستقل BOM)' : 'Expected Profit (Standalone)'}</span>
+                  <div className="text-xl font-black text-green-600">{fmtCurrency(usageData.summary.expected_profit_without_expenses)}</div>
+                  <span className="text-[11px] font-bold text-green-700">
+                    {usageData.summary.expected_margin_pct_without_expenses.toFixed(1)}% {isAr ? 'هامش مجمل الربح' : 'Gross Margin'}
+                  </span>
+                </div>
+
+                <div className="bg-card p-4 rounded-xl border border-blue-500/30 bg-blue-500/5 space-y-1">
+                  <span className="text-xs text-blue-700 font-semibold">{isAr ? 'صافي الربح بعد الهدر والمصروفات' : 'Net Profit (With Expenses)'}</span>
+                  <div className="text-xl font-black text-blue-600">{fmtCurrency(usageData.summary.expected_net_profit_with_expenses)}</div>
+                  <span className="text-[11px] text-muted-foreground">
+                    -{fmtCurrency(usageData.summary.authorized_waste_cost + usageData.summary.operating_expenses_total)} {isAr ? 'هدر ومصروفات' : 'waste & expenses'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Sub-Table 1: Sold Items Breakdown */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="p-4 border-b border-border bg-muted/20">
+                  <h4 className="font-bold text-sm text-foreground">
+                    {isAr ? 'تفصيل الأصناف المباعة والربح المتوقع لكل صنف' : 'Sold Items Breakdown & Expected Margins'}
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted text-muted-foreground font-semibold">
+                      <tr>
+                        <th className="p-3 text-start">{isAr ? 'الصنف' : 'Product'}</th>
+                        <th className="p-3 text-start">{isAr ? 'القسم' : 'Category'}</th>
+                        <th className="p-3 text-end">{isAr ? 'الكمية المباعة' : 'Qty Sold'}</th>
+                        <th className="p-3 text-end">{isAr ? 'سعر البيع' : 'Unit Price'}</th>
+                        <th className="p-3 text-end">{isAr ? 'إجمالي المبيعات' : 'Total Sales'}</th>
+                        <th className="p-3 text-end">{isAr ? 'تكلفة الخامات BOM' : 'BOM Unit Cost'}</th>
+                        <th className="p-3 text-end">{isAr ? 'إجمالي التكلفة' : 'Total Expected Cost'}</th>
+                        <th className="p-3 text-end">{isAr ? 'الربح المتوقع' : 'Expected Profit'}</th>
+                        <th className="p-3 text-end">{isAr ? 'نسبة الهامش' : 'Margin %'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(usageData.sold_items_breakdown || []).map((row: SoldItemRow) => (
+                        <tr key={row.product_id} className="hover:bg-muted/10 font-mono">
+                          <td className="p-3 font-bold font-sans">{row.product_name}</td>
+                          <td className="p-3 text-muted-foreground font-sans">{row.category_name}</td>
+                          <td className="p-3 text-end font-bold">{row.qty_sold}</td>
+                          <td className="p-3 text-end">{fmtCurrency(row.unit_price)}</td>
+                          <td className="p-3 text-end font-bold text-foreground">{fmtCurrency(row.total_revenue)}</td>
+                          <td className="p-3 text-end text-amber-600">{fmtCurrency(row.unit_bom_cost)}</td>
+                          <td className="p-3 text-end text-amber-600">{fmtCurrency(row.total_expected_cost)}</td>
+                          <td className="p-3 text-end font-bold text-green-600">{fmtCurrency(row.expected_profit)}</td>
+                          <td className="p-3 text-end font-bold text-green-700">{row.expected_margin_pct.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Sub-Table 2: Expected Materials Used Breakdown */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="p-4 border-b border-border bg-muted/20">
+                  <h4 className="font-bold text-sm text-foreground">
+                    {isAr ? 'إجمالي الخامات المتوقع استهلاكها وتكلفتها' : 'Total Expected Materials Used Breakdown'}
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted text-muted-foreground font-semibold">
+                      <tr>
+                        <th className="p-3 text-start">{isAr ? 'اسم الخامة' : 'Material Name'}</th>
+                        <th className="p-3 text-start">{isAr ? 'الوحدة' : 'Unit'}</th>
+                        <th className="p-3 text-start">{isAr ? 'نوع المصدر' : 'Source'}</th>
+                        <th className="p-3 text-end">{isAr ? 'المستهلك بالمبيعات' : 'Consumed by Sales'}</th>
+                        <th className="p-3 text-end">{isAr ? 'سعر الوحدة' : 'Unit Cost'}</th>
+                        <th className="p-3 text-end">{isAr ? 'إجمالي التكلفة المتوقعة' : 'Total Expected Cost'}</th>
+                        <th className="p-3 text-end">{isAr ? 'الرصيد الحالي بالمخزن' : 'Current Stock'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(usageData.expected_materials_breakdown || []).map((m: ExpectedMaterialRow, i: number) => (
+                        <tr key={i} className="hover:bg-muted/10 font-mono">
+                          <td className="p-3 font-bold font-sans">{m.material_name}</td>
+                          <td className="p-3 text-muted-foreground">{m.unit}</td>
+                          <td className="p-3">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted">
+                              {m.source_type}
+                            </span>
+                          </td>
+                          <td className="p-3 text-end font-bold">{m.qty_used_by_sales.toFixed(2)}</td>
+                          <td className="p-3 text-end">{fmtCurrency(m.unit_cost)}</td>
+                          <td className="p-3 text-end font-bold text-amber-600">{fmtCurrency(m.total_expected_cost)}</td>
+                          <td className="p-3 text-end text-muted-foreground">{m.current_stock ? m.current_stock.toFixed(2) : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

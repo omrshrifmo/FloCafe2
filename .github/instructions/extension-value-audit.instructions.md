@@ -6,7 +6,7 @@ applyTo:
   - **/.claude/learning/task-skill-proposals.json
   - **/.claude/learning/skill-adoption.jsonl
   - **/.claude/learning/runs.jsonl
-deployedAt: "2026-11-06T09:36:57.350Z"
+deployedAt: "2026-11-06T15:30:13.113Z"
 ---
 
 # extension-value-audit

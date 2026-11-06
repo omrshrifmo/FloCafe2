@@ -1,4 +1,4 @@
-interface DepletionParams {
+export interface DepletionParams {
   productId: string;
   quantity: number;
   orderId: string | number;
@@ -10,11 +10,11 @@ interface DepletionParams {
   orderItemId?: string | number | null;
 }
 
-interface RestoreParams extends DepletionParams {
+export interface RestoreParams extends DepletionParams {
   waste?: boolean;
 }
 
-function resolveEffectiveBomComponents(db: any, headerId: string, params: DepletionParams) {
+export function resolveEffectiveBomComponents(db: any, headerId: string, params: DepletionParams) {
   let activeAddonIds: string[] = (params.addonIds || []).map(String);
   if (params.orderItemId && activeAddonIds.length === 0) {
     try {
@@ -111,39 +111,50 @@ export function depleteBomForOrderItem(db: any, params: DepletionParams): boolea
       const grossPerPortion = (net / (1 - waste / 100)) * mult;
       const totalDeplete = (grossPerPortion / portions) * quantity;
 
+      if (comp.target_type === 'custom') {
+        // Standalone Custom Material (No inventory/supply tracking required)
+        continue;
+      }
+
       if (comp.target_type === 'inventory') {
-        db.prepare('UPDATE inventory_items SET quantity = quantity - ?, updated_at = ? WHERE id = ?')
-          .run(totalDeplete, createdAt, comp.target_id);
+        const item = db.prepare('SELECT id, quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+        if (item) {
+          db.prepare('UPDATE inventory_items SET quantity = quantity - ?, updated_at = ? WHERE id = ?')
+            .run(totalDeplete, createdAt, comp.target_id);
 
-        const after = db.prepare('SELECT quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-        db.prepare(`
-          INSERT INTO stock_logs (
-            target_type, target_id, quantity_delta, stock_after, unit,
-            reason, reference_type, reference_id, actor_user_id, created_at
-          ) VALUES ('inventory', ?, ?, ?, ?, ?, 'order', ?, ?, ?)
-        `).run(
-          comp.target_id, -totalDeplete, Number(after?.quantity || 0), after?.unit || comp.unit || 'g',
-          reason, String(orderId), actorUserId, createdAt
-        );
+          const after = db.prepare('SELECT quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+          db.prepare(`
+            INSERT INTO stock_logs (
+              target_type, target_id, quantity_delta, stock_after, unit,
+              reason, reference_type, reference_id, actor_user_id, created_at
+            ) VALUES ('inventory', ?, ?, ?, ?, ?, 'order', ?, ?, ?)
+          `).run(
+            comp.target_id, -totalDeplete, Number(after?.quantity || 0), after?.unit || comp.unit || 'g',
+            reason, String(orderId), actorUserId, createdAt
+          );
+        }
       } else {
-        db.prepare(`
-          UPDATE supplies
-          SET stock_quantity = stock_quantity - ?,
-              quantity = COALESCE(quantity, stock_quantity) - ?,
-              updated_at = ?
-          WHERE id = ?
-        `).run(totalDeplete, totalDeplete, createdAt, comp.target_id);
+        const sup = db.prepare('SELECT id, stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
+        if (sup) {
+          db.prepare(`
+            UPDATE supplies
+            SET stock_quantity = stock_quantity - ?,
+                quantity = COALESCE(quantity, stock_quantity) - ?,
+                updated_at = ?
+            WHERE id = ?
+          `).run(totalDeplete, totalDeplete, createdAt, comp.target_id);
 
-        const after = db.prepare('SELECT stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
-        db.prepare(`
-          INSERT INTO stock_logs (
-            target_type, target_id, quantity_delta, stock_after, unit,
-            reason, reference_type, reference_id, actor_user_id, created_at
-          ) VALUES ('supply', ?, ?, ?, ?, ?, 'order', ?, ?, ?)
-        `).run(
-          comp.target_id, -totalDeplete, Number(after?.stock_quantity || 0), after?.base_unit || comp.unit || 'each',
-          reason, String(orderId), actorUserId, createdAt
-        );
+          const after = db.prepare('SELECT stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
+          db.prepare(`
+            INSERT INTO stock_logs (
+              target_type, target_id, quantity_delta, stock_after, unit,
+              reason, reference_type, reference_id, actor_user_id, created_at
+            ) VALUES ('supply', ?, ?, ?, ?, ?, 'order', ?, ?, ?)
+          `).run(
+            comp.target_id, -totalDeplete, Number(after?.stock_quantity || 0), after?.base_unit || comp.unit || 'each',
+            reason, String(orderId), actorUserId, createdAt
+          );
+        }
       }
     }
 
@@ -175,39 +186,49 @@ export function restoreBomForOrderItem(db: any, params: RestoreParams): boolean 
       const grossPerPortion = (net / (1 - wastePct / 100)) * mult;
       const totalRestore = (grossPerPortion / portions) * quantity;
 
+      if (comp.target_type === 'custom') {
+        continue;
+      }
+
       if (comp.target_type === 'inventory') {
-        db.prepare('UPDATE inventory_items SET quantity = quantity + ?, updated_at = ? WHERE id = ?')
-          .run(totalRestore, createdAt, comp.target_id);
+        const item = db.prepare('SELECT id, quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+        if (item) {
+          db.prepare('UPDATE inventory_items SET quantity = quantity + ?, updated_at = ? WHERE id = ?')
+            .run(totalRestore, createdAt, comp.target_id);
 
-        const after = db.prepare('SELECT quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-        db.prepare(`
-          INSERT INTO stock_logs (
-            target_type, target_id, quantity_delta, stock_after, unit,
-            reason, reference_type, reference_id, actor_user_id, created_at
-          ) VALUES ('inventory', ?, ?, ?, ?, ?, 'refund', ?, ?, ?)
-        `).run(
-          comp.target_id, totalRestore, Number(after?.quantity || 0), after?.unit || comp.unit || 'g',
-          reason, String(orderId), actorUserId, createdAt
-        );
+          const after = db.prepare('SELECT quantity, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+          db.prepare(`
+            INSERT INTO stock_logs (
+              target_type, target_id, quantity_delta, stock_after, unit,
+              reason, reference_type, reference_id, actor_user_id, created_at
+            ) VALUES ('inventory', ?, ?, ?, ?, ?, 'refund', ?, ?, ?)
+          `).run(
+            comp.target_id, totalRestore, Number(after?.quantity || 0), after?.unit || comp.unit || 'g',
+            reason, String(orderId), actorUserId, createdAt
+          );
+        }
       } else {
-        db.prepare(`
-          UPDATE supplies
-          SET stock_quantity = stock_quantity + ?,
-              quantity = COALESCE(quantity, stock_quantity) + ?,
-              updated_at = ?
-          WHERE id = ?
-        `).run(totalRestore, totalRestore, createdAt, comp.target_id);
+        const sup = db.prepare('SELECT id, stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
+        if (sup) {
+          db.prepare(`
+            UPDATE supplies
+            SET stock_quantity = stock_quantity + ?,
+                quantity = COALESCE(quantity, stock_quantity) + ?,
+                updated_at = ?
+            WHERE id = ?
+          `).run(totalRestore, totalRestore, createdAt, comp.target_id);
 
-        const after = db.prepare('SELECT stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
-        db.prepare(`
-          INSERT INTO stock_logs (
-            target_type, target_id, quantity_delta, stock_after, unit,
-            reason, reference_type, reference_id, actor_user_id, created_at
-          ) VALUES ('supply', ?, ?, ?, ?, ?, 'refund', ?, ?, ?)
-        `).run(
-          comp.target_id, totalRestore, Number(after?.stock_quantity || 0), after?.base_unit || comp.unit || 'each',
-          reason, String(orderId), actorUserId, createdAt
-        );
+          const after = db.prepare('SELECT stock_quantity, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
+          db.prepare(`
+            INSERT INTO stock_logs (
+              target_type, target_id, quantity_delta, stock_after, unit,
+              reason, reference_type, reference_id, actor_user_id, created_at
+            ) VALUES ('supply', ?, ?, ?, ?, ?, 'refund', ?, ?, ?)
+          `).run(
+            comp.target_id, totalRestore, Number(after?.stock_quantity || 0), after?.base_unit || comp.unit || 'each',
+            reason, String(orderId), actorUserId, createdAt
+          );
+        }
       }
     }
 

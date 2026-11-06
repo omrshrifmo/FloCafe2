@@ -36,7 +36,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 
 const {
   initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
+  seedOwnerUser, seedManagerUser, seedCategory, seedProduct,
   api, assertOrThrow, assertEqualOrThrow, resetCounters, closeDatabase,
 } = require('./helpers/test-setup');
 const { registerRoutes } = require('../main/routes/index');
@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.6.1', 'MCP server version is 4.6.1');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.0', 'MCP server version is 4.7.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.6.1', 'package.json version is 4.6.1');
+    assertEqualOrThrow(rootPackageJson.version, '4.7.0', 'package.json version is 4.7.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.6.1', 'owner builder config version is 4.6.1');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.0', 'owner builder config version is 4.7.0');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.6.1',
+      flocafe_version: '4.7.0',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.6.1', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.0', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,10 +2093,10 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.6.1', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.0', 'WebCrypto decrypted beacon matches flocafe_version');
 
-    // ── Test 17: v4.6.1 Operating System Pillars Verification ──────────────────
-    console.log('\n[17] Verifying FloCafe v4.6.1 Operating System Pillars...');
+    // ── Test 17: v4.7.0 Operating System Pillars Verification ──────────────────
+    console.log('\n[17] Verifying FloCafe v4.7.0 Operating System Pillars...');
 
     // 17.1 Schema tables exist: v112 migration
     const winbackTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_winback_vouchers'").get();
@@ -2258,14 +2258,18 @@ async function main() {
     assertEqualOrThrow(latestLog.sync_channel, 'local+sentinel (drive_offline)', 'Records drive_offline channel status');
     upsertSettings({ eod_gdrive_sync_enabled: 'false' });
 
-    // ── Test 18: FloOwner Control v4.6.1 Android APK Byte-Level & Signature Verification ──
-    console.log('\n[18] Verifying FloOwner Control v4.6.1 Universal Android APK byte-level integrity...');
+    // ── Test 18: FloOwner Control Universal Android APK Byte-Level & Signature Verification ──
+    console.log('\n[18] Verifying FloOwner Control Universal Android APK byte-level integrity...');
     const pathMod = require('path');
     const fsMod = require('fs');
     const cpMod = require('child_process');
 
-    const apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.6.1-android.apk');
-    assertOrThrow(fsMod.existsSync(apkPath), 'release/FloOwner-Control-4.6.1-android.apk must exist');
+    const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
+    let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
+    if (!fsMod.existsSync(apkPath)) {
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.0-android.apk');
+    }
+    assertOrThrow(fsMod.existsSync(apkPath), `release APK must exist (checked ${apkPath})`);
 
     const apkBuffer = fsMod.readFileSync(apkPath);
     assertOrThrow(apkBuffer.length > 30000, 'APK file size must be > 30KB');
@@ -2298,6 +2302,243 @@ async function main() {
       assertOrThrow(verifyOutput.includes('Verified using v2 scheme (APK Signature Scheme v2): true'), 'apksigner confirms v2 scheme');
       assertOrThrow(verifyOutput.includes('Verified using v3 scheme (APK Signature Scheme v3): true'), 'apksigner confirms v3 scheme');
     }
+
+    // ── Test 19: v4.7.0 Standalone BOM, Pre-Blind Cashier Close & Centered Z-Report Verification ──
+    console.log('\n[19] Verifying v4.7.0 Standalone BOM, Pre-Blind Cashier Close & Centered Z-Report...');
+
+    // 19.1 Verify database migration v113 columns
+    const bomCompColsV113 = db.prepare(`PRAGMA table_info(bom_components)`).all().map((c: any) => c.name);
+    assertOrThrow(bomCompColsV113.includes('custom_material_name'), 'bom_components has custom_material_name');
+    assertOrThrow(bomCompColsV113.includes('custom_unit'), 'bom_components has custom_unit');
+    assertOrThrow(bomCompColsV113.includes('custom_unit_cost'), 'bom_components has custom_unit_cost');
+    assertOrThrow(bomCompColsV113.includes('cost_source'), 'bom_components has cost_source');
+
+    const closureColsV113 = db.prepare(`PRAGMA table_info(cash_closures)`).all().map((c: any) => c.name);
+    assertOrThrow(closureColsV113.includes('closure_type'), 'cash_closures has closure_type');
+    assertOrThrow(closureColsV113.includes('closed_by_name'), 'cash_closures has closed_by_name');
+    assertOrThrow(closureColsV113.includes('closed_by_role'), 'cash_closures has closed_by_role');
+    assertOrThrow(closureColsV113.includes('shift_opened_at'), 'cash_closures has shift_opened_at');
+    assertOrThrow(closureColsV113.includes('total_orders_count'), 'cash_closures has total_orders_count');
+    assertOrThrow(closureColsV113.includes('dine_in_sales'), 'cash_closures has dine_in_sales');
+    assertOrThrow(closureColsV113.includes('takeaway_sales'), 'cash_closures has takeaway_sales');
+    assertOrThrow(closureColsV113.includes('delivery_sales'), 'cash_closures has delivery_sales');
+    assertOrThrow(closureColsV113.includes('wallet_sales'), 'cash_closures has wallet_sales');
+    assertOrThrow(closureColsV113.includes('aggregator_sales'), 'cash_closures has aggregator_sales');
+    assertOrThrow(closureColsV113.includes('cash_in_total'), 'cash_closures has cash_in_total');
+    assertOrThrow(closureColsV113.includes('cash_out_total'), 'cash_closures has cash_out_total');
+    assertOrThrow(closureColsV113.includes('expenses_total'), 'cash_closures has expenses_total');
+    assertOrThrow(closureColsV113.includes('expected_bom_cost'), 'cash_closures has expected_bom_cost');
+    assertOrThrow(closureColsV113.includes('authorized_waste_cost'), 'cash_closures has authorized_waste_cost');
+    assertOrThrow(closureColsV113.includes('expected_gross_profit'), 'cash_closures has expected_gross_profit');
+    assertOrThrow(closureColsV113.includes('expected_net_profit'), 'cash_closures has expected_net_profit');
+    assertOrThrow(closureColsV113.includes('declared_card_slips'), 'cash_closures has declared_card_slips');
+    assertOrThrow(closureColsV113.includes('declared_wallet_slips'), 'cash_closures has declared_wallet_slips');
+    assertOrThrow(closureColsV113.includes('denominations_json'), 'cash_closures has denominations_json');
+    assertOrThrow(closureColsV113.includes('linked_preblind_id'), 'cash_closures has linked_preblind_id');
+    assertOrThrow(closureColsV113.includes('z_report_snapshot_json'), 'cash_closures has z_report_snapshot_json');
+
+    // 19.2 Standalone BOM test: Create product with BOM containing 2 components
+    // 1 inventory/supply component + 1 custom standalone material (target_type: 'custom')
+    seedCategory(db, 'cat-v470', 'v470 Specials');
+    const prodSpecialId = 'prod-v470-signature';
+    seedProduct(db, prodSpecialId, 'cat-v470', 'Signature Spiced Latte', 75, { track_inventory: false, stock_quantity: 0 });
+
+    const supplyCupId = randomUUID();
+    db.prepare(`
+      INSERT INTO supplies (id, name, base_unit, stock_quantity, is_active, created_at, updated_at)
+      VALUES (?, 'Craft Paper Cup 12oz', 'each', 500, 1, datetime('now'), datetime('now'))
+    `).run(supplyCupId);
+
+    const bomPutRes = await api(baseUrl, `/api/bom/product/${prodSpecialId}`, {
+      method: 'PUT',
+      headers: authHeader,
+      body: {
+        header: {
+          yield_portions: 1,
+          prep_time_minutes: 3,
+          direct_labor_rate_per_hour: 60,
+          target_food_cost_pct: 35,
+          indirect_overhead_override: 2,
+          notes: 'Tested on v4.7.0 standalone bom',
+        },
+        components: [
+          {
+            target_type: 'supply',
+            target_id: supplyCupId,
+            net_quantity: 1,
+            waste_pct: 0,
+            cost_source: 'auto',
+          },
+          {
+            target_type: 'custom',
+            target_id: null,
+            custom_material_name: 'Special Spices Mix',
+            custom_unit: 'g',
+            custom_unit_cost: 0.25,
+            net_quantity: 20,
+            waste_pct: 0,
+            cost_source: 'manual',
+          },
+        ],
+      },
+    });
+    assertOrThrow(bomPutRes.status === 200, 'PUT /api/bom/product/:id returns 200');
+
+    // Verify GET /api/bom/products returns the updated BOM
+    const bomGetRes = await api(baseUrl, '/api/bom/products', { headers: authHeader });
+    assertOrThrow(bomGetRes.status === 200, 'GET /api/bom/products returns 200');
+    const matchedProd = bomGetRes.data.products.find((p: any) => p.product.id === prodSpecialId);
+    assertOrThrow(Boolean(matchedProd), 'Signature Spiced Latte exists in bom products');
+    assertEqualOrThrow(matchedProd.components.length, 2, 'Has exactly 2 components');
+    const customComp = matchedProd.components.find((c: any) => c.target_type === 'custom');
+    assertOrThrow(Boolean(customComp), 'Has custom component');
+    assertEqualOrThrow(customComp.custom_material_name, 'Special Spices Mix', 'Custom material name preserved');
+    assertEqualOrThrow(customComp.custom_unit_cost, 0.25, 'Custom unit cost preserved');
+
+    // Place an order containing this product
+    const v470OrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'dine_in',
+        order_type: 'dine_in',
+        status: 'completed',
+        payment_status: 'paid',
+        payment_method: 'cash',
+        total: 150,
+        subtotal: 150,
+        tax_total: 0,
+        discount_total: 0,
+        items: [
+          {
+            product_id: prodSpecialId,
+            name: 'Signature Spiced Latte',
+            quantity: 2,
+            unit_price: 75,
+            price: 75,
+            total: 150,
+          },
+        ],
+      },
+    });
+    assertOrThrow(v470OrderRes.status === 201 || v470OrderRes.status === 200, 'Order with custom BOM item placed');
+
+    // Verify /api/bom/expected-usage-and-profit reports sold items, expected materials, and profit
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const expectedUsageRes = await api(baseUrl, `/api/bom/expected-usage-and-profit?from=${todayStr}&to=${todayStr}`, { headers: authHeader });
+    assertOrThrow(expectedUsageRes.status === 200, 'GET /api/bom/expected-usage-and-profit returns 200');
+    assertOrThrow(expectedUsageRes.data.summary.total_items_sold >= 2, 'Summary tracks sold items');
+    assertOrThrow(expectedUsageRes.data.summary.expected_materials_cost > 0, 'Summary computes expected materials cost');
+    assertOrThrow(expectedUsageRes.data.summary.expected_profit_without_expenses > 0, 'Summary computes standalone gross profit');
+
+    // Verify both supply and custom materials are present in expected_materials_breakdown
+    const spicesUsage = expectedUsageRes.data.expected_materials_breakdown.find((m: any) => m.material_name === 'Special Spices Mix');
+    assertOrThrow(Boolean(spicesUsage), 'Special Spices Mix present in expected materials breakdown');
+    assertOrThrow(spicesUsage.total_expected_quantity >= 40, 'Special Spices Mix expected quantity >= 40g (2 items * 20g)');
+    assertEqualOrThrow(spicesUsage.unit, 'g', 'Special Spices Mix unit is g');
+
+    // 19.3 Pre-Blind Cashier Close vs Full Day Close
+    // 1. Cashier executes POST /api/cash-closures with closure_type: 'pre_blind_cashier'
+    const preBlindRes = await api(baseUrl, '/api/cash-closures', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        closure_type: 'pre_blind_cashier',
+        business_date: todayStr,
+        scope: 'session',
+        actual_cash_cents: 15000,
+        denominations_json: JSON.stringify({ 200: 0, 100: 1, 50: 1, 20: 0, 10: 0, 5: 0, 1: 0 }),
+        declared_card_slips: 0,
+        declared_wallet_slips: 0,
+        notes: 'Handover count before shift handover',
+        total_sales_cents: 15000,
+      },
+    });
+    assertOrThrow(preBlindRes.status === 201 || preBlindRes.status === 200, 'Pre-blind cashier close succeeds');
+    assertEqualOrThrow(preBlindRes.data.closure_type, 'pre_blind_cashier', 'Closure type is pre_blind_cashier');
+    assertEqualOrThrow(preBlindRes.data.masked_for_cashier, true, 'Response is masked for cashier');
+    assertEqualOrThrow(preBlindRes.data.expected_cash_cents, null, 'Expected cash is masked to null');
+    assertEqualOrThrow(preBlindRes.data.variance_cents, null, 'Variance is masked to null');
+    const preBlindClosureId = preBlindRes.data.closure_id;
+
+    // Verify database stored actual calculations silently
+    const dbPreBlind = db.prepare('SELECT * FROM cash_closures WHERE id = ?').get(preBlindClosureId) as any;
+    assertOrThrow(Boolean(dbPreBlind), 'Pre-blind closure saved to database');
+    assertEqualOrThrow(dbPreBlind.closure_type, 'pre_blind_cashier', 'DB closure_type is pre_blind_cashier');
+    assertOrThrow(dbPreBlind.expected_cash_cents !== null, 'DB stored non-null expected_cash_cents');
+
+    // 2. Manager executes POST /api/cash-closures with closure_type: 'full_day_close'
+    const seedMgr = seedManagerUser(db);
+    const fullCloseRes = await api(baseUrl, '/api/cash-closures', {
+      method: 'POST',
+      headers: seedMgr.authHeader,
+      body: {
+        closure_type: 'full_day_close',
+        manager_pin: '1234',
+        business_date: todayStr,
+        scope: 'day',
+        actual_cash_cents: 15000,
+        denominations_json: JSON.stringify({ 200: 0, 100: 1, 50: 1, 20: 0, 10: 0, 5: 0, 1: 0 }),
+        declared_card_slips: 0,
+        declared_wallet_slips: 0,
+        linked_preblind_id: String(preBlindClosureId),
+        notes: 'End of day full manager close',
+      },
+    });
+    assertOrThrow(fullCloseRes.status === 201 || fullCloseRes.status === 200, 'Full day close succeeds');
+    assertEqualOrThrow(fullCloseRes.data.closure_type, 'full_day_close', 'Full day closure_type is full_day_close');
+    assertEqualOrThrow(fullCloseRes.data.masked_for_cashier, false, 'Unmasked for manager');
+    assertOrThrow(fullCloseRes.data.expected_cash_cents !== null, 'Expected cash is revealed');
+    assertOrThrow(fullCloseRes.data.z_report_snapshot !== null, 'Z-report snapshot included in response');
+
+    // 19.4 Centered Slip Render Test
+    const { renderPreBlindSlipHtml, renderFullZReportSlipHtml } = require('../shared/print/templates/zreport');
+    const sampleZData = {
+      store_name: 'FloCafe Downtown',
+      business_date: todayStr,
+      closure_id: fullCloseRes.data.closure_id,
+      closed_by_name: 'Test Manager',
+      closed_by_role: 'manager',
+      shift_opened_at: new Date(Date.now() - 28800000).toISOString(),
+      closed_at: new Date().toISOString(),
+      opening_cash: 50,
+      total_orders_count: 5,
+      gross_sales: 150,
+      discounts_total: 0,
+      tax_total: 0,
+      net_sales: 150,
+      cash_sales: 150,
+      card_sales: 0,
+      wallet_sales: 0,
+      delivery_sales: 0,
+      dine_in_sales: 150,
+      takeaway_sales: 0,
+      cash_in_total: 0,
+      cash_out_total: 0,
+      expenses_total: 0,
+      expected_cash: 200,
+      actual_cash: 200,
+      variance: 0,
+      expected_bom_cost: 32,
+      expected_gross_profit: 118,
+      expected_net_profit: 118,
+      denominations: { 100: 1, 50: 2 },
+    };
+
+    const preBlindHtml = renderPreBlindSlipHtml(sampleZData, 'ar');
+    assertOrThrow(preBlindHtml.includes('text-align: center'), 'Pre-blind slip has text-align: center');
+    assertOrThrow(preBlindHtml.includes('تسليم مبدئي أعمى للكاشير'), 'Pre-blind slip contains Arabic header');
+    assertOrThrow(!preBlindHtml.includes('العجز / الزيادة'), 'Pre-blind slip does not leak variance in cashier handover');
+
+    const fullZHtmlEn = renderFullZReportSlipHtml(sampleZData, 'en');
+    assertOrThrow(fullZHtmlEn.includes('text-align: center'), 'Full Z-report slip has text-align: center');
+    assertOrThrow(fullZHtmlEn.includes('FULL DAY / SHIFT Z-REPORT'), 'Full Z-report contains English header');
+    assertOrThrow(fullZHtmlEn.includes('Expected BOM Materials Cost'), 'Full Z-report slip includes BOM metrics');
+
+    const fullZHtmlAr = renderFullZReportSlipHtml(sampleZData, 'ar');
+    assertOrThrow(fullZHtmlAr.includes('text-align: center'), 'Full Z-report AR slip has text-align: center');
+    assertOrThrow(fullZHtmlAr.includes('تقرير إغلاق الوردية واليوم الشامل (Z-REPORT)'), 'Full Z-report AR slip contains Arabic header');
+    assertOrThrow(fullZHtmlAr.includes('تكلفة خامات الوصفات المتوقعة (BOM)'), 'Full Z-report AR slip includes Arabic BOM metrics');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
