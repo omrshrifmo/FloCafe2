@@ -37,7 +37,7 @@ import {
   dayBoundsInTimezone, getDatabase, getSettingValue, localDateInTimezone, now, withTxn,
   tenantBusinessDayStartTime,
 } from '../db';
-import { requirePermission } from '../services/authorization';
+import { requirePermission, hasPermission } from '../services/authorization';
 import { nextZNumber } from '../db';
 import { getTenantCurrency } from '../services/refund';
 import { getOpenSession, NO_CASH_SESSION_ID, requireOpenSessionForCash } from '../services/shift-session-gate';
@@ -1228,9 +1228,20 @@ router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res
 
 // ── GET /api/cash-closures/preview ──────────────────────────────────────────
 // Computes live shift/day metrics since the last full_day_close (or for today)
-router.get('/preview', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
+router.get('/preview', (req: Request, res: Response) => {
   try {
     const db = getDatabase();
+    const user = (req as any).user;
+    const userId = String(user?.userId || user?.id || '');
+    if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+    const userRow = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(userId) as any;
+    const userRole = userRow?.role || user?.role || 'cashier';
+    const hasDayClose = hasPermission(userId, 'cash.day-close');
+    const isManagerOrOwner = userRole === 'owner' || userRole === 'admin' || userRole === 'manager' || hasDayClose;
+    const mode = req.query.mode ? String(req.query.mode) : '';
+    const shouldMask = !isManagerOrOwner || mode === 'pre_blind_cashier';
+
     const bDate = req.query.business_date ? String(req.query.business_date) : localDateInTimezone(new Date(), tenantTimezone(), tenantStartTime(db));
     const [periodStart, periodEnd] = dayBoundsInTimezone(bDate, tenantTimezone(), tenantStartTime(db));
 
@@ -1379,7 +1390,7 @@ router.get('/preview', requirePermission('cash.shifts.view'), (req: Request, res
     // 4. Expected BOM Materials Cost
     const orderItems = orders.length > 0
       ? (db.prepare(`
-          SELECT oi.product_id, oi.quantity, oi.variant_id
+          SELECT oi.product_id, oi.quantity
           FROM order_items oi
           JOIN orders o ON o.id = oi.order_id
           WHERE o.created_at >= ? AND o.created_at <= ?
@@ -1436,42 +1447,47 @@ router.get('/preview', requirePermission('cash.shifts.view'), (req: Request, res
       ORDER BY created_at DESC LIMIT 1
     `).get(effectiveStart) as any;
 
+    const previewData = {
+      shift_opened_at: effectiveStart,
+      business_date: bDate,
+      opening_cash: openingCash,
+      total_orders_count: totalOrdersCount,
+      gross_sales: shouldMask ? null : grossSales,
+      discounts_total: shouldMask ? null : discountsTotal,
+      tax_total: shouldMask ? null : taxTotal,
+      net_sales: shouldMask ? null : netSales,
+      dine_in_orders: dineInOrders,
+      dine_in_sales: shouldMask ? null : dineInSales,
+      takeaway_orders: takeawayOrders,
+      takeaway_sales: shouldMask ? null : takeawaySales,
+      delivery_orders: deliveryOrders,
+      delivery_sales: shouldMask ? null : deliverySales,
+      voided_orders_count: voidedOrdersCount,
+      carry_over_tables_count: carryOverTablesCount,
+      cash_sales: shouldMask ? null : cashSales,
+      card_sales: cardSales,
+      wallet_sales: walletSales,
+      custom_payment_sales: customPaymentSales,
+      aggregator_sales: aggregatorSales,
+      aggregator_commissions: aggregatorCommissions,
+      cash_in_total: cashInTotal,
+      cash_out_total: cashOutTotal,
+      expenses_total: expensesTotal,
+      refunds_total: refundsTotal,
+      expected_cash: shouldMask ? null : expectedCash,
+      variance: shouldMask ? null : 0,
+      expected_bom_cost: shouldMask ? null : expectedBomCost,
+      authorized_waste_cost: shouldMask ? null : authorizedWasteCost,
+      expected_gross_profit: shouldMask ? null : expectedGrossProfit,
+      expected_net_profit: shouldMask ? null : expectedNetProfit,
+      masked_for_cashier: shouldMask,
+      latest_preblind_closure: latestPreblind || null,
+    };
+
     res.json({
       success: true,
-      preview: {
-        shift_opened_at: effectiveStart,
-        business_date: bDate,
-        opening_cash: openingCash,
-        total_orders_count: totalOrdersCount,
-        gross_sales: grossSales,
-        discounts_total: discountsTotal,
-        tax_total: taxTotal,
-        net_sales: netSales,
-        dine_in_orders: dineInOrders,
-        dine_in_sales: dineInSales,
-        takeaway_orders: takeawayOrders,
-        takeaway_sales: takeawaySales,
-        delivery_orders: deliveryOrders,
-        delivery_sales: deliverySales,
-        voided_orders_count: voidedOrdersCount,
-        carry_over_tables_count: carryOverTablesCount,
-        cash_sales: cashSales,
-        card_sales: cardSales,
-        wallet_sales: walletSales,
-        custom_payment_sales: customPaymentSales,
-        aggregator_sales: aggregatorSales,
-        aggregator_commissions: aggregatorCommissions,
-        cash_in_total: cashInTotal,
-        cash_out_total: cashOutTotal,
-        expenses_total: expensesTotal,
-        refunds_total: refundsTotal,
-        expected_cash: expectedCash,
-        expected_bom_cost: expectedBomCost,
-        authorized_waste_cost: authorizedWasteCost,
-        expected_gross_profit: expectedGrossProfit,
-        expected_net_profit: expectedNetProfit,
-        latest_preblind_closure: latestPreblind || null,
-      },
+      ...previewData,
+      preview: previewData,
     });
   } catch (error: any) {
     console.error('[CashClosures] Preview error:', error);
@@ -1479,7 +1495,7 @@ router.get('/preview', requirePermission('cash.shifts.view'), (req: Request, res
   }
 });
 
-router.post('/', requirePermission('cash.shifts.close'), async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const db = getDatabase();
@@ -1496,16 +1512,17 @@ router.post('/', requirePermission('cash.shifts.close'), async (req: Request, re
     const businessDate = body.business_date ? validateBusinessDate(body.business_date) : localDateInTimezone(new Date(), tenantTimezone(), tenantStartTime(db));
     const [periodStart, periodEnd] = dayBoundsInTimezone(businessDate, tenantTimezone(), tenantStartTime(db));
 
-    if (closureType === 'full_day_close') {
-      // Role or PIN verification
-      const isOwnerOrManager = closedByRole === 'owner' || closedByRole === 'manager';
+    if (closureType !== 'pre_blind_cashier') {
+      // Role or PIN verification for full_day_close
+      const hasDayClose = hasPermission(closedBy, 'cash.day-close');
+      const isOwnerOrManager = closedByRole === 'owner' || closedByRole === 'admin' || closedByRole === 'manager' || hasDayClose;
       if (!isOwnerOrManager) {
         const managerPin = String(body.manager_pin || '').trim();
         if (!managerPin) {
           throw httpError('Manager or Owner PIN required for Full Day Close', 403);
         }
         const adminCandidates = db.prepare(`
-          SELECT id, pin, pin_hash FROM users WHERE is_active = 1 AND role IN ('owner', 'manager')
+          SELECT id, pin, pin_hash FROM users WHERE is_active = 1 AND role IN ('owner', 'admin', 'manager')
         `).all() as any[];
         const pinValid = adminCandidates.some((c) => {
           if (c.pin_hash && bcrypt.compareSync(managerPin, c.pin_hash)) return true;
@@ -1519,15 +1536,23 @@ router.post('/', requirePermission('cash.shifts.close'), async (req: Request, re
     }
 
     const requestedOpeningFloatCents = body.opening_float_cents !== undefined ? validateCents(body.opening_float_cents, 'opening_float_cents') : 0;
-    const countedCashCents = body.counted_cash_cents !== undefined ? validateCents(body.counted_cash_cents, 'counted_cash_cents') : 0;
+    let countedCashCents = 0;
+    if (body.counted_cash_cents !== undefined) {
+      countedCashCents = validateCents(body.counted_cash_cents, 'counted_cash_cents');
+    } else if (body.actual_cash_cents !== undefined) {
+      countedCashCents = validateCents(body.actual_cash_cents, 'actual_cash_cents');
+    } else if (body.actual_cash !== undefined) {
+      countedCashCents = Math.round(Number(body.actual_cash) * 100);
+    }
     const declaredCardSlips = Number(body.declared_card_slips || 0);
     const declaredWalletSlips = Number(body.declared_wallet_slips || 0);
     const denominationsJson = body.denominations ? JSON.stringify(body.denominations) : null;
     const linkedPreblindId = body.linked_preblind_id ? String(body.linked_preblind_id) : null;
     const notes = typeof body.notes === 'string' ? body.notes.slice(0, MAX_NOTES_LENGTH) : null;
+    const scope = body.scope === 'session' ? 'session' : 'day';
 
     const result = withTxn(() => {
-      if (closureType === 'full_day_close') {
+      if (closureType === 'full_day_close' && scope === 'day') {
         const existing = db.prepare(
           `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' AND closure_type = 'full_day_close' LIMIT 1`
         ).get(businessDate);
@@ -1557,7 +1582,6 @@ router.post('/', requirePermission('cash.shifts.close'), async (req: Request, re
       }
 
       const createdAt = now();
-      const scope = closureType === 'full_day_close' ? 'day' : 'session';
 
       // Compute live sales breakdown & BOM cost
       const orders = db.prepare(`
@@ -1719,6 +1743,7 @@ router.post('/', requirePermission('cash.shifts.close'), async (req: Request, re
           created_at: createdAt,
           closed_by_name: closedByName,
           declared_cash: countedCashCents / 100,
+          actual_cash: countedCashCents / 100,
           declared_card_slips: declaredCardSlips,
           declared_wallet_slips: declaredWalletSlips,
           masked_for_cashier: true,
@@ -1731,7 +1756,7 @@ router.post('/', requirePermission('cash.shifts.close'), async (req: Request, re
         id: closureId,
         closure_type: 'full_day_close',
         masked_for_cashier: false,
-        scope: 'day',
+        scope,
         business_date: businessDate,
         period_start: periodStart,
         period_end: createdAt,

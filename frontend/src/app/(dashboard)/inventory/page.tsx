@@ -15,6 +15,7 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { tenantCan } from '@/lib/permissions';
 import { StocktakeManager } from '@/components/inventory/StocktakeManager';
 import { PurchasingManager } from '@/components/inventory/PurchasingManager';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 const SUPPLY_UNITS = ['each', 'g', 'kg', 'ml', 'l'] as const;
 type SupplyUnit = (typeof SUPPLY_UNITS)[number];
@@ -95,6 +96,7 @@ export default function InventoryPage() {
   const { formatDate } = useFormatDate();
   const fmtNum = useFormatNumber();
   const fmtCurrency = useFormatCurrency();
+  const { isAr, tr, dir } = useAppLanguage();
   const canManage = tenantCan(currentTenant, 'inventory.manage');
 
   const [tab, setTab] = useState('supplies');
@@ -357,14 +359,14 @@ export default function InventoryPage() {
         )}
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="supplies">{t('tabSupplies')}</TabsTrigger>
-          <TabsTrigger value="recipes">{t('tabRecipes')}</TabsTrigger>
-          <TabsTrigger value="movements">{t('tabMovements')}</TabsTrigger>
-          <TabsTrigger value="stocktakes">{t('count')}</TabsTrigger>
-          <TabsTrigger value="purchasing">Purchasing &amp; GRN</TabsTrigger>
-          <TabsTrigger value="waste">Waste &amp; Spoilage</TabsTrigger>
+      <Tabs value={tab} onValueChange={setTab} dir={dir}>
+        <TabsList className="flex flex-wrap gap-1">
+          <TabsTrigger value="supplies">{tr('Supplies & Raw Materials', 'الخامات والمواد')}</TabsTrigger>
+          <TabsTrigger value="recipes">{tr('Prep Batches & Recipes', 'دفعات التحضير المسبق Prep Batches')}</TabsTrigger>
+          <TabsTrigger value="movements">{tr('Stock Movements', 'حركات المخزون')}</TabsTrigger>
+          <TabsTrigger value="stocktakes">{tr('Physical Stocktake', 'الجرد الفعلي')}</TabsTrigger>
+          <TabsTrigger value="purchasing">{tr('Purchasing & Suppliers', 'المشتريات والموردين')}</TabsTrigger>
+          <TabsTrigger value="waste">{tr('Waste & Spoilage', 'تسجيل الهدر والمعايرة ووجبات الموظفين')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="supplies">

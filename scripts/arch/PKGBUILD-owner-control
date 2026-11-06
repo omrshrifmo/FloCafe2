@@ -1,6 +1,6 @@
 # Maintainer: Omar Shrif <https://github.com/omrshrifmo>
 pkgname=flocafe-owner-control
-pkgver=4.7.0
+pkgver=4.7.1
 pkgrel=1
 pkgdesc="FloOwner Control — Standalone remote fleet management for FloCafe POS (Windows/Linux/Android)"
 arch=('any')

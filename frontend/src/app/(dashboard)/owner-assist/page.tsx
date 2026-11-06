@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   Sparkles,
   TrendingUp,
@@ -49,6 +50,7 @@ interface OperationalAlerts {
 export default function OwnerAssistPage() {
   const t = useTranslations('ownerAssist');
   const tCommon = useTranslations('common');
+  const { isAr, tr, dir } = useAppLanguage();
   const { currentTenant } = useAuthStore();
   const fmtCurrency = useFormatCurrency();
 
@@ -120,16 +122,16 @@ export default function OwnerAssistPage() {
   const profitDelta = simGrossProfit - baselineGrossProfit;
 
   return (
-    <div className="flex h-full flex-col p-4 md:p-6 space-y-6 overflow-y-auto">
+    <div className="flex h-full flex-col p-4 md:p-6 space-y-6 overflow-y-auto" dir={dir}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Sparkles className="size-6 text-brand" />
-            {t('title')}
+            {tr('Owner Decision & Diagnostic Copilot', 'مساعد المالك الذكي والتشخيص الإداري')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {t('subtitle')}
+            {tr('Menu engineering BCG matrix, cost leak alerts, and what-if financial projections', 'مصفوفة تحليل الأصناف والربحية، تنبيهات تسرب التكاليف، ومحاكي الأرباح والقرارات الاستراتيجية')}
           </p>
         </div>
       </div>

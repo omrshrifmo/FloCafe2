@@ -1,5 +1,5 @@
 /**
- * FloOwner Control System v4.7.0 - Standalone Native Desktop Main Process
+ * FloOwner Control System v4.7.1 - Standalone Native Desktop Main Process
  * Lightweight Electron launcher dedicated to FloCafe remote fleet administration.
  */
 
@@ -23,7 +23,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'FloOwner Control System v4.7.0',
+    title: 'FloOwner Control System v4.7.1',
     autoHideMenuBar: true,
     backgroundColor: '#0f1117',
     webPreferences: {

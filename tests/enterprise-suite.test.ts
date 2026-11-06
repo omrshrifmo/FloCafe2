@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.0', 'MCP server version is 4.7.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.1', 'MCP server version is 4.7.1');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.7.0', 'package.json version is 4.7.0');
+    assertEqualOrThrow(rootPackageJson.version, '4.7.1', 'package.json version is 4.7.1');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.0', 'owner builder config version is 4.7.0');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.1', 'owner builder config version is 4.7.1');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.7.0',
+      flocafe_version: '4.7.1',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.0', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.1', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,7 +2093,7 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.0', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.1', 'WebCrypto decrypted beacon matches flocafe_version');
 
     // ── Test 17: v4.7.0 Operating System Pillars Verification ──────────────────
     console.log('\n[17] Verifying FloCafe v4.7.0 Operating System Pillars...');
@@ -2267,7 +2267,7 @@ async function main() {
     const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
     let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
     if (!fsMod.existsSync(apkPath)) {
-      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.0-android.apk');
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.1-android.apk');
     }
     assertOrThrow(fsMod.existsSync(apkPath), `release APK must exist (checked ${apkPath})`);
 
@@ -2539,6 +2539,149 @@ async function main() {
     assertOrThrow(fullZHtmlAr.includes('text-align: center'), 'Full Z-report AR slip has text-align: center');
     assertOrThrow(fullZHtmlAr.includes('تقرير إغلاق الوردية واليوم الشامل (Z-REPORT)'), 'Full Z-report AR slip contains Arabic header');
     assertOrThrow(fullZHtmlAr.includes('تكلفة خامات الوصفات المتوقعة (BOM)'), 'Full Z-report AR slip includes Arabic BOM metrics');
+
+    // ── Test 20: FloCafe 4.7.1 Pre-Blind Cashier Permissions, ESC/POS Z-Report, BOM P&L & Bilingual Audit ──
+    console.log('\n[20] Verifying FloCafe 4.7.1 Pre-Blind Cashier Permissions, ESC/POS Z-Report, Standalone BOM P&L & Bilingual UI...');
+
+    // 20.1 Seed a pure Cashier user (without cash.day-close permission)
+    const { getJWTSecret } = require('../main/routes/auth');
+    const bcrypt = require('bcryptjs');
+    const jwt = require('jsonwebtoken');
+
+    const cashierId = 'cashier-role-user-471';
+    const cashierPassHash = bcrypt.hashSync('cashierpass123', 10);
+    db.prepare(
+      `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(cashierId, 'Blind Cashier', 'cashier471@test.local', cashierPassHash, 'cashier', 1, new Date().toISOString(), new Date().toISOString());
+
+    const cashierToken = jwt.sign(
+      { userId: cashierId, email: 'cashier471@test.local', role: 'cashier' },
+      getJWTSecret(),
+      { expiresIn: '1h' }
+    );
+    const cashierAuth = { Authorization: `Bearer ${cashierToken}` };
+
+    // 20.1.1 Cashier can submit pre_blind_cashier without 403 Forbidden
+    const cashierBlindRes = await api(baseUrl, '/api/cash-closures', {
+      method: 'POST',
+      headers: cashierAuth,
+      body: {
+        closure_type: 'pre_blind_cashier',
+        business_date: todayStr,
+        scope: 'session',
+        actual_cash_cents: 15000,
+        notes: 'Cashier blind count at shift end',
+      },
+    });
+    assertOrThrow(cashierBlindRes.status === 201 || cashierBlindRes.status === 200, 'Cashier submits pre_blind_cashier successfully');
+    assertEqualOrThrow(cashierBlindRes.data.closure_type, 'pre_blind_cashier', 'Closure type is pre_blind_cashier');
+    assertEqualOrThrow(cashierBlindRes.data.masked_for_cashier, true, 'Cashier response is strictly masked');
+    assertEqualOrThrow(cashierBlindRes.data.expected_cash_cents, null, 'Cashier cannot see expected cash cents');
+    assertEqualOrThrow(cashierBlindRes.data.variance_cents, null, 'Cashier cannot see variance cents');
+
+    // 20.1.2 Cashier preview is masked
+    const cashierPreviewRes = await api(baseUrl, `/api/cash-closures/preview?mode=pre_blind_cashier&date=${todayStr}`, {
+      headers: cashierAuth,
+    });
+    assertOrThrow(cashierPreviewRes.status === 200, 'Cashier preview returns 200 OK');
+    assertEqualOrThrow(cashierPreviewRes.data.expected_cash, null, 'Cashier preview masks expected cash');
+    assertEqualOrThrow(cashierPreviewRes.data.variance, null, 'Cashier preview masks variance');
+
+    // 20.1.3 Cashier attempts full_day_close WITHOUT manager pin -> REJECTED with 403 Forbidden
+    const cashierForbiddenFullClose = await api(baseUrl, '/api/cash-closures', {
+      method: 'POST',
+      headers: cashierAuth,
+      body: {
+        closure_type: 'full_day_close',
+        business_date: todayStr,
+        scope: 'session',
+        actual_cash_cents: 15000,
+      },
+    });
+    assertEqualOrThrow(cashierForbiddenFullClose.status, 403, 'Cashier cannot perform full_day_close without manager PIN (403 Forbidden)');
+
+    // 20.1.4 Cashier attempts full_day_close WITH manager pin -> SUCCEEDS!
+    const cashierWithPinFullClose = await api(baseUrl, '/api/cash-closures', {
+      method: 'POST',
+      headers: cashierAuth,
+      body: {
+        closure_type: 'full_day_close',
+        manager_pin: '1234',
+        business_date: todayStr,
+        scope: 'session',
+        actual_cash_cents: 15000,
+        notes: 'Full day close authorized via manager PIN',
+      },
+    });
+    if (cashierWithPinFullClose.status !== 200 && cashierWithPinFullClose.status !== 201) {
+      console.log('CASHIER PIN CLOSE STATUS:', cashierWithPinFullClose.status, cashierWithPinFullClose.data);
+    }
+    assertOrThrow(cashierWithPinFullClose.status === 201 || cashierWithPinFullClose.status === 200, 'Full day close with manager PIN succeeds');
+    assertEqualOrThrow(cashierWithPinFullClose.data.closure_type, 'full_day_close', 'Closure type is full_day_close');
+    assertEqualOrThrow(cashierWithPinFullClose.data.masked_for_cashier, false, 'Unmasked with manager PIN');
+
+    // 20.2 Backend Thermal ESC/POS Slip Generation (main/print/z-report.ts)
+    const { renderThermalZReport, ESC_ALIGN_CENTER } = require('../main/print/z-report');
+    const thermalSampleData = {
+      ...sampleZData,
+      closure_id: cashierWithPinFullClose.data.closure_id,
+    };
+
+    const thermalPreBlindAr = renderThermalZReport(thermalSampleData, 'pre_blind_cashier', 'ar').raw;
+    assertOrThrow(thermalPreBlindAr.includes(ESC_ALIGN_CENTER), 'Thermal pre-blind slip includes ESC/POS center alignment');
+    assertOrThrow(thermalPreBlindAr.includes('تسليم وردية مبدئي أعمى للكاشير'), 'Thermal pre-blind slip includes Arabic header');
+    assertOrThrow(!thermalPreBlindAr.includes('العجز / الزيادة'), 'Thermal pre-blind slip strictly masks variance');
+
+    const thermalFullZEn = renderThermalZReport(thermalSampleData, 'full_day_close', 'en').raw;
+    assertOrThrow(thermalFullZEn.includes(ESC_ALIGN_CENTER), 'Thermal full Z-report includes ESC/POS center alignment');
+    assertOrThrow(thermalFullZEn.includes('FULL DAY / SHIFT Z-REPORT'), 'Thermal full Z-report includes English header');
+    assertOrThrow(thermalFullZEn.includes('Expected BOM Materials Cost'), 'Thermal full Z-report includes BOM expected cost');
+
+    const thermalFullZAr = renderThermalZReport(thermalSampleData, 'full_day_close', 'ar').raw;
+    assertOrThrow(thermalFullZAr.includes(ESC_ALIGN_CENTER), 'Thermal full Z-report AR includes ESC/POS center alignment');
+    assertOrThrow(thermalFullZAr.includes('تقرير إغلاق الوردية واليوم الشامل (Z-REPORT)'), 'Thermal full Z-report AR includes Arabic header');
+    assertOrThrow(thermalFullZAr.includes('تكلفة خامات الوصفات المتوقعة (BOM)'), 'Thermal full Z-report AR includes Arabic BOM expected cost');
+
+    // 20.3 Standalone BOM Costing in Finance P&L
+    const pnlRes = await api(baseUrl, `/api/finance/pnl?from=${todayStr}&to=${todayStr}`, { headers: authHeader });
+    assertOrThrow(pnlRes.status === 200, 'GET /api/finance/pnl returns 200 OK');
+    const pnlData = pnlRes.data.pnl || pnlRes.data;
+    assertOrThrow(typeof pnlData.expected_materials_cost === 'number', 'Finance P&L returns expected_materials_cost');
+    assertOrThrow(pnlData.expected_materials_cost > 0, 'Finance P&L expected_materials_cost > 0 using custom BOM');
+    assertOrThrow(pnlData.standalone_bom_profit > 0, 'Finance P&L standalone_bom_profit > 0');
+    assertOrThrow(typeof pnlData.standalone_bom_margin_pct === 'number', 'Finance P&L standalone_bom_margin_pct is numeric');
+    assertOrThrow(Array.isArray(pnlData.expected_materials_used_summary), 'Finance P&L includes expected_materials_used_summary');
+    const pnlSpiceItem = pnlData.expected_materials_used_summary.find((m: any) => m.material_name === 'Special Spices Mix');
+    assertOrThrow(Boolean(pnlSpiceItem), 'Special Spices Mix custom material tracked in Finance P&L');
+
+    // 20.4 Bilingual Audit: Verify useAppLanguage and tr() across all 9 specified frontend files
+    const targetAuditFiles = [
+      'frontend/src/app/(dashboard)/finance/page.tsx',
+      'frontend/src/app/(dashboard)/inventory/page.tsx',
+      'frontend/src/components/inventory/PurchasingManager.tsx',
+      'frontend/src/components/inventory/StocktakeManager.tsx',
+      'frontend/src/components/pos/FastTouchMode.tsx',
+      'frontend/src/components/dashboard/CashCloseModal.tsx',
+      'frontend/src/app/(dashboard)/haccp/page.tsx',
+      'frontend/src/app/(dashboard)/hrm/page.tsx',
+      'frontend/src/app/(dashboard)/owner-assist/page.tsx',
+    ];
+
+    for (const relPath of targetAuditFiles) {
+      const fullPath = path.resolve(__dirname, '..', relPath);
+      assertOrThrow(fs.existsSync(fullPath), `Audit file exists: ${relPath}`);
+      const fileCode = fs.readFileSync(fullPath, 'utf8');
+      assertOrThrow(
+        fileCode.includes('useAppLanguage') && fileCode.includes('@/lib/i18n/bilingual'),
+        `${relPath} must import useAppLanguage from '@/lib/i18n/bilingual'`
+      );
+      assertOrThrow(
+        fileCode.includes('tr('),
+        `${relPath} must invoke tr() for 100% Arabic localization`
+      );
+    }
+    console.log('   All 9 frontend dashboard & component files strictly verified for useAppLanguage and tr().');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

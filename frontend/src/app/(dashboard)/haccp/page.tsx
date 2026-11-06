@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   ClipboardCheck,
   Thermometer,
@@ -89,6 +90,7 @@ interface HaccpBatch {
 
 export default function HaccpPage() {
   const t = useTranslations('haccp');
+  const { isAr, tr, dir } = useAppLanguage();
   const { formatDate } = useFormatDate();
 
   const [activeTab, setActiveTab] = useState<'checklists' | 'ccp' | 'batches' | 'execute' | 'runs'>('checklists');
@@ -396,16 +398,16 @@ export default function HaccpPage() {
   };
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 p-4 sm:p-6 max-w-7xl mx-auto" dir={dir}>
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <ClipboardCheck className="h-7 w-7 text-brand" />
-            {t('title')}
+            {tr('HACCP Food Safety & Hygiene Control', 'نظام سلامة الغذاء والنظافة والرقابة الصحية (HACCP)')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Food Safety & Hygiene Quality Assurance (HACCP / ISO 22000)
+            {tr('Food Safety & Hygiene Quality Assurance (HACCP / ISO 22000)', 'ضمان جودة سلامة الغذاء والنظافة القياسية (HACCP / ISO 22000)')}
           </p>
         </div>
 
@@ -413,13 +415,13 @@ export default function HaccpPage() {
           {activeTab === 'ccp' && (
             <Button onClick={() => setShowCcpModal(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
-              Log CCP Temperature
+              {tr('Log CCP Temperature', 'تسجيل درجة حرارة نقطة حرجة (CCP)')}
             </Button>
           )}
           {activeTab === 'batches' && (
             <Button onClick={() => setShowBatchModal(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
-              Register Batch
+              {tr('Register Batch', 'تسجيل تشغيلة / دفعة جديدة')}
             </Button>
           )}
         </div>
@@ -434,7 +436,7 @@ export default function HaccpPage() {
           }`}
         >
           <CheckSquare className="h-4 w-4" />
-          Daily Sanitation Checklists
+          {tr('Daily Sanitation Checklists', 'قوائم التعقيم والنظافة اليومية')}
         </button>
 
         <button
@@ -444,7 +446,7 @@ export default function HaccpPage() {
           }`}
         >
           <Thermometer className="h-4 w-4" />
-          CCP Temperature Logs
+          {tr('CCP Temperature Logs', 'سجل درجات الحرارة والنقاط الحرجة')}
         </button>
 
         <button
@@ -454,7 +456,7 @@ export default function HaccpPage() {
           }`}
         >
           <PackageCheck className="h-4 w-4" />
-          Perishable Batch Expiry
+          {tr('Perishable Batch Expiry', 'صلاحية التشغيلات السريعة التلف')}
         </button>
 
         <button
@@ -464,7 +466,7 @@ export default function HaccpPage() {
           }`}
         >
           <Play className="h-4 w-4" />
-          Audit Templates
+          {tr('Audit Templates', 'نماذج التفتيش')}
         </button>
 
         <button
@@ -474,7 +476,7 @@ export default function HaccpPage() {
           }`}
         >
           <UserCheck className="h-4 w-4" />
-          Audit Runs ({runs.length})
+          {tr('Audit Runs', 'عمليات التفتيش السابقة')} ({runs.length})
         </button>
       </div>
 

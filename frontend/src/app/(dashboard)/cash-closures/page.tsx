@@ -201,7 +201,7 @@ export default function CashClosuresPage() {
                             {isPreBlind ? tr('Cashier Pre-Blind Handover', 'تسليم وردية مبدئي') : `Z-Report #${c.z_number || c.id}`}
                           </Badge>
                           <span className="text-xs font-mono text-muted-foreground">
-                            {c.business_date} • {new Date(c.created_at || Date.now()).toLocaleTimeString()}
+                            {c.business_date} • {c.created_at ? new Date(c.created_at).toLocaleTimeString() : ''}
                           </span>
                         </div>
 
@@ -294,7 +294,7 @@ export default function CashClosuresPage() {
                   : `Z-Report #${selectedClosure.z_number || selectedClosure.id}`}
               </DialogTitle>
               <DialogDescription className="text-xs">
-                {selectedClosure.business_date} • {new Date(selectedClosure.created_at || Date.now()).toLocaleString()}
+                {selectedClosure.business_date} • {selectedClosure.created_at ? new Date(selectedClosure.created_at).toLocaleString() : ''}
               </DialogDescription>
             </DialogHeader>
 

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   Truck,
   Plus,
@@ -97,6 +98,7 @@ interface StatementData {
 
 export function PurchasingManager() {
   const t = useTranslations('purchasing');
+  const { isAr, tr, dir } = useAppLanguage();
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
 
@@ -384,14 +386,14 @@ export function PurchasingManager() {
         pay_from_drawer: supplierPayFromDrawer,
         shift_id: activeShiftId,
       });
-      toast.success('Supplier payment recorded successfully');
+      toast.success(tr('Supplier payment recorded successfully', 'تم تسجيل دفعة المورد بنجاح'));
       setPayingSupplier(null);
       setSupplierPayAmount(0);
       setSupplierPayNotes('');
       setSupplierPayFromDrawer(false);
       loadData();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to record supplier payment'));
+      toast.error(getErrorMessage(err, tr('Failed to record supplier payment', 'فشل تسجيل دفعة المورد')));
     } finally {
       setIsSubmittingPay(false);
     }
@@ -407,7 +409,7 @@ export function PurchasingManager() {
         reason: creditNoteReason,
         reference: creditNoteRef || undefined,
       });
-      toast.success('Credit note applied to supplier balance');
+      toast.success(tr('Credit note applied to supplier balance', 'تم تطبيق إشعار الدائن على حساب المورد'));
       setCreditingSupplier(null);
       setCreditNoteAmount(0);
       setCreditNoteReason('Damaged goods / Return');
@@ -415,7 +417,7 @@ export function PurchasingManager() {
       loadData();
       void loadCreditNotes();
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to apply credit note'));
+      toast.error(getErrorMessage(err, tr('Failed to apply credit note', 'فشل تطبيق إشعار الدائن')));
     } finally {
       setIsSubmittingCredit(false);
     }
@@ -440,7 +442,7 @@ export function PurchasingManager() {
         notes: poPayNotes || undefined,
         shift_id: activeShiftId,
       });
-      toast.success(`Payment recorded. Remaining: ${fmtCurrency(res.data?.balance_remaining || 0)}`);
+      toast.success(`${tr('Payment recorded. Remaining: ', 'تم تسجيل الدفعة. المتبقي: ')}${fmtCurrency(res.data?.balance_remaining || 0)}`);
       setPayingPo(null);
       setPoPayAmount(0);
       setPoPayNotes('');
@@ -448,7 +450,7 @@ export function PurchasingManager() {
       loadData();
       if (selectedStatementSupplierId) loadStatement(selectedStatementSupplierId);
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err, 'Failed to record PO payment'));
+      toast.error(getErrorMessage(err, tr('Failed to record PO payment', 'فشل تسجيل دفعة أمر الشراء')));
     } finally {
       setIsSubmittingPoPay(false);
     }
@@ -459,9 +461,9 @@ export function PurchasingManager() {
       const res = await api.get('/purchasing/credit-notes');
       setCreditNotes(res.data?.credit_notes || []);
     } catch {
-      toast.error('Failed to load credit notes');
+      toast.error(tr('Failed to load credit notes', 'فشل تحميل إشعارات الدائن'));
     }
-  }, []);
+  }, [tr]);
 
   const loadStatement = useCallback(async (supplierId: string) => {
     if (!supplierId) return;
@@ -470,11 +472,11 @@ export function PurchasingManager() {
       const res = await api.get(`/purchasing/suppliers/${supplierId}/statement`);
       setStatementData(res.data?.statement || null);
     } catch {
-      toast.error('Failed to load supplier statement');
+      toast.error(tr('Failed to load supplier statement', 'فشل تحميل كشف حساب المورد'));
     } finally {
       setLoadingStatement(false);
     }
-  }, []);
+  }, [tr]);
 
   useEffect(() => {
     if (activeSubTab === 'credit_notes') {
@@ -484,13 +486,13 @@ export function PurchasingManager() {
           if (active) setCreditNotes(res.data?.credit_notes || []);
         })
         .catch(() => {
-          if (active) toast.error('Failed to load credit notes');
+          if (active) toast.error(tr('Failed to load credit notes', 'فشل تحميل إشعارات الدائن'));
         });
       return () => {
         active = false;
       };
     }
-  }, [activeSubTab]);
+  }, [activeSubTab, tr]);
 
   useEffect(() => {
     const targetId = selectedStatementSupplierId || suppliers[0]?.id;
@@ -501,7 +503,7 @@ export function PurchasingManager() {
           if (active) setStatementData(res.data?.statement || null);
         })
         .catch(() => {
-          if (active) toast.error('Failed to load supplier statement');
+          if (active) toast.error(tr('Failed to load supplier statement', 'فشل تحميل كشف حساب المورد'));
         })
         .finally(() => {
           if (active) setLoadingStatement(false);
@@ -510,7 +512,7 @@ export function PurchasingManager() {
         active = false;
       };
     }
-  }, [activeSubTab, selectedStatementSupplierId, suppliers]);
+  }, [activeSubTab, selectedStatementSupplierId, suppliers, tr]);
 
   const handleBarcodeQuickScan = (code: string) => {
     const trimmed = code.trim().toLowerCase();
@@ -540,11 +542,11 @@ export function PurchasingManager() {
           ],
         });
       }
-      toast.success(`Scanned +1: ${match.name}`);
+      toast.success(`${tr('Scanned +1: ', 'تم مسح +1: ')}${match.name}`);
       setBarcodeInput('');
       setBarcodeScanInput('');
     } else {
-      toast.error(`No item found matching "${code}"`);
+      toast.error(`${tr('No item found matching: ', 'لا يوجد صنف يطابق: ')}"${code}"`);
     }
   };
 
@@ -567,8 +569,8 @@ export function PurchasingManager() {
   return (
     <div className="space-y-4">
       {/* Sub Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3" dir={dir}>
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant={activeSubTab === 'orders' ? 'default' : 'outline'}
             size="sm"
@@ -576,7 +578,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <Truck className="size-3.5 me-1.5" />
-            {t('tabOrders', { count: purchaseOrders.length })}
+            {tr('Purchase Orders', 'أوامر الشراء')} ({purchaseOrders.length})
           </Button>
           <Button
             variant={activeSubTab === 'suppliers' ? 'default' : 'outline'}
@@ -585,7 +587,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <Building className="size-3.5 me-1.5" />
-            {t('tabSuppliers', { count: suppliers.length })}
+            {tr('Suppliers', 'الموردين')} ({suppliers.length})
           </Button>
           <Button
             variant={activeSubTab === 'statements' ? 'default' : 'outline'}
@@ -594,7 +596,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <PackageCheck className="size-3.5 me-1.5" />
-            AP Statements
+            {tr('Supplier Statement & Balance Due', 'كشف حساب المورد والرصيد المستحق')}
           </Button>
           <Button
             variant={activeSubTab === 'credit_notes' ? 'default' : 'outline'}
@@ -603,7 +605,7 @@ export function PurchasingManager() {
             className="text-xs"
           >
             <RefreshCw className="size-3.5 me-1.5" />
-            Credit Notes ({creditNotes.length})
+            {tr('Supplier Credit Notes', 'إشعارات الدائن ومرتجعات الموردين')} ({creditNotes.length})
           </Button>
         </div>
 
@@ -651,7 +653,7 @@ export function PurchasingManager() {
               className="text-xs flex items-center gap-1.5"
             >
               <Plus className="size-3.5" />
-              New Credit Note
+              {tr('New Credit Note', 'إشعار دائن جديد')}
             </Button>
           )}
         </div>
@@ -684,7 +686,7 @@ export function PurchasingManager() {
                     handleBarcodeQuickScan(barcodeScanInput);
                   }
                 }}
-                placeholder="Scan ingredient barcode..."
+                placeholder={tr('Scan ingredient barcode...', 'مسح باركود الخامة/المادة...')}
                 className="w-full px-2.5 py-1.5 bg-background border border-border rounded-md text-xs outline-none focus:ring-1 focus:ring-brand"
               />
               <Button
@@ -694,7 +696,7 @@ export function PurchasingManager() {
                 onClick={() => handleBarcodeQuickScan(barcodeScanInput)}
                 className="h-8 shrink-0 text-xs px-2.5"
               >
-                Scan
+                {tr('Scan', 'مسح')}
               </Button>
             </div>
           </div>
@@ -706,8 +708,8 @@ export function PurchasingManager() {
                   <th className="p-3 text-start">{t('colPoNumber')}</th>
                   <th className="p-3 text-start">{t('colSupplier')}</th>
                   <th className="p-3 text-start">{t('colStatus')}</th>
-                  <th className="p-3 text-start">Terms / Due</th>
-                  <th className="p-3 text-end">Total / Paid</th>
+                  <th className="p-3 text-start">{tr('Terms / Due', 'شروط الدفع / الاستحقاق')}</th>
+                  <th className="p-3 text-end">{tr('Total / Paid', 'الإجمالي / المسدد')}</th>
                   <th className="p-3 text-start">{t('colDateCreated')}</th>
                   <th className="p-3 text-end">{t('colAction')}</th>
                 </tr>
@@ -721,7 +723,7 @@ export function PurchasingManager() {
                   return (
                     <tr key={po.id} className="hover:bg-muted/20">
                       <td className="p-3 font-mono font-bold text-foreground">{po.po_number}</td>
-                      <td className="p-3 font-medium text-foreground">{po.supplier_name || 'Direct Vendor'}</td>
+                      <td className="p-3 font-medium text-foreground">{po.supplier_name || tr('Direct Vendor', 'مورد مباشر')}</td>
                       <td className="p-3">
                         <Badge
                           variant={
@@ -739,13 +741,13 @@ export function PurchasingManager() {
                       <td className="p-3">
                         <span className="font-semibold text-foreground">{po.credit_terms || 'COD'}</span>
                         {po.due_date && (
-                          <span className="block text-[10px] text-muted-foreground">Due: {formatDate(po.due_date)}</span>
+                          <span className="block text-[10px] text-muted-foreground">{tr('Due: ', 'الاستحقاق: ')}{formatDate(po.due_date)}</span>
                         )}
                       </td>
                       <td className="p-3 text-end">
                         <span className="font-bold text-foreground block">{fmtCurrency(po.total_amount)}</span>
                         <span className={`text-[10px] ${isFullyPaid ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-amber-600 dark:text-amber-400'}`}>
-                          {isFullyPaid ? 'Paid' : `Paid: ${fmtCurrency(paid)}`}
+                          {isFullyPaid ? tr('Paid', 'تم السداد') : `${tr('Paid: ', 'المسدد: ')}${fmtCurrency(paid)}`}
                         </span>
                       </td>
                       <td className="p-3 text-muted-foreground">{formatDate(po.created_at)}</td>
@@ -774,17 +776,17 @@ export function PurchasingManager() {
                               onClick={() => {
                                 setPayingPo(po);
                                 setPoPayAmount(remaining);
-                                setPoPayNotes(`Payment for PO #${po.po_number}`);
+                                setPoPayNotes(`${tr('Payment for PO #', 'سداد لأمر الشراء رقم ')}${po.po_number}`);
                               }}
                               className="text-[11px] h-7 border-emerald-500/50 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
                             >
-                              Pay Invoice
+                              {tr('Pay Invoice', 'سداد الفاتورة')}
                             </Button>
                           )}
                           {po.status === 'received' && isFullyPaid && (
                             <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                               <CheckCircle2 className="size-3.5 text-green-500" />
-                              Completed
+                              {tr('Completed', 'مكتمل')}
                             </span>
                           )}
                         </div>
@@ -810,7 +812,7 @@ export function PurchasingManager() {
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-xs font-semibold text-foreground">Select Supplier:</label>
+              <label className="text-xs font-semibold text-foreground">{tr('Select Supplier:', 'اختر المورد:')}</label>
               <select
                 value={selectedStatementSupplierId || suppliers[0]?.id || ''}
                 onChange={(e) => {
@@ -821,7 +823,7 @@ export function PurchasingManager() {
               >
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} (Balance: {fmtCurrency(s.balance_due)})
+                    {s.name} ({tr('Balance: ', 'الرصيد: ')}{fmtCurrency(s.balance_due)})
                   </option>
                 ))}
               </select>
@@ -838,7 +840,7 @@ export function PurchasingManager() {
                   disabled={statementData.balance_due <= 0}
                   className="text-xs h-8"
                 >
-                  Pay Outstanding Balance
+                  {tr('Pay Outstanding Balance', 'سداد الرصيد المستحق')}
                 </Button>
                 <Button
                   size="sm"
@@ -846,50 +848,50 @@ export function PurchasingManager() {
                   onClick={() => setCreditingSupplier(statementData.supplier)}
                   className="text-xs h-8"
                 >
-                  Issue Credit Note
+                  {tr('Issue Credit Note', 'إصدار إشعار دائن')}
                 </Button>
               </div>
             )}
           </div>
 
           {loadingStatement && (
-            <div className="p-8 text-center text-xs text-muted-foreground">Loading supplier statement...</div>
+            <div className="p-8 text-center text-xs text-muted-foreground">{tr('Loading supplier statement...', 'جاري تحميل كشف حساب المورد...')}</div>
           )}
 
           {!loadingStatement && statementData && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-card border border-border p-3 rounded-xl">
-                  <span className="text-[11px] text-muted-foreground block">Balance Due (AP)</span>
+                  <span className="text-[11px] text-muted-foreground block">{tr('Balance Due (AP)', 'الرصيد المستحق (ذمم دائنة)')}</span>
                   <span className="text-lg font-bold text-foreground">{fmtCurrency(statementData.balance_due)}</span>
                 </div>
                 <div className="bg-card border border-border p-3 rounded-xl">
-                  <span className="text-[11px] text-muted-foreground block">Total Invoiced</span>
+                  <span className="text-[11px] text-muted-foreground block">{tr('Total Invoiced', 'إجمالي الفواتير')}</span>
                   <span className="text-lg font-bold text-foreground">{fmtCurrency(statementData.total_invoiced)}</span>
                 </div>
                 <div className="bg-card border border-border p-3 rounded-xl">
-                  <span className="text-[11px] text-muted-foreground block">Total Paid</span>
+                  <span className="text-[11px] text-muted-foreground block">{tr('Total Paid', 'إجمالي المسدد')}</span>
                   <span className="text-lg font-bold text-green-600 dark:text-green-400">{fmtCurrency(statementData.total_paid)}</span>
                 </div>
                 <div className="bg-card border border-border p-3 rounded-xl">
-                  <span className="text-[11px] text-muted-foreground block">Total Credit Notes</span>
+                  <span className="text-[11px] text-muted-foreground block">{tr('Total Credit Notes', 'إجمالي إشعارات الدائن')}</span>
                   <span className="text-lg font-bold text-purple-600 dark:text-purple-400">{fmtCurrency(statementData.total_credits)}</span>
                 </div>
               </div>
 
               <div className="bg-card border border-border rounded-xl p-4">
-                <h4 className="text-xs font-bold text-foreground mb-2">Purchase Orders &amp; Invoices</h4>
+                <h4 className="text-xs font-bold text-foreground mb-2">{tr('Purchase Orders & Invoices', 'أوامر الشراء والفواتير')}</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-muted text-muted-foreground">
                       <tr>
-                        <th className="p-2 text-start">PO #</th>
-                        <th className="p-2 text-start">Date</th>
-                        <th className="p-2 text-start">Terms</th>
-                        <th className="p-2 text-start">Due Date</th>
-                        <th className="p-2 text-end">Amount</th>
-                        <th className="p-2 text-end">Paid</th>
-                        <th className="p-2 text-end">Status</th>
+                        <th className="p-2 text-start">{tr('PO #', 'رقم أمر الشراء')}</th>
+                        <th className="p-2 text-start">{tr('Date', 'التاريخ')}</th>
+                        <th className="p-2 text-start">{tr('Terms', 'الشروط')}</th>
+                        <th className="p-2 text-start">{tr('Due Date', 'تاريخ الاستحقاق')}</th>
+                        <th className="p-2 text-end">{tr('Amount', 'المبلغ')}</th>
+                        <th className="p-2 text-end">{tr('Paid', 'المسدد')}</th>
+                        <th className="p-2 text-end">{tr('Status', 'الحالة')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -914,19 +916,19 @@ export function PurchasingManager() {
               </div>
 
               <div className="bg-card border border-border rounded-xl p-4">
-                <h4 className="text-xs font-bold text-foreground mb-2">Recent Ledger Timeline</h4>
+                <h4 className="text-xs font-bold text-foreground mb-2">{tr('Recent Ledger Timeline', 'سجل الحركات المالية الحديثة')}</h4>
                 <div className="space-y-2">
                   {statementData.ledger.map((entry) => (
                     <div key={entry.id} className="flex items-center justify-between p-2.5 bg-muted/30 rounded-lg text-xs">
                       <div>
                         <span className="font-semibold text-foreground uppercase">{entry.entry_type.replace(/_/g, ' ')}</span>
-                        <p className="text-[11px] text-muted-foreground">{entry.notes || 'Ledger entry'} &bull; {formatDate(entry.created_at)}</p>
+                        <p className="text-[11px] text-muted-foreground">{entry.notes || tr('Ledger entry', 'قيد حركة')} &bull; {formatDate(entry.created_at)}</p>
                       </div>
                       <span className="font-mono font-bold text-foreground">{fmtCurrency(entry.amount)}</span>
                     </div>
                   ))}
                   {statementData.ledger.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-4">No ledger movements recorded yet</p>
+                    <p className="text-xs text-muted-foreground text-center py-4">{tr('No ledger movements recorded yet', 'لا توجد حركات مالية مسجلة بعد')}</p>
                   )}
                 </div>
               </div>
@@ -942,22 +944,22 @@ export function PurchasingManager() {
             <table className="w-full text-xs">
               <thead className="bg-muted text-muted-foreground font-semibold">
                 <tr>
-                  <th className="p-3 text-start">Supplier</th>
-                  <th className="p-3 text-start">Reason / CCP Log</th>
-                  <th className="p-3 text-end">Amount</th>
-                  <th className="p-3 text-start">Status</th>
-                  <th className="p-3 text-start">Date Created</th>
+                  <th className="p-3 text-start">{tr('Supplier', 'المورد')}</th>
+                  <th className="p-3 text-start">{tr('Reason / CCP Log', 'السبب / سجل الرفض')}</th>
+                  <th className="p-3 text-end">{tr('Amount', 'المبلغ')}</th>
+                  <th className="p-3 text-start">{tr('Status', 'الحالة')}</th>
+                  <th className="p-3 text-start">{tr('Date Created', 'تاريخ الإنشاء')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {creditNotes.map((cn) => (
                   <tr key={cn.id} className="hover:bg-muted/20">
-                    <td className="p-3 font-bold text-foreground">{cn.supplier_name || 'Vendor'}</td>
+                    <td className="p-3 font-bold text-foreground">{cn.supplier_name || tr('Vendor', 'المورد')}</td>
                     <td className="p-3 text-muted-foreground">
                       {cn.reason}
                       {cn.haccp_log_id && (
                         <span className="block text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                          Auto-generated from HACCP Rejection
+                          {tr('Auto-generated from HACCP Rejection', 'تم التوليد تلقائياً من رفض فحص الجودة (HACCP)')}
                         </span>
                       )}
                     </td>
@@ -975,7 +977,7 @@ export function PurchasingManager() {
                 {creditNotes.length === 0 && (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                      No supplier credit notes on record
+                      {tr('No supplier credit notes on record', 'لا توجد إشعارات دائن مسجلة للموردين')}
                     </td>
                   </tr>
                 )}
@@ -1027,7 +1029,7 @@ export function PurchasingManager() {
                           }}
                           className="text-[11px] h-7"
                         >
-                          Pay
+                          {tr('Pay', 'سداد')}
                         </Button>
                         <Button
                           variant="ghost"
@@ -1040,7 +1042,7 @@ export function PurchasingManager() {
                           }}
                           className="text-[11px] h-7 text-muted-foreground hover:text-foreground"
                         >
-                          Credit Note
+                          {tr('Credit Note', 'إشعار دائن')}
                         </Button>
                       </div>
                     </td>
@@ -1095,35 +1097,35 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-semibold text-foreground block mb-1.5">Settlement &amp; Payment Mode</label>
+                <label className="font-semibold text-foreground block mb-1.5">{tr('Settlement & Payment Mode', 'طريقة السداد والتسوية')}</label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => { setPaymentMode('full'); setReceivePaidAmount(receivingPo.total_amount); }}
                     className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'full' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
                   >
-                    Full Payment
+                    {tr('Full Payment', 'سداد كامل')}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setPaymentMode('partial'); setReceivePaidAmount(Math.round(receivingPo.total_amount / 2)); }}
                     className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'partial' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
                   >
-                    Partial Payment
+                    {tr('Partial Payment', 'سداد جزئي')}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setPaymentMode('credit'); setReceivePaidAmount(0); }}
                     className={`p-2 rounded-lg border text-center font-bold text-xs transition-colors ${paymentMode === 'credit' ? 'border-brand bg-brand/10 text-brand' : 'border-border text-foreground hover:bg-muted'}`}
                   >
-                    On Credit (AP)
+                    {tr('On Credit (AP)', 'آجل (ذمم دائنة)')}
                   </button>
                 </div>
               </div>
 
               {paymentMode === 'partial' && (
                 <div>
-                  <label className="font-medium text-foreground">Paid Amount Now</label>
+                  <label className="font-medium text-foreground">{tr('Paid Amount Now', 'المبلغ المسدد الآن')}</label>
                   <input
                     type="number"
                     step="any"
@@ -1134,14 +1136,14 @@ export function PurchasingManager() {
                     className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Balance due of {fmtCurrency(Math.max(0, receivingPo.total_amount - receivePaidAmount))} will be added to {receivingPo.supplier_name || 'supplier'} balance.
+                    {tr('Balance due of ', 'المتبقي المستحق وقدره ')}{fmtCurrency(Math.max(0, receivingPo.total_amount - receivePaidAmount))}{tr(' will be added to supplier balance.', ' سيضاف إلى رصيد المورد.')}
                   </p>
                 </div>
               )}
 
               {paymentMode === 'credit' && (
                 <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-800 dark:text-blue-300">
-                  Full total of {fmtCurrency(receivingPo.total_amount)} will be added to {receivingPo.supplier_name || 'supplier'} payable balance.
+                  {tr('Full total of ', 'كامل المبلغ وقدره ')}{fmtCurrency(receivingPo.total_amount)}{tr(' will be added to supplier payable balance.', ' سيضاف إلى ذمة المورد الدائنة.')}
                 </div>
               )}
 
@@ -1226,7 +1228,7 @@ export function PurchasingManager() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-medium text-foreground">Credit Terms</label>
+                  <label className="font-medium text-foreground">{tr('Credit Terms', 'شروط الائتمان')}</label>
                   <select
                     value={poForm.credit_terms}
                     onChange={(e) => {
@@ -1245,13 +1247,13 @@ export function PurchasingManager() {
                     }}
                     className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                   >
-                    <option value="COD">COD (Due on Delivery)</option>
-                    <option value="Net 15">Net 15 (15 Days)</option>
-                    <option value="Net 30">Net 30 (30 Days)</option>
+                    <option value="COD">{tr('COD (Due on Delivery)', 'الدفع عند الاستلام (COD)')}</option>
+                    <option value="Net 15">{tr('Net 15 (15 Days)', 'خلال 15 يوماً (Net 15)')}</option>
+                    <option value="Net 30">{tr('Net 30 (30 Days)', 'خلال 30 يوماً (Net 30)')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="font-medium text-foreground">Payment Due Date</label>
+                  <label className="font-medium text-foreground">{tr('Payment Due Date', 'تاريخ استحقاق السداد')}</label>
                   <input
                     type="date"
                     value={poForm.due_date}
@@ -1264,7 +1266,7 @@ export function PurchasingManager() {
               <div className="flex items-center gap-2 p-2 bg-muted/40 rounded-lg border border-border">
                 <input
                   type="text"
-                  placeholder="Scan barcode / SKU or type item name to add..."
+                  placeholder={tr('Scan barcode / SKU or type item name to add...', 'امسح الباركود / الكود أو اكتب اسم الصنف للإضافة...')}
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1282,7 +1284,7 @@ export function PurchasingManager() {
                   onClick={() => handleBarcodeQuickScan(barcodeInput)}
                   className="text-xs h-7"
                 >
-                  Quick Add
+                  {tr('Quick Add', 'إضافة سريعة')}
                 </Button>
               </div>
 
@@ -1458,7 +1460,7 @@ export function PurchasingManager() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="text-sm font-bold text-foreground">Pay Supplier: {payingSupplier.name}</h3>
+              <h3 className="text-sm font-bold text-foreground">{tr('Pay Supplier: ', 'سداد دفعة للمورد: ')}{payingSupplier.name}</h3>
               <button
                 type="button"
                 onClick={() => setPayingSupplier(null)}
@@ -1470,12 +1472,12 @@ export function PurchasingManager() {
 
             <form onSubmit={handlePaySupplier} className="space-y-3 text-xs">
               <div className="p-3 bg-muted/40 rounded-lg flex justify-between items-center">
-                <span className="text-muted-foreground">Current Balance Due:</span>
+                <span className="text-muted-foreground">{tr('Current Balance Due:', 'الرصيد الحالي المستحق:')}</span>
                 <span className="font-bold text-foreground">{fmtCurrency(payingSupplier.balance_due)}</span>
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Payment Amount</label>
+                <label className="font-medium text-foreground">{tr('Payment Amount', 'مبلغ السداد')}</label>
                 <input
                   type="number"
                   step="any"
@@ -1488,23 +1490,23 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Payment Method</label>
+                <label className="font-medium text-foreground">{tr('Payment Method', 'طريقة الدفع')}</label>
                 <select
                   value={supplierPayMethod}
                   onChange={(e) => setSupplierPayMethod(e.target.value as 'cash' | 'bank_transfer' | 'cheque')}
                   className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                 >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cheque">Cheque</option>
+                  <option value="cash">{tr('Cash', 'نقداً')}</option>
+                  <option value="bank_transfer">{tr('Bank Transfer', 'تحويل بنكي')}</option>
+                  <option value="cheque">{tr('Cheque', 'شيك')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Reference / Notes</label>
+                <label className="font-medium text-foreground">{tr('Reference / Notes', 'رقم المرجع / ملاحظات')}</label>
                 <input
                   type="text"
-                  placeholder="Receipt #, Cheque #, etc."
+                  placeholder={tr('Receipt #, Cheque #, etc.', 'رقم الإيصال أو الشيك الخ...')}
                   value={supplierPayNotes}
                   onChange={(e) => setSupplierPayNotes(e.target.value)}
                   className="w-full mt-1 p-2 bg-background border border-border rounded"
@@ -1520,8 +1522,8 @@ export function PurchasingManager() {
                     className="rounded accent-brand size-4"
                   />
                   <div>
-                    <p className="font-semibold text-foreground">Pay From Cash Drawer</p>
-                    <p className="text-[10px] text-muted-foreground">Record payout in active cash drawer session</p>
+                    <p className="font-semibold text-foreground">{tr('Pay From Cash Drawer', 'سداد من درج الكاشير')}</p>
+                    <p className="text-[10px] text-muted-foreground">{tr('Record payout in active cash drawer session', 'تسجيل حركة صرف نقدية في وردية الدرج النشطة')}</p>
                   </div>
                 </label>
               )}
@@ -1531,7 +1533,7 @@ export function PurchasingManager() {
                   {t('btnCancel')}
                 </Button>
                 <Button type="submit" variant="default" size="sm" disabled={isSubmittingPay}>
-                  {isSubmittingPay ? t('processing') : 'Confirm Payment'}
+                  {isSubmittingPay ? t('processing') : tr('Confirm Payment', 'تأكيد السداد')}
                 </Button>
               </div>
             </form>
@@ -1544,7 +1546,7 @@ export function PurchasingManager() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="text-sm font-bold text-foreground">Credit Note / Return: {creditingSupplier.name}</h3>
+              <h3 className="text-sm font-bold text-foreground">{tr('Credit Note / Return: ', 'إشعار دائن / مرتجع للمورد: ')}{creditingSupplier.name}</h3>
               <button
                 type="button"
                 onClick={() => setCreditingSupplier(null)}
@@ -1556,12 +1558,12 @@ export function PurchasingManager() {
 
             <form onSubmit={handleCreateCreditNote} className="space-y-3 text-xs">
               <div className="p-3 bg-muted/40 rounded-lg flex justify-between items-center">
-                <span className="text-muted-foreground">Current Balance Due:</span>
+                <span className="text-muted-foreground">{tr('Current Balance Due:', 'الرصيد الحالي المستحق:')}</span>
                 <span className="font-bold text-foreground">{fmtCurrency(creditingSupplier.balance_due)}</span>
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Credit Amount</label>
+                <label className="font-medium text-foreground">{tr('Credit Amount', 'مبلغ الإشعار الدائن')}</label>
                 <input
                   type="number"
                   step="any"
@@ -1574,7 +1576,7 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Reason for Credit / Return</label>
+                <label className="font-medium text-foreground">{tr('Reason for Credit / Return', 'سبب الإشعار الدائن / المرتجع')}</label>
                 <input
                   type="text"
                   required
@@ -1585,7 +1587,7 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Reference / RMA # (optional)</label>
+                <label className="font-medium text-foreground">{tr('Reference / RMA # (optional)', 'رقم المرجع / الإذن (اختياري)')}</label>
                 <input
                   type="text"
                   value={creditNoteRef}
@@ -1599,7 +1601,7 @@ export function PurchasingManager() {
                   {t('btnCancel')}
                 </Button>
                 <Button type="submit" variant="default" size="sm" disabled={isSubmittingCredit}>
-                  {isSubmittingCredit ? t('processing') : 'Apply Credit Note'}
+                  {isSubmittingCredit ? t('processing') : tr('Apply Credit Note', 'تطبيق الإشعار الدائن')}
                 </Button>
               </div>
             </form>
@@ -1612,7 +1614,7 @@ export function PurchasingManager() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="text-sm font-bold text-foreground">Pay Invoice: {payingPo.po_number}</h3>
+              <h3 className="text-sm font-bold text-foreground">{tr('Pay Invoice: ', 'سداد الفاتورة: ')}{payingPo.po_number}</h3>
               <button
                 type="button"
                 onClick={() => setPayingPo(null)}
@@ -1625,19 +1627,19 @@ export function PurchasingManager() {
             <form onSubmit={handlePoPayment} className="space-y-3 text-xs">
               <div className="p-3 bg-muted/40 rounded-lg space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Supplier:</span>
-                  <span className="font-semibold text-foreground">{payingPo.supplier_name || 'Vendor'}</span>
+                  <span className="text-muted-foreground">{tr('Supplier:', 'المورد:')}</span>
+                  <span className="font-semibold text-foreground">{payingPo.supplier_name || tr('Vendor', 'المورد')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Invoice Total:</span>
+                  <span className="text-muted-foreground">{tr('Invoice Total:', 'إجمالي الفاتورة:')}</span>
                   <span className="font-bold text-foreground">{fmtCurrency(payingPo.total_amount)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Amount Paid:</span>
+                  <span className="text-muted-foreground">{tr('Amount Paid:', 'المبلغ المسدد:')}</span>
                   <span className="text-green-600 font-bold">{fmtCurrency(payingPo.paid_amount || 0)}</span>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-border">
-                  <span className="font-semibold text-foreground">Balance Remaining:</span>
+                  <span className="font-semibold text-foreground">{tr('Balance Remaining:', 'المتبقي المستحق:')}</span>
                   <span className="font-bold text-red-500">
                     {fmtCurrency(Math.max(0, payingPo.total_amount - (payingPo.paid_amount || 0)))}
                   </span>
@@ -1645,7 +1647,7 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Payment Amount</label>
+                <label className="font-medium text-foreground">{tr('Payment Amount', 'مبلغ السداد')}</label>
                 <input
                   type="number"
                   step="any"
@@ -1659,23 +1661,23 @@ export function PurchasingManager() {
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Payment Method</label>
+                <label className="font-medium text-foreground">{tr('Payment Method', 'طريقة الدفع')}</label>
                 <select
                   value={poPayMethod}
                   onChange={(e) => setPoPayMethod(e.target.value as 'cash' | 'bank_transfer' | 'cheque')}
                   className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
                 >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer / EFT</option>
-                  <option value="cheque">Cheque</option>
+                  <option value="cash">{tr('Cash', 'نقداً')}</option>
+                  <option value="bank_transfer">{tr('Bank Transfer / EFT', 'تحويل بنكي')}</option>
+                  <option value="cheque">{tr('Cheque', 'شيك')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="font-medium text-foreground">Reference / Notes (optional)</label>
+                <label className="font-medium text-foreground">{tr('Reference / Notes (optional)', 'رقم المرجع / ملاحظات (اختياري)')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Wire ref #1234, Check #456"
+                  placeholder={tr('e.g. Wire ref #1234, Check #456', 'مثال: رقم الحوالة 1234 أو رقم الشيك 456')}
                   value={poPayNotes}
                   onChange={(e) => setPoPayNotes(e.target.value)}
                   className="w-full mt-1 p-2 bg-background border border-border rounded text-xs"
@@ -1691,8 +1693,8 @@ export function PurchasingManager() {
                     className="rounded accent-brand size-4"
                   />
                   <div>
-                    <p className="font-semibold text-foreground">Pay From Cash Drawer</p>
-                    <p className="text-[10px] text-muted-foreground">Record payout in active cash drawer session</p>
+                    <p className="font-semibold text-foreground">{tr('Pay From Cash Drawer', 'سداد من درج الكاشير')}</p>
+                    <p className="text-[10px] text-muted-foreground">{tr('Record payout in active cash drawer session', 'تسجيل حركة صرف نقدية في وردية الدرج النشطة')}</p>
                   </div>
                 </label>
               )}
@@ -1702,7 +1704,7 @@ export function PurchasingManager() {
                   {t('btnCancel')}
                 </Button>
                 <Button type="submit" variant="default" size="sm" disabled={isSubmittingPoPay}>
-                  {isSubmittingPoPay ? t('processing') : 'Record Payment'}
+                  {isSubmittingPoPay ? t('processing') : tr('Record Payment', 'تسجيل الدفعة')}
                 </Button>
               </div>
             </form>

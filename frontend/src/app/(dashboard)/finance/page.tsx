@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   Wallet,
   ArrowUpRight,
@@ -25,6 +26,8 @@ import {
   DollarSign,
   Truck,
   CheckCircle2,
+  Layers,
+  Package,
 } from 'lucide-react';
 
 interface FinanceSummary {
@@ -55,6 +58,17 @@ interface PnlData {
   refunds: number;
   net_revenue: number;
   direct_cogs: number;
+  expected_materials_cost?: number;
+  standalone_bom_profit?: number;
+  standalone_bom_margin_pct?: number;
+  full_net_profit?: number;
+  expected_materials_used_summary?: Array<{
+    material_name: string;
+    unit: string;
+    total_quantity: number;
+    total_cost: number;
+    cost_source: string;
+  }>;
   authorized_waste_cost?: number;
   barista_calibration_cost?: number;
   staff_meals_cost?: number;
@@ -103,11 +117,13 @@ interface OperatingExpense {
 export default function FinancePage() {
   const t = useTranslations('finance');
   const tCommon = useTranslations('common');
+  const { isAr, tr, dir } = useAppLanguage();
   const fmtCurrency = useFormatCurrency();
   const { formatDate } = useFormatDate();
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier' | 'multibranch'>('overview');
+  const [pnlMode, setPnlMode] = useState<'full_erp' | 'standalone_bom'>('full_erp');
 
   interface MultiBranchEodLog {
     id: string;
@@ -585,7 +601,7 @@ export default function FinancePage() {
               : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
           }`}
         >
-          Overview & Ledger
+          {tr('Overview & Ledger', 'نظرة عامة وسجل العمليات')}
         </button>
         <button
           type="button"
@@ -597,7 +613,7 @@ export default function FinancePage() {
           }`}
         >
           <TrendingUp className="h-4 w-4" />
-          Live Income Statement (P&L)
+          {tr('Live Income Statement (P&L)', 'قائمة الدخل والأرباح (P&L)')}
         </button>
         <button
           type="button"
@@ -609,7 +625,7 @@ export default function FinancePage() {
           }`}
         >
           <DollarSign className="h-4 w-4" />
-          Cash Movements Ledger
+          {tr('Cash Movements Ledger', 'سجل حركات نقدية الدرج')}
         </button>
         <button
           type="button"
@@ -621,7 +637,7 @@ export default function FinancePage() {
           }`}
         >
           <Receipt className="h-4 w-4" />
-          Operating Expenses Manager
+          {tr('Operating Expenses Manager', 'إدارة المصروفات التشغيلية')}
         </button>
         <button
           type="button"
@@ -633,7 +649,7 @@ export default function FinancePage() {
           }`}
         >
           <Truck className="h-4 w-4" />
-          Courier COD Settlement
+          {tr('Courier COD Settlement', 'تسوية تحصيلات الدليفري')}
         </button>
         <button
           type="button"
@@ -645,7 +661,7 @@ export default function FinancePage() {
           }`}
         >
           <Building className="h-4 w-4" />
-          Multi-Branch EOD &amp; Consolidation
+          {tr('Multi-Branch EOD Sync', 'مزامنة الفروع ونهاية اليوم')}
         </button>
       </div>
 
@@ -856,9 +872,40 @@ export default function FinancePage() {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
             <div>
-              <h2 className="text-lg font-bold text-foreground">Income Statement (Profit & Loss)</h2>
-              <p className="text-xs text-muted-foreground">Direct COGS from recipe BOMs, operating expenses, and staff payroll</p>
+              <h2 className="text-lg font-bold text-foreground">
+                {tr('Income Statement (Profit & Loss)', 'قائمة الدخل والأرباح (P&L)')}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {tr('Direct COGS from recipe BOMs, operating expenses, and staff payroll', 'تكلفة خامات الوصفات، المصروفات التشغيلية، ومسير الرواتب')}
+              </p>
             </div>
+
+            {/* Mode Switcher Toggle */}
+            <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border border-border">
+              <button
+                type="button"
+                onClick={() => setPnlMode('full_erp')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  pnlMode === 'full_erp'
+                    ? 'bg-brand text-white shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tr('Full ERP P&L (With Inventory, Waste & Expenses)', 'قائمة الدخل الشاملة (مع المخزون والهدر والمصروفات)')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPnlMode('standalone_bom')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  pnlMode === 'standalone_bom'
+                    ? 'bg-brand text-white shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tr('Standalone BOM Expected Profit', 'الربح المتوقع للمبيعات والخامات بدون مخزون')}
+              </button>
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="date"
@@ -874,67 +921,150 @@ export default function FinancePage() {
                 className="px-2.5 py-1.5 bg-background border border-border rounded-lg text-xs"
               />
               <Button size="sm" onClick={() => void loadPnl()} disabled={loadingPnl}>
-                Recalculate
+                {tr('Recalculate', 'إعادة احتساب')}
               </Button>
             </div>
           </div>
 
           {loadingPnl ? (
-            <div className="py-16 text-center text-muted-foreground">Calculating live Income Statement...</div>
+            <div className="py-16 text-center text-muted-foreground">{tr('Calculating live Income Statement...', 'جاري احتساب قائمة الدخل المباشرة...')}</div>
           ) : !pnlData ? (
-            <div className="py-16 text-center text-muted-foreground">No P&L data available for selected period.</div>
+            <div className="py-16 text-center text-muted-foreground">{tr('No P&L data available for selected period.', 'لا توجد بيانات متاحة للفترة المحددة.')}</div>
+          ) : pnlMode === 'standalone_bom' ? (
+            /* Standalone BOM View */
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-card border border-border space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground block">{tr('Net Sales Revenue', 'صافي إيرادات المبيعات')}</span>
+                  <div className="text-2xl font-black text-foreground">{fmtCurrency(pnlData.net_revenue)}</div>
+                  <span className="text-xs text-emerald-600 block">{tr('From paid customer orders', 'من طلبات العملاء المسددة')}</span>
+                </div>
+                <div className="p-4 rounded-2xl bg-card border border-border space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground block">{tr('Expected BOM Materials Cost', 'تكلفة الخامات المتوقعة (BOM)')}</span>
+                  <div className="text-2xl font-black text-amber-600">{fmtCurrency(pnlData.expected_materials_cost ?? pnlData.direct_cogs)}</div>
+                  <span className="text-xs text-muted-foreground block">{tr('Works with or without inventory', 'يعمل بوجود مخزون أو بدونه')}</span>
+                </div>
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-1">
+                  <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block">{tr('Standalone BOM Expected Profit', 'الربح المتوقع للمبيعات والخامات')}</span>
+                  <div className="text-2xl font-black text-emerald-600">
+                    {fmtCurrency(pnlData.standalone_bom_profit ?? (pnlData.net_revenue - (pnlData.expected_materials_cost ?? pnlData.direct_cogs)))}
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                    {tr('Margin: ', 'هامش الربح: ')}{(pnlData.standalone_bom_margin_pct ?? 0).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Top Materials Used Summary Table */}
+              <div className="bg-card rounded-2xl border border-border overflow-hidden">
+                <div className="p-4 border-b border-border flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">
+                      {tr('Top Expected Materials Used by Sold Items', 'أعلى الخامات والمواد المستهلكة بالطلبات المباعة')}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {tr('Calculated directly from product BOM recipes', 'محسوبة مباشرة من وصفات ومعايير الـ BOM')}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="text-xs">
+                    {(pnlData.expected_materials_used_summary || []).length} {tr('materials', 'مادة خام')}
+                  </Badge>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
+                      <tr>
+                        <th className="py-3 px-4 text-start font-medium">{tr('Material Name', 'اسم الخامة')}</th>
+                        <th className="py-3 px-4 text-center font-medium">{tr('Expected Quantity Used', 'الكمية المستهلكة المتوقعة')}</th>
+                        <th className="py-3 px-4 text-center font-medium">{tr('Cost Source', 'مصدر التكلفة')}</th>
+                        <th className="py-3 px-4 text-end font-medium">{tr('Total Expected Cost', 'إجمالي التكلفة المتوقعة')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(!pnlData.expected_materials_used_summary || pnlData.expected_materials_used_summary.length === 0) ? (
+                        <tr>
+                          <td colSpan={4} className="py-12 text-center text-muted-foreground">
+                            {tr('No materials recorded for sold items in this period.', 'لا توجد خامات مسجلة للطلبات المباعة في هذه الفترة.')}
+                          </td>
+                        </tr>
+                      ) : (
+                        pnlData.expected_materials_used_summary.map((mat, idx) => (
+                          <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                            <td className="py-3.5 px-4 font-medium text-foreground">{mat.material_name}</td>
+                            <td className="py-3.5 px-4 text-center font-mono">
+                              {mat.total_quantity.toFixed(2)} {mat.unit}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <Badge variant="secondary" className="text-xs capitalize">
+                                {mat.cost_source === 'manual' || mat.cost_source === 'custom' ? tr('Custom Inline', 'مخصص يدوي') : mat.cost_source}
+                              </Badge>
+                            </td>
+                            <td className="py-3.5 px-4 text-end font-bold text-amber-600 font-mono">
+                              {fmtCurrency(mat.total_cost)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           ) : (
+            /* Full ERP P&L View */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Left Column: Revenue & Gross Margin */}
               <div className="bg-card p-5 rounded-2xl border border-border space-y-4">
-                <h3 className="text-base font-semibold text-foreground border-b border-border pb-2">Trading Performance</h3>
+                <h3 className="text-base font-semibold text-foreground border-b border-border pb-2">
+                  {tr('Trading Performance', 'أداء المبيعات والتداول')}
+                </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Gross Sales</span>
+                    <span className="text-muted-foreground">{tr('Gross Sales', 'إجمالي المبيعات')}</span>
                     <span className="font-medium text-foreground">{fmtCurrency(pnlData.gross_sales)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Discounts Given</span>
+                    <span className="text-muted-foreground">{tr('Discounts Given', 'الخصومات الممنوحة')}</span>
                     <span className="text-rose-600">-{fmtCurrency(pnlData.discounts)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Customer Refunds</span>
+                    <span className="text-muted-foreground">{tr('Customer Refunds', 'المرتجعات')}</span>
                     <span className="text-rose-600">-{fmtCurrency(pnlData.refunds)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-semibold pt-2 border-t border-border">
-                    <span>Net Sales Revenue</span>
+                    <span>{tr('Net Sales Revenue', 'صافي إيرادات المبيعات')}</span>
                     <span className="text-emerald-600">{fmtCurrency(pnlData.net_revenue)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Direct Recipe COGS (BOM Standard)</span>
+                    <span className="text-muted-foreground">{tr('Direct Recipe COGS (BOM Standard)', 'تكلفة خامات الوصفات المباشرة (BOM)')}</span>
                     <span className="text-amber-600">-{fmtCurrency(pnlData.direct_cogs)}</span>
                   </div>
                   {Number(pnlData.authorized_waste_cost || 0) > 0 && (
                     <div className="flex justify-between text-xs ps-3">
-                      <span className="text-muted-foreground">↳ Spoilage / Expired Waste</span>
+                      <span className="text-muted-foreground">↳ {tr('Spoilage / Expired Waste', 'الهدر المعتمد / التالف')}</span>
                       <span className="text-amber-600">-{fmtCurrency(pnlData.authorized_waste_cost || 0)}</span>
                     </div>
                   )}
                   {Number(pnlData.barista_calibration_cost || 0) > 0 && (
                     <div className="flex justify-between text-xs ps-3">
-                      <span className="text-muted-foreground">↳ Morning Espresso Dial-In / Calibration</span>
+                      <span className="text-muted-foreground">↳ {tr('Morning Espresso Dial-In / Calibration', 'معايرة المطحنة الصباحية')}</span>
                       <span className="text-amber-600">-{fmtCurrency(pnlData.barista_calibration_cost || 0)}</span>
                     </div>
                   )}
                   {Number(pnlData.staff_meals_cost || 0) > 0 && (
                     <div className="flex justify-between text-xs ps-3">
-                      <span className="text-muted-foreground">↳ Staff Shift Meals</span>
+                      <span className="text-muted-foreground">↳ {tr('Staff Shift Meals', 'وجبات ومشروبات الموظفين')}</span>
                       <span className="text-amber-600">-{fmtCurrency(pnlData.staff_meals_cost || 0)}</span>
                     </div>
                   )}
                   {Number(pnlData.unexplained_shrinkage_cost || 0) > 0 && (
                     <div className="flex justify-between text-xs ps-3">
-                      <span className="text-rose-500 font-medium">↳ Unexplained Stocktake Shrinkage</span>
+                      <span className="text-rose-500 font-medium">↳ {tr('Unexplained Stocktake Shrinkage', 'عجز الجرد الفعلي للمخزون')}</span>
                       <span className="text-rose-600">-{fmtCurrency(pnlData.unexplained_shrinkage_cost || 0)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
-                    <span>Gross Profit</span>
+                    <span>{tr('Gross Profit', 'مجمل الربح')}</span>
                     <span className={pnlData.gross_profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
                       {fmtCurrency(pnlData.gross_profit)} ({pnlData.gross_margin_pct.toFixed(1)}%)
                     </span>
@@ -944,28 +1074,30 @@ export default function FinancePage() {
 
               {/* Right Column: Operating Expenses & EBITDA */}
               <div className="bg-card p-5 rounded-2xl border border-border space-y-4">
-                <h3 className="text-base font-semibold text-foreground border-b border-border pb-2">Operating Expenses & Profitability</h3>
+                <h3 className="text-base font-semibold text-foreground border-b border-border pb-2">
+                  {tr('Operating Expenses & Profitability', 'المصروفات التشغيلية وصافي الربح')}
+                </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Direct Operating Expenses</span>
+                    <span className="text-muted-foreground">{tr('Direct Operating Expenses', 'مصروفات تشغيلية مباشرة')}</span>
                     <span className="text-foreground">{fmtCurrency(pnlData.direct_operating_expenses)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Indirect Overhead Expenses</span>
+                    <span className="text-muted-foreground">{tr('Indirect Overhead Expenses', 'مصروفات غير مباشرة وعامة')}</span>
                     <span className="text-foreground">{fmtCurrency(pnlData.indirect_operating_expenses)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">HRM Staff Payroll</span>
+                    <span className="text-muted-foreground">{tr('HRM Staff Payroll', 'مسير رواتب الموظفين')}</span>
                     <span className="text-foreground">{fmtCurrency(pnlData.payroll_expense)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-semibold pt-2 border-t border-border">
-                    <span>Total Operating Costs</span>
+                    <span>{tr('Total Operating Costs', 'إجمالي التكاليف التشغيلية')}</span>
                     <span className="text-rose-600">
                       -{fmtCurrency(pnlData.total_operating_expenses + pnlData.payroll_expense)}
                     </span>
                   </div>
                   <div className="flex justify-between text-lg font-extrabold pt-3 border-t border-border">
-                    <span>Net Operating Profit (EBITDA)</span>
+                    <span>{tr('Net Operating Profit (EBITDA)', 'صافي الربح التشغيلي (EBITDA)')}</span>
                     <span className={pnlData.net_operating_profit_ebitda >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
                       {fmtCurrency(pnlData.net_operating_profit_ebitda)} ({pnlData.ebitda_margin_pct.toFixed(1)}%)
                     </span>
@@ -975,7 +1107,9 @@ export default function FinancePage() {
                 {/* Expense Categories Breakdown */}
                 {Object.keys(pnlData.expense_breakdown || {}).length > 0 && (
                   <div className="pt-3 border-t border-border">
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Expense Category Breakdown</h4>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                      {tr('Expense Category Breakdown', 'تفصيل فئات المصروفات')}
+                    </h4>
                     <div className="space-y-1.5">
                       {Object.entries(pnlData.expense_breakdown).map(([cat, amt]) => (
                         <div key={cat} className="flex justify-between text-xs">
@@ -991,20 +1125,20 @@ export default function FinancePage() {
               {/* Aggregator & Delivery Platform Performance */}
               <div className="md:col-span-2 bg-card p-5 rounded-2xl border border-border space-y-4">
                 <h3 className="text-base font-semibold text-foreground border-b border-border pb-2 flex items-center justify-between">
-                  <span>Delivery Aggregators &amp; Channels</span>
-                  <span className="text-xs text-muted-foreground font-normal">Talabat, Hungerstation, Jahez, etc.</span>
+                  <span>{tr('Delivery Aggregators & Channels', 'تطبيقات التوصيل والمنصات الخارجية')}</span>
+                  <span className="text-xs text-muted-foreground font-normal">Talabat, Elmenus, Hungerstation, Jahez, etc.</span>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="p-3 bg-muted/40 rounded-xl border border-border">
-                    <span className="text-xs text-muted-foreground block">Gross Aggregator Sales</span>
+                    <span className="text-xs text-muted-foreground block">{tr('Gross Aggregator Sales', 'مبيعات تطبيقات التوصيل')}</span>
                     <span className="text-base font-bold text-foreground">{fmtCurrency(pnlData.gross_aggregator_revenue || 0)}</span>
                   </div>
                   <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
-                    <span className="text-xs text-rose-700 dark:text-rose-300 block">Platform Commissions</span>
+                    <span className="text-xs text-rose-700 dark:text-rose-300 block">{tr('Platform Commissions', 'عمولات المنصات والتطبيقات')}</span>
                     <span className="text-base font-bold text-rose-600 dark:text-rose-400">-{fmtCurrency(pnlData.aggregator_commissions || 0)}</span>
                   </div>
                   <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                    <span className="text-xs text-emerald-700 dark:text-emerald-300 block">Net Platform Receivable</span>
+                    <span className="text-xs text-emerald-700 dark:text-emerald-300 block">{tr('Net Platform Receivable', 'صافي مستحقات التطبيقات')}</span>
                     <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">{fmtCurrency(pnlData.net_aggregator_receivable || 0)}</span>
                   </div>
                 </div>
@@ -1083,54 +1217,54 @@ export default function FinancePage() {
                   onChange={(e) => setExpenseFilterCategory(e.target.value)}
                   className="px-3 py-1.5 bg-background border border-border rounded-lg text-xs"
                 >
-                  <option value="all">All Categories</option>
-                  <option value="Store Supplies & Ice">Store Supplies & Ice</option>
-                  <option value="Utilities">Utilities</option>
-                  <option value="Maintenance">Maintenance</option>
-                  <option value="Packaging">Packaging</option>
-                  <option value="Transport">Transport</option>
-                  <option value="Marketing">Marketing</option>
-                  <option value="Rent">Rent</option>
-                  <option value="Other">Other</option>
+                  <option value="all">{tr('All Categories', 'جميع الفئات')}</option>
+                  <option value="Store Supplies & Ice">{tr('Store Supplies & Ice', 'خامات ومستلزمات وثلوج')}</option>
+                  <option value="Utilities">{tr('Utilities (Electricity, Water, Gas)', 'كهرباء ومرافق')}</option>
+                  <option value="Maintenance">{tr('Maintenance & Repairs', 'صيانة وإصلاحات')}</option>
+                  <option value="Packaging">{tr('Packaging & Disposables', 'تعبئة وتغليف واستهلاكات')}</option>
+                  <option value="Transport">{tr('Transport & Fuel', 'نقل ومواصلات')}</option>
+                  <option value="Marketing">{tr('Marketing & Ads', 'تسويق وإعلانات')}</option>
+                  <option value="Rent">{tr('Rent', 'إيجار')}</option>
+                  <option value="Other">{tr('Other Operating Expenses', 'أخرى')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Cost Type</label>
+                <label className="block text-xs text-muted-foreground mb-1">{tr('Cost Type', 'نوع التكلفة')}</label>
                 <select
                   value={expenseFilterCostType}
                   onChange={(e) => setExpenseFilterCostType(e.target.value)}
                   className="px-3 py-1.5 bg-background border border-border rounded-lg text-xs"
                 >
-                  <option value="all">All Cost Types</option>
-                  <option value="direct">Direct (Cost of Operations)</option>
-                  <option value="indirect">Indirect (Overhead)</option>
+                  <option value="all">{tr('All Cost Types', 'كافة الأنواع')}</option>
+                  <option value="direct">{tr('Direct (Cost of Operations)', 'مباشر (تكلفة تشغيل)')}</option>
+                  <option value="indirect">{tr('Indirect (Overhead)', 'غير مباشر (مصاريف عامة)')}</option>
                 </select>
               </div>
             </div>
 
             <Button size="sm" onClick={() => void loadOperatingExpenses()}>
-              Refresh
+              {tr('Refresh', 'تحديث')}
             </Button>
           </div>
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Operating Expenses</h2>
-              <span className="text-xs text-muted-foreground">{expenses.length} records</span>
+              <h2 className="text-base font-semibold text-foreground">{tr('Operating Expenses', 'المصروفات التشغيلية')}</h2>
+              <span className="text-xs text-muted-foreground">{expenses.length} {tr('records', 'سجل')}</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase border-b border-border">
                   <tr>
-                    <th className="py-3 px-4 text-start font-medium">Business Date</th>
-                    <th className="py-3 px-4 text-start font-medium">Title / Vendor</th>
-                    <th className="py-3 px-4 text-start font-medium">Category</th>
-                    <th className="py-3 px-4 text-start font-medium">Cost Type</th>
-                    <th className="py-3 px-4 text-start font-medium">Payment</th>
-                    <th className="py-3 px-4 text-end font-medium">Amount</th>
-                    <th className="py-3 px-4 text-center font-medium">Action</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Business Date', 'تاريخ اليوم')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Title / Vendor', 'البيان / المورد')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Category', 'الفئة')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Cost Type', 'النوع')}</th>
+                    <th className="py-3 px-4 text-start font-medium">{tr('Payment', 'طريقة الدفع')}</th>
+                    <th className="py-3 px-4 text-end font-medium">{tr('Amount', 'المبلغ')}</th>
+                    <th className="py-3 px-4 text-center font-medium">{tr('Action', 'إجراء')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1626,52 +1760,52 @@ export default function FinancePage() {
             <form onSubmit={handleCreateExpense} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Category', 'فئة المصروف')}</label>
                   <select
                     value={expenseForm.category}
                     onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                   >
-                    <option value="Store Supplies & Ice">Store Supplies & Ice</option>
-                    <option value="Utilities">Utilities</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Packaging">Packaging</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Rent">Rent</option>
-                    <option value="Licenses">Licenses & Permits</option>
-                    <option value="Other">Other Operating Expense</option>
+                    <option value="Store Supplies & Ice">{tr('Store Supplies & Ice', 'خامات ومستلزمات وثلوج')}</option>
+                    <option value="Utilities">{tr('Utilities', 'كهرباء ومرافق')}</option>
+                    <option value="Maintenance">{tr('Maintenance', 'صيانة وإصلاحات')}</option>
+                    <option value="Packaging">{tr('Packaging', 'تعبئة وتغليف واستهلاكات')}</option>
+                    <option value="Transport">{tr('Transport', 'نقل ومواصلات')}</option>
+                    <option value="Marketing">{tr('Marketing', 'تسويق وإعلانات')}</option>
+                    <option value="Rent">{tr('Rent', 'إيجار')}</option>
+                    <option value="Licenses">{tr('Licenses & Permits', 'تراخيص ورسوم حكومية')}</option>
+                    <option value="Other">{tr('Other Operating Expense', 'مصروفات تشغيلية أخرى')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Cost Type</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Cost Type', 'نوع التكلفة')}</label>
                   <select
                     value={expenseForm.cost_type}
                     onChange={(e) => setExpenseForm({ ...expenseForm, cost_type: e.target.value as 'direct' | 'indirect' })}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                   >
-                    <option value="direct">Direct (Cost of Operations)</option>
-                    <option value="indirect">Indirect (Overhead)</option>
+                    <option value="direct">{tr('Direct (Cost of Operations)', 'مباشر (تكلفة تشغيل)')}</option>
+                    <option value="indirect">{tr('Indirect (Overhead)', 'غير مباشر (مصاريف عامة)')}</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Title / Vendor *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Title / Vendor *', 'البيان / المورد *')}</label>
                   <input
                     type="text"
                     value={expenseForm.title}
                     onChange={(e) => setExpenseForm({ ...expenseForm, title: e.target.value })}
-                    placeholder="e.g. Electricity bill / Plumbing"
+                    placeholder={tr('e.g. Electricity bill / Plumbing', 'مثال: فاتورة كهرباء / صيانة سباكة')}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Amount *</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Amount *', 'المبلغ *')}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1686,21 +1820,21 @@ export default function FinancePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Payment Method</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Payment Method', 'طريقة الدفع')}</label>
                 <select
                   value={expenseForm.payment_method}
                   onChange={(e) => setExpenseForm({ ...expenseForm, payment_method: e.target.value })}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
                 >
-                  <option value="cash">Cash (Auto-deduct from open shift drawer if active)</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="card">Card / Company Credit</option>
-                  <option value="petty_cash">Separate Petty Cash Vault</option>
+                  <option value="cash">{tr('Cash (Auto-deduct from open shift drawer)', 'نقدية (خصم تلقائي من درج الوردية المفتوحة)')}</option>
+                  <option value="bank_transfer">{tr('Bank Transfer', 'تحويل بنكي')}</option>
+                  <option value="card">{tr('Card / Company Credit', 'بطاقة / فيزا')}</option>
+                  <option value="petty_cash">{tr('Separate Petty Cash Vault', 'عهدة نقدية منفصلة')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Notes / Receipt Number</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">{tr('Notes / Receipt Number', 'ملاحظات / رقم الإيصال')}</label>
                 <textarea
                   value={expenseForm.notes}
                   onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}

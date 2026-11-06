@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   ClipboardList,
   Plus,
@@ -46,6 +47,7 @@ interface StocktakeItem {
 export function StocktakeManager() {
   const t = useTranslations('stocktake');
   const tCommon = useTranslations('common');
+  const { isAr, tr, dir } = useAppLanguage();
   const fmtNum = useFormatNumber();
   const { formatDate } = useFormatDate();
 
@@ -64,10 +66,10 @@ export function StocktakeManager() {
     if (match) {
       const currentCount = match.counted_quantity ?? 0;
       handleUpdateItemCount(match.supply_id, String(currentCount + 1));
-      toast.success(`Count +1: ${match.supply_name} (${currentCount + 1})`);
+      toast.success(`${tr('Count +1: ', 'تم العد +1: ')}${match.supply_name} (${currentCount + 1})`);
       setBarcodeScanInput('');
     } else {
-      toast.error(`Item not found for "${code}"`);
+      toast.error(`${tr('Item not found for: ', 'لم يتم العثور على الصنف: ')}"${code}"`);
     }
   };
 
@@ -290,7 +292,7 @@ export function StocktakeManager() {
                       handleBarcodeQuickCount(barcodeScanInput);
                     }
                   }}
-                  placeholder="Scan barcode / SKU to count +1..."
+                  placeholder={tr('Scan barcode / SKU to count +1...', 'امسح الباركود أو الكود لزيادة العد +1...')}
                   className="w-full px-3 py-2 bg-background border border-brand/50 rounded-lg text-sm focus:ring-2 focus:ring-brand"
                 />
                 <Button
@@ -300,7 +302,7 @@ export function StocktakeManager() {
                   onClick={() => handleBarcodeQuickCount(barcodeScanInput)}
                   className="h-9 shrink-0 text-xs"
                 >
-                  Scan Count
+                  {tr('Scan Count', 'مسح وعد')}
                 </Button>
               </div>
             )}

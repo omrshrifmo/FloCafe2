@@ -588,6 +588,9 @@ export function handleGetPnl(req: Request, res: Response): void {
     `).all(startDate, endDate) as any[];
 
     let directCogs = 0;
+    let expectedMaterialsCost = 0;
+    const materialsMap = new Map<string, { material_name: string; unit: string; total_quantity: number; total_cost: number; cost_source: string }>();
+
     const getProductBom = db.prepare('SELECT id, prep_time_minutes, direct_labor_rate_per_hour, yield_portions FROM bom_headers WHERE product_id = ?');
     const getBomComps = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
 
@@ -597,22 +600,60 @@ export function handleGetPnl(req: Request, res: Response): void {
       if (bom) {
         const comps = getBomComps.all(bom.id) as any[];
         let itemMatCost = 0;
+        const portions = Math.max(0.1, Number(bom.yield_portions || 1));
+
         for (const comp of comps) {
           let uCost = 0;
-          if (comp.target_type === 'inventory') {
-            const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-            uCost = Number(inv?.cost_per_unit || 0);
+          let matName = comp.custom_material_name || comp.component_name || 'Material';
+          let matUnit = comp.custom_unit || comp.unit || 'g';
+
+          if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
+            uCost = Number(comp.custom_unit_cost);
+          } else if (comp.target_type === 'custom') {
+            uCost = Number(comp.custom_unit_cost || 0);
+          } else if (comp.target_type === 'inventory') {
+            const inv = db.prepare('SELECT cost_per_unit, name, unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+            if (inv) {
+              matName = inv.name || matName;
+              matUnit = inv.unit || matUnit;
+              uCost = Number(inv.cost_per_unit || 0);
+            }
+            if (uCost === 0 && comp.custom_unit_cost) uCost = Number(comp.custom_unit_cost);
+          } else if (comp.target_type === 'supply') {
+            const sup = db.prepare('SELECT cost_cents, name, base_unit FROM supplies WHERE id = ?').get(comp.target_id) as any;
+            if (sup) {
+              matName = sup.name || matName;
+              matUnit = sup.base_unit || matUnit;
+              uCost = Number(sup.cost_cents || 0) / 100;
+            }
+            if (uCost === 0 && comp.custom_unit_cost) uCost = Number(comp.custom_unit_cost);
           } else {
-            const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
-            uCost = Number(sup?.cost_cents || 0) / 100;
+            uCost = Number(comp.custom_unit_cost || 0);
           }
-          itemMatCost += (comp.gross_quantity || comp.net_quantity) * uCost;
+
+          const net = Number(comp.net_quantity || 0);
+          const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
+          const grossPerPortion = net / (1 - waste / 100);
+          const compUsageQty = (grossPerPortion / portions) * qty;
+          const compUsageCost = compUsageQty * uCost;
+
+          itemMatCost += (grossPerPortion / portions) * uCost;
+          expectedMaterialsCost += compUsageCost;
+
+          const key = `${matName}__${matUnit}`;
+          const existingMat = materialsMap.get(key) || {
+            material_name: matName,
+            unit: matUnit,
+            total_quantity: 0,
+            total_cost: 0,
+            cost_source: comp.cost_source || comp.target_type || 'auto',
+          };
+          existingMat.total_quantity += compUsageQty;
+          existingMat.total_cost += compUsageCost;
+          materialsMap.set(key, existingMat);
         }
-        const itemLaborCost = ((Number(bom.prep_time_minutes || 0) / 60) * Number(bom.direct_labor_rate_per_hour || 0)) / Math.max(1, Number(bom.yield_portions || 1));
+        const itemLaborCost = ((Number(bom.prep_time_minutes || 0) / 60) * Number(bom.direct_labor_rate_per_hour || 0)) / portions;
         directCogs += (itemMatCost + itemLaborCost) * qty;
-      } else {
-        // Fallback to supplies recipe or 25% default
-        directCogs += 0;
       }
     }
 
@@ -620,9 +661,18 @@ export function handleGetPnl(req: Request, res: Response): void {
     if (directCogs === 0 && netRevenue > 0) {
       directCogs = netRevenue * 0.3;
     }
+    if (expectedMaterialsCost === 0 && directCogs > 0) {
+      expectedMaterialsCost = directCogs;
+    }
 
     const grossProfit = netRevenue - directCogs;
     const grossMarginPct = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
+    const standaloneBomProfit = Math.max(0, netRevenue - expectedMaterialsCost);
+    const standaloneBomMarginPct = netRevenue > 0 ? (standaloneBomProfit / netRevenue) * 100 : 0;
+
+    const expectedMaterialsUsedSummary = Array.from(materialsMap.values())
+      .sort((a, b) => b.total_cost - a.total_cost)
+      .slice(0, 20);
 
     // 3. Operating Expenses (Direct & Indirect)
     const expensesRows = db.prepare(`
@@ -703,37 +753,46 @@ export function handleGetPnl(req: Request, res: Response): void {
     `).get(startDate, endDate) as any;
     const unexplainedShrinkageCost = Number(shrinkageRow?.total_shrinkage || 0);
 
-    // 6. Net Operating Profit (EBITDA)
+    // 6. Net Operating Profit (EBITDA) & Standalone BOM P&L
     const ebitda = grossProfit - totalOperatingExpenses - payrollExpense;
     const ebitdaMarginPct = netRevenue > 0 ? (ebitda / netRevenue) * 100 : 0;
+    const fullNetProfit = netRevenue - expectedMaterialsCost - authorizedWasteCost - baristaCalibrationCost - staffMealsCost - aggregatorCommissions - totalOperatingExpenses - payrollExpense;
+
+    const pnlData = {
+      gross_sales: grossSales,
+      discounts,
+      refunds,
+      net_revenue: netRevenue,
+      direct_cogs: directCogs,
+      gross_profit: grossProfit,
+      gross_margin_pct: grossMarginPct,
+      expected_materials_cost: expectedMaterialsCost,
+      standalone_bom_profit: standaloneBomProfit,
+      standalone_bom_margin_pct: standaloneBomMarginPct,
+      full_net_profit: fullNetProfit,
+      expected_materials_used_summary: expectedMaterialsUsedSummary,
+      direct_operating_expenses: directExpenses,
+      indirect_operating_expenses: indirectExpenses,
+      total_operating_expenses: totalOperatingExpenses,
+      expense_breakdown: expenseBreakdown,
+      payroll_expense: payrollExpense,
+      gross_aggregator_revenue: grossAggregatorRevenue,
+      aggregator_commissions: aggregatorCommissions,
+      aggregator_commissions_cost: aggregatorCommissions,
+      net_aggregator_receivable: netAggregatorReceivable,
+      aggregator_receivables_total: aggregatorReceivablesTotal,
+      authorized_waste_cost: authorizedWasteCost,
+      barista_calibration_cost: baristaCalibrationCost,
+      staff_meals_cost: staffMealsCost,
+      unexplained_shrinkage_cost: unexplainedShrinkageCost,
+      net_operating_profit_ebitda: ebitda,
+      ebitda_margin_pct: ebitdaMarginPct,
+    };
 
     res.json({
       period: { start_date: startDate, end_date: endDate },
-      pnl: {
-        gross_sales: grossSales,
-        discounts,
-        refunds,
-        net_revenue: netRevenue,
-        direct_cogs: directCogs,
-        gross_profit: grossProfit,
-        gross_margin_pct: grossMarginPct,
-        direct_operating_expenses: directExpenses,
-        indirect_operating_expenses: indirectExpenses,
-        total_operating_expenses: totalOperatingExpenses,
-        expense_breakdown: expenseBreakdown,
-        payroll_expense: payrollExpense,
-        gross_aggregator_revenue: grossAggregatorRevenue,
-        aggregator_commissions: aggregatorCommissions,
-        aggregator_commissions_cost: aggregatorCommissions,
-        net_aggregator_receivable: netAggregatorReceivable,
-        aggregator_receivables_total: aggregatorReceivablesTotal,
-        authorized_waste_cost: authorizedWasteCost,
-        barista_calibration_cost: baristaCalibrationCost,
-        staff_meals_cost: staffMealsCost,
-        unexplained_shrinkage_cost: unexplainedShrinkageCost,
-        net_operating_profit_ebitda: ebitda,
-        ebitda_margin_pct: ebitdaMarginPct,
-      },
+      ...pnlData,
+      pnl: pnlData,
     });
   } catch (error: any) {
     console.error('[Finance] Error computing P&L:', error);

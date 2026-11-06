@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * FloOwner Control System v4.7.0 - Standalone Desktop Builder
+ * FloOwner Control System v4.7.1 - Standalone Desktop Builder
  * Builds native Windows (.exe) and Linux (.AppImage) executables for FloOwner Control System.
  */
 
@@ -17,7 +17,7 @@ if (!fs.existsSync(releaseDir)) {
 }
 
 console.log('='.repeat(70));
-console.log('🔨 Building Standalone FloOwner Control System Desktop App (v4.7.0)...');
+console.log('🔨 Building Standalone FloOwner Control System Desktop App (v4.7.1)...');
 console.log('='.repeat(70));
 
 const builderCmd = 'npx electron-builder --config owner-system/electron-builder-owner.json --win nsis --linux AppImage';
@@ -34,18 +34,18 @@ try {
   });
 
   // Verify and normalize outputs
-  const expectedWin = path.join(releaseDir, 'FloOwner-Control-4.7.0-win-x64.exe');
-  const expectedLinux = path.join(releaseDir, 'FloOwner-Control-4.7.0-linux-x86_64.AppImage');
+  const expectedWin = path.join(releaseDir, 'FloOwner-Control-4.7.1-win-x64.exe');
+  const expectedLinux = path.join(releaseDir, 'FloOwner-Control-4.7.1-linux-x86_64.AppImage');
 
   // Check if builder produced slightly differently named files and align them
   const files = fs.readdirSync(releaseDir);
   for (const f of files) {
-    if (f.startsWith('FloOwner-Control') && f.endsWith('.AppImage') && f !== 'FloOwner-Control-4.7.0-linux-x86_64.AppImage') {
+    if (f.startsWith('FloOwner-Control') && f.endsWith('.AppImage') && f !== 'FloOwner-Control-4.7.1-linux-x86_64.AppImage') {
       const src = path.join(releaseDir, f);
       fs.copyFileSync(src, expectedLinux);
       console.log(`[Owner Builder] Normalized Linux AppImage to: ${expectedLinux}`);
     }
-    if (f.startsWith('FloOwner-Control') && f.endsWith('.exe') && f !== 'FloOwner-Control-4.7.0-win-x64.exe') {
+    if (f.startsWith('FloOwner-Control') && f.endsWith('.exe') && f !== 'FloOwner-Control-4.7.1-win-x64.exe') {
       const src = path.join(releaseDir, f);
       fs.copyFileSync(src, expectedWin);
       console.log(`[Owner Builder] Normalized Windows installer to: ${expectedWin}`);

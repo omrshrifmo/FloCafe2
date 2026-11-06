@@ -14,6 +14,9 @@ import axios from 'axios';
 import { parseDbTimestamp } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import type { Category, Product, Table, CartItem, Order, OrderItem, Customer } from '@/lib/types';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
+import { ShiftCloseModal } from '@/components/dashboard/ShiftCloseModal';
+import { useCashSession } from '@/hooks/useCashSession';
 import {
   Zap,
   Repeat,
@@ -36,6 +39,7 @@ import {
   RotateCcw,
   CheckCircle2,
   Lock,
+  FileText,
 } from 'lucide-react';
 
 interface FastTouchModeProps {
@@ -245,7 +249,11 @@ export function FastTouchMode({
   const heldOrders = useHeldOrdersStore();
   const fmtCurrency = useFormatCurrency();
   const locale = useLocale();
-  const isArabic = locale.startsWith('ar');
+  const { isAr, tr, dir: appDir } = useAppLanguage();
+  const isArabic = isAr || locale.startsWith('ar');
+
+  const cashSession = useCashSession();
+  const [shiftCloseMode, setShiftCloseMode] = useState<'pre_blind_cashier' | 'full_day_close'>('pre_blind_cashier');
 
   const t = useTranslations('pos');
   const tPrint = useTranslations('print');
@@ -1004,6 +1012,34 @@ export function FastTouchMode({
               <span>{isArabic ? `الطلبات المعلقة (${allHeldOrdersList.length})` : `Held Orders (${allHeldOrdersList.length})`}</span>
             </button>
           )}
+
+          {/* Pre-Blind Cashier Shift Close */}
+          <button
+            type="button"
+            onClick={() => {
+              setShiftCloseMode('pre_blind_cashier');
+              cashSession.setCloseModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 h-11 min-h-[44px] px-3 rounded-xl text-xs font-black bg-brand/10 text-brand border border-brand/40 hover:bg-brand/20 active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
+            title={tr('Cashier Pre-Blind Shift Handover', 'إغلاق وردية مبدئي أعمى للكاشير')}
+          >
+            <Lock className="h-4 w-4" />
+            <span className="hidden sm:inline">{tr('Pre-Blind Close', 'إغلاق وردية مبدئي أعمى للكاشير')}</span>
+          </button>
+
+          {/* Full Day Close (Z-Report) */}
+          <button
+            type="button"
+            onClick={() => {
+              setShiftCloseMode('full_day_close');
+              cashSession.setCloseModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 h-11 min-h-[44px] px-3 rounded-xl text-xs font-black bg-purple-600/10 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-600/20 active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
+            title={tr('Owner/Manager Full Day Close (Z-Report)', 'إغلاق اليوم الشامل للمالك والمدير - Z-Report')}
+          >
+            <FileText className="h-4 w-4" />
+            <span className="hidden sm:inline">{tr('Full Day Close (Z-Report)', 'إغلاق اليوم الشامل للمالك والمدير - Z-Report')}</span>
+          </button>
 
           {/* 1-Tap Waste / Calibration Button */}
           <button
@@ -1987,6 +2023,14 @@ export function FastTouchMode({
             </div>
           </div>
         </div>
+      )}
+
+      {cashSession.closeModalOpen && (
+        <ShiftCloseModal
+          model={cashSession}
+          mode={shiftCloseMode}
+          onModeChange={setShiftCloseMode}
+        />
       )}
     </div>
   );
