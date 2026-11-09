@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "computedAt": "2026-11-06T23:54:04.105Z",
+  "computedAt": "2026-11-09T13:51:37.285Z",
   "fingerprint": {
-    "gitHead": "4c133176e0b123e81f748c14fbaf7aca97718795",
-    "skillsHash": "4db2659c5374abad134db997f92bf04cd5a006408eed3b623245127f35338a9f",
-    "attributionHash": "1794009238176.6519:164|missing"
+    "gitHead": "b2c2dd79afddb0d932018e5f47b3dd2282adaa25",
+    "skillsHash": "1eec64f24cb877af4686380d717342d9fc622a89e54bb2070450d87c3339e15f",
+    "attributionHash": "1794232285088.5332:164|missing"
   },
   "skillAuthors": [],
   "teamEconomics": {

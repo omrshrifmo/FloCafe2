@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "computedAt": "2026-11-06T08:48:31.787Z",
+  "computedAt": "2026-11-07T14:22:30.243Z",
   "daysBack": 90,
   "funnel": {
     "daysBack": 90,
-    "proposed": 282,
+    "proposed": 290,
     "accepted": 6,
     "rejected": 0,
     "ignored": 0,
@@ -21,7 +21,7 @@
     "hasData": true
   },
   "quality": {
-    "proposed": 282,
+    "proposed": 290,
     "accepted": 6,
     "successful": 0,
     "precisionPct": 0,
