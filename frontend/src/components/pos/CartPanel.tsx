@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '@/lib/api';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 import {
   ShoppingCart, UtensilsCrossed, Package, Truck, Globe,
   Plus, Minus, Trash2, Pause, MapPin, SquarePen,
@@ -138,6 +139,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
   const billingType = usePosSettingsStore((s) => s.billingType);
   const t = useTranslations('pos');
   const tCommon = useTranslations('common');
+  const { tr } = useAppLanguage();
   const isRestaurant = (currentTenant?.business_type ?? 'restaurant') === 'restaurant';
   const fmt = useFormatCurrency();
   const canHold = isRestaurant && cart.orderType === 'dine_in' && cart.tableId && cart.items.length > 0 && billingType === 'postpaid';
@@ -146,6 +148,9 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
   const tPrint = useTranslations('print');
   const tOrders = useTranslations('orders');
+
+  const preBillPrintedRef = useRef(false);
+  const preBillLastTotalRef = useRef(0);
 
   useEffect(() => {
     api.get('/finance/delivery-channels')
@@ -159,16 +164,35 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
     try {
       const cartPayload = buildActiveCartPayload(cart);
       const warnings = await printPreliminaryReceipt({ cart: cartPayload });
+      preBillPrintedRef.current = true;
+      preBillLastTotalRef.current = cart.subtotal();
       if (warnings.length > 0) {
-        toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
+        toast(warnings[0].message || tr('Preliminary receipt printed with warnings', 'تمت طباعة الفاتورة المبدئية مع تنبيهات'), { icon: '⚠️' });
       } else {
-        toast.success(tPrint('preliminaryTitle'));
+        toast.success(tr('Preliminary receipt printed', 'تمت طباعة الفاتورة المبدئية'));
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+      toast.error(err instanceof Error ? err.message : tr('Failed to print preliminary receipt', 'فشل في طباعة الفاتورة المبدئية'));
     } finally {
       setPrintingPreliminary(false);
     }
+  };
+
+  const handleRemoveItem = (itemId: string, productName: string, price: number) => {
+    if (preBillPrintedRef.current) {
+      api.post('/finance/anti-theft/log', {
+        event_type: 'post_print_item_removed',
+        severity: 'critical',
+        details: {
+          item_id: itemId,
+          product_name: productName,
+          price,
+          pre_bill_total: preBillLastTotalRef.current,
+          context: 'cart_item_removed_after_prebill_print',
+        },
+      }).catch(console.error);
+    }
+    cart.removeItem(itemId);
   };
 
   const handleHold = async () => {
@@ -184,10 +208,16 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
     try {
       await heldOrders.holdOrder(cart.tableId, cart.items, cart.customerId, cart.guestCount, cart.orderNotes);
       cart.clearCart();
+      preBillPrintedRef.current = false;
       toast.success(t('orderHeldFor', { table: tableName }));
     } catch {
       toast.error(t('holdOrderFailed'));
     }
+  };
+
+  const handlePlaceOrderWrapped = () => {
+    preBillPrintedRef.current = false;
+    onPlaceOrder();
   };
 
   const isDrawer = variant === 'drawer';
@@ -257,7 +287,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
                 }}
                 className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
               >
-                <option value="">Direct (0% comm)</option>
+                <option value="">{tr('Direct (0% comm)', 'مباشر (بدون عمولة)')}</option>
                 {deliveryChannels.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.channel_name} ({c.commission_rate}%)
@@ -268,7 +298,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
                 type="text"
                 value={cart.courierName}
                 onChange={(e) => cart.setCourier(null, e.target.value)}
-                placeholder="Driver / Courier"
+                placeholder={tr('Driver / Courier', 'سائق / مندوب توصيل')}
                 className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
               />
             </div>
@@ -277,7 +307,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
                 type="text"
                 value={cart.aggregatorOrderRef}
                 onChange={(e) => cart.setAggregatorOrderRef(e.target.value)}
-                placeholder="Platform Order # (e.g. TAL-1049)"
+                placeholder={tr('Platform Order # (e.g. TAL-1049)', 'رقم طلب التطبيق (مثال: TAL-1049)')}
                 className="w-full min-h-9 px-2 py-1 text-xs border border-border bg-card rounded-lg outline-none focus:ring-1 focus:ring-brand"
               />
             )}
@@ -339,7 +369,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
                     {item.product.name}
                   </p>
                   <button
-                    onClick={() => cart.removeItem(item.id)}
+                    onClick={() => handleRemoveItem(item.id, item.product.name, Number(item.product.price))}
                     className="touch-target -me-2 -mt-2 shrink-0 rounded-full text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40 dark:hover:text-red-400 active:bg-red-50 dark:active:bg-red-950/40"
                     aria-label={t('remove')}
                   >
@@ -419,23 +449,23 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
               className="w-full"
             >
               <Printer size={15} className="me-2" />
-              {printingPreliminary ? tOrders('printing') : t('printBill')}
+              {printingPreliminary ? tr('Printing...', 'جاري الطباعة...') : tr('Print Pre-Bill Slip', 'طباعة فاتورة مبدئية')}
             </Button>
           </div>
         )}
         <div className="flex gap-2">
           {canHold && (
             <Button variant="outline" onClick={handleHold} className="flex-1">
-              <Pause size={14} className="me-1" /> {t('holdButton')}
+              <Pause size={14} className="me-1" /> {tr('Hold Order', 'تعليق الطلب')}
             </Button>
           )}
           <Button
-            onClick={onPlaceOrder}
+            onClick={handlePlaceOrderWrapped}
             disabled={submitting || cart.items.length === 0}
             className="flex-1"
             size="lg"
           >
-            {submitting ? t('placing') : t('placeOrderButton')}
+            {submitting ? tr('Placing Order...', 'جاري التنفيذ...') : tr('Place Order', 'تأكيد وإرسال الطلب')}
           </Button>
         </div>
       </div>

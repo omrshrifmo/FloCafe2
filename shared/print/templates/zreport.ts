@@ -64,6 +64,12 @@ export interface FullZReportSlipData {
   operatingExpenses?: number;
   expectedNetProfit?: number;
   profitMarginPct?: number;
+  safeDropsTotal?: number;
+  safeBalance?: number;
+  anomalyCount?: number;
+  anomalyRiskScore?: number;
+  postPrintDeletionsCount?: number;
+  noSaleDrawerOpensCount?: number;
   notes?: string;
 }
 
@@ -204,6 +210,17 @@ export function renderFullZReportSlipHtml(data: FullZReportSlipData, language: '
       ${data.preblindCount !== null && data.preblindCount !== undefined ? `<div>${isAr ? 'عد الكاشير المبدئي' : 'Cashier Pre-Blind Count'}: ${Number(data.preblindCount).toFixed(2)}</div>` : ''}
       <div style="font-size: 15px; font-weight: 900;">${isAr ? 'النقدية الفعلية المعدودة' : 'Actual Counted Cash'}: ${Number(data.actualCash || 0).toFixed(2)}</div>
       <div style="font-size: 14px; font-weight: 900; margin-top: 2px;">${isAr ? 'فارق الدرج' : 'Cash Variance'}: ${varianceText}</div>
+      ${Number(data.safeDropsTotal || 0) > 0 ? `<div>${isAr ? 'توريدات الخزنة أثناء الوردية (Safe Drops)' : 'Mid-Shift Safe Drops'}: ${Number(data.safeDropsTotal).toFixed(2)}</div>` : ''}
+      ${data.safeBalance !== undefined ? `<div>${isAr ? 'رصيد الخزنة الرئيسية الحالي' : 'Current Main Safe Vault Balance'}: <strong>${Number(data.safeBalance).toFixed(2)}</strong></div>` : ''}
+    </div>
+
+    <!-- Cashier Anti-Theft & Integrity Summary -->
+    <div style="border-top: 1px dashed #000; padding: 6px 0;">
+      <div style="font-weight: 900; margin-bottom: 4px;">${isAr ? '--- نزاهة الوردية وكاشف التلاعب ---' : '--- ANTI-THEFT & INTEGRITY AUDIT ---'}</div>
+      <div>${isAr ? 'مؤشر الخطورة الإجمالي' : 'Total Anomaly Risk Score'}: <strong>${data.anomalyRiskScore || 0}</strong></div>
+      <div>${isAr ? 'عدد الأنماط المشبوهة' : 'Suspicious Anomalies Count'}: <strong>${data.anomalyCount || 0}</strong></div>
+      <div>${isAr ? 'حذف أصناف بعد الفاتورة المبدئية' : 'Post-Prebill Item Removals'}: ${data.postPrintDeletionsCount || 0}</div>
+      <div>${isAr ? 'فتح الدرج بدون بيع' : 'No-Sale Drawer Opens'}: ${data.noSaleDrawerOpensCount || 0}</div>
     </div>
 
     <!-- BOM Cost & Profit Summary -->

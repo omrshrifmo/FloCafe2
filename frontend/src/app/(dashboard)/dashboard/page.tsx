@@ -389,6 +389,9 @@ export default function DashboardPage() {
     business_date?: string;
     created_at: string;
     closed_by_name?: string;
+    safe_drops_total?: number;
+    anomaly_count?: number;
+    anomaly_risk_score?: number;
     [key: string]: unknown;
   }
 
@@ -1637,6 +1640,16 @@ export default function DashboardPage() {
                           </div>
                           <span className="text-muted-foreground text-[11px]">
                             {isAr ? 'بواسطة' : 'By'}: <strong>{c.closed_by_name || 'Staff'}</strong>
+                            {Number(c.safe_drops_total || 0) > 0 && (
+                              <span className="ms-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600">
+                                {isAr ? 'توريد خزنة' : 'Safe Drop'}: {fmt(Number(c.safe_drops_total))}
+                              </span>
+                            )}
+                            {Number(c.anomaly_count || 0) > 0 && (
+                              <span className="ms-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-600">
+                                ⚠️ {Number(c.anomaly_count)} {isAr ? 'أنماط مشبوهة' : 'anomalies'} ({Number(c.anomaly_risk_score || 0)} pts)
+                              </span>
+                            )}
                           </span>
                         </div>
 

@@ -52,6 +52,7 @@ import {
 } from '../services/tax-components';
 import { Z_REPORT_LANGUAGE_POLICY_KEY, parseStoredLanguagePolicy } from '../lib/print-language-settings';
 import { resolveReceiptLanguages, type ReceiptLanguagePolicy } from '../../shared/print';
+import { logPosAnomaly } from '../services/pos-anomalies';
 
 import { randomUUID } from 'crypto';
 
@@ -1447,6 +1448,38 @@ router.get('/preview', (req: Request, res: Response) => {
       ORDER BY created_at DESC LIMIT 1
     `).get(effectiveStart) as any;
 
+    // Safe drops in window
+    let safeDropsTotal = 0;
+    try {
+      const safeDropRow = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total_drops
+        FROM safe_vault_ledger
+        WHERE tx_type = 'mid_shift_safe_drop' AND created_at >= ? AND created_at <= ?
+      `).get(effectiveStart, effectiveEnd) as any;
+      safeDropsTotal = Number(safeDropRow?.total_drops || 0);
+    } catch {}
+
+    // Anomaly metrics in window
+    let anomalyCount = 0;
+    let anomalyRiskScore = 0;
+    let postPrintDeletionsCount = 0;
+    let noSaleDrawerOpensCount = 0;
+    try {
+      const anomRow = db.prepare(`
+        SELECT
+          COUNT(*) as cnt,
+          COALESCE(SUM(risk_points), 0) as total_risk,
+          COALESCE(SUM(CASE WHEN event_type IN ('post_print_item_removed', 'post_print_order_cancelled') THEN 1 ELSE 0 END), 0) as post_print_cnt,
+          COALESCE(SUM(CASE WHEN event_type = 'no_sale_drawer_open' THEN 1 ELSE 0 END), 0) as no_sale_cnt
+        FROM pos_anomaly_logs
+        WHERE created_at >= ? AND created_at <= ?
+      `).get(effectiveStart, effectiveEnd) as any;
+      anomalyCount = Number(anomRow?.cnt || 0);
+      anomalyRiskScore = Number(anomRow?.total_risk || 0);
+      postPrintDeletionsCount = Number(anomRow?.post_print_cnt || 0);
+      noSaleDrawerOpensCount = Number(anomRow?.no_sale_cnt || 0);
+    } catch {}
+
     const previewData = {
       shift_opened_at: effectiveStart,
       business_date: bDate,
@@ -1480,6 +1513,11 @@ router.get('/preview', (req: Request, res: Response) => {
       authorized_waste_cost: shouldMask ? null : authorizedWasteCost,
       expected_gross_profit: shouldMask ? null : expectedGrossProfit,
       expected_net_profit: shouldMask ? null : expectedNetProfit,
+      safe_drops_total: safeDropsTotal,
+      anomaly_count: anomalyCount,
+      anomaly_risk_score: anomalyRiskScore,
+      post_print_deletions_count: postPrintDeletionsCount,
+      no_sale_drawer_opens_count: noSaleDrawerOpensCount,
       masked_for_cashier: shouldMask,
       latest_preblind_closure: latestPreblind || null,
     };
@@ -1678,6 +1716,59 @@ router.post('/', async (req: Request, res: Response) => {
         staff_sales: aggregates.staffSales,
       };
 
+      // Safe drops & anomaly metrics
+      let safeDropsTotal = 0;
+      try {
+        const safeDropRow = db.prepare(`
+          SELECT COALESCE(SUM(amount), 0) as total_drops
+          FROM safe_vault_ledger
+          WHERE tx_type = 'mid_shift_safe_drop' AND created_at >= ? AND created_at <= ?
+        `).get(periodStart, createdAt) as any;
+        safeDropsTotal = Number(safeDropRow?.total_drops || 0);
+      } catch {}
+
+      let anomalyCount = 0;
+      let anomalyRiskScore = 0;
+      let postPrintDeletionsCount = 0;
+      let noSaleDrawerOpensCount = 0;
+      try {
+        const anomRow = db.prepare(`
+          SELECT
+            COUNT(*) as cnt,
+            COALESCE(SUM(risk_points), 0) as total_risk,
+            COALESCE(SUM(CASE WHEN event_type IN ('post_print_item_removed', 'post_print_order_cancelled') THEN 1 ELSE 0 END), 0) as post_print_cnt,
+            COALESCE(SUM(CASE WHEN event_type = 'no_sale_drawer_open' THEN 1 ELSE 0 END), 0) as no_sale_cnt
+          FROM pos_anomaly_logs
+          WHERE created_at >= ? AND created_at <= ?
+        `).get(periodStart, createdAt) as any;
+        anomalyCount = Number(anomRow?.cnt || 0);
+        anomalyRiskScore = Number(anomRow?.total_risk || 0);
+        postPrintDeletionsCount = Number(anomRow?.post_print_cnt || 0);
+        noSaleDrawerOpensCount = Number(anomRow?.no_sale_cnt || 0);
+      } catch {}
+
+      const cashVariance = (countedCashCents - expectedCashCents) / 100;
+      if (closureType === 'pre_blind_cashier' && cashVariance < -5) {
+        logPosAnomaly(db, {
+          event_type: 'pre_blind_shortage',
+          severity: 'high',
+          risk_points: 20,
+          amount_impact: Math.abs(cashVariance),
+          actor_user_id: closedBy,
+          actor_user_name: closedByName,
+          actor_role: closedByRole,
+          reason: `Pre-blind cash shortage of ${Math.abs(cashVariance).toFixed(2)}`,
+        });
+        anomalyCount += 1;
+        anomalyRiskScore += 20;
+      }
+
+      (fullZSnapshot as any).safe_drops_total = safeDropsTotal;
+      (fullZSnapshot as any).anomaly_count = anomalyCount;
+      (fullZSnapshot as any).anomaly_risk_score = anomalyRiskScore;
+      (fullZSnapshot as any).post_print_deletions_count = postPrintDeletionsCount;
+      (fullZSnapshot as any).no_sale_drawer_opens_count = noSaleDrawerOpensCount;
+
       const insertStmt = db.prepare(`
         INSERT INTO cash_closures (
           scope, business_date, period_start, period_end,
@@ -1693,7 +1784,8 @@ router.post('/', async (req: Request, res: Response) => {
           expenses_total, expected_bom_cost, authorized_waste_cost,
           expected_gross_profit, expected_net_profit, declared_card_slips,
           declared_wallet_slips, denominations_json, linked_preblind_id,
-          z_report_snapshot_json
+          z_report_snapshot_json, safe_drops_total, anomaly_count,
+          anomaly_risk_score, post_print_deletions_count, no_sale_drawer_opens_count
         ) VALUES (
           ?, ?, ?, ?,
           ?, ?, ?, ?,
@@ -1708,7 +1800,8 @@ router.post('/', async (req: Request, res: Response) => {
           ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
-          ?
+          ?, ?, ?,
+          ?, ?, ?
         )
       `);
 
@@ -1729,7 +1822,8 @@ router.post('/', async (req: Request, res: Response) => {
         expensesTotal, expectedBomCost, authorizedWasteCost,
         expectedGrossProfit, expectedNetProfit, declaredCardSlips,
         declaredWalletSlips, denominationsJson, linkedPreblindId,
-        JSON.stringify(fullZSnapshot)
+        JSON.stringify(fullZSnapshot), safeDropsTotal, anomalyCount,
+        anomalyRiskScore, postPrintDeletionsCount, noSaleDrawerOpensCount
       );
 
       const closureId = Number(insertResult.lastInsertRowid);

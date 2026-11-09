@@ -13,7 +13,7 @@ const os = require('os');
 const crypto = require('crypto');
 
 const SERVER_NAME = 'flocafe-owner-mcp';
-const SERVER_VERSION = '4.8.0';
+const SERVER_VERSION = '4.9.0';
 
 // Default local nodes and config
 let knownNodes = [

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { getDatabase, localDateInTimezone, getSettingValue } from '../db';
 import { requirePermission } from '../services/authorization';
 import {
@@ -9,6 +10,11 @@ import {
   type FinanceMovementType,
 } from '../services/finance';
 import { getOpenSession } from '../services/shift-session-gate';
+import {
+  logPosAnomaly,
+  getAntiTheftSummary,
+  getSafeVaultBalance,
+} from '../services/pos-anomalies';
 
 export const financeRoutes = Router();
 
@@ -865,4 +871,272 @@ financeRoutes.post('/multibranch-eod/trigger', requirePermission('finance.expens
     res.status(500).json({ error: error.message || 'Failed to trigger multibranch EOD bundle' });
   }
 });
+
+// ── Cashier Anti-Theft & Operational Anomaly Detector ─────────────────────────
+
+financeRoutes.get('/anti-theft/summary', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const { from, to, actor_user_id, limit } = req.query;
+    const result = getAntiTheftSummary(db, {
+      from: from ? String(from) : undefined,
+      to: to ? String(to) : undefined,
+      actor_user_id: actor_user_id ? String(actor_user_id) : undefined,
+      limit: limit ? Number(limit) : 100,
+    });
+    res.json(result);
+  } catch (error: any) {
+    console.error('[Finance] Error fetching anti-theft summary:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch anti-theft summary' });
+  }
+});
+
+financeRoutes.post('/anti-theft/log', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = String(user?.userId || user?.id || '');
+    const actorName = String(user?.name || user?.username || 'Staff');
+    const actorRole = String(user?.role || 'cashier');
+
+    const body = req.body || {};
+    const log = logPosAnomaly(db, {
+      event_type: body.event_type,
+      severity: body.severity,
+      risk_points: body.risk_points,
+      order_id: body.order_id,
+      order_number: body.order_number,
+      bill_id: body.bill_id,
+      shift_id: body.shift_id,
+      actor_user_id: body.actor_user_id || actorId,
+      actor_user_name: body.actor_user_name || actorName,
+      actor_role: body.actor_role || actorRole,
+      item_name: body.item_name,
+      quantity: body.quantity,
+      amount_impact: body.amount_impact,
+      reason: body.reason,
+      details_json: body.details_json || body.details,
+    });
+    res.json({ success: true, log });
+  } catch (error: any) {
+    console.error('[Finance] Error logging anti-theft event:', error);
+    res.status(500).json({ error: error.message || 'Failed to log anti-theft event' });
+  }
+});
+
+financeRoutes.post('/anti-theft/no-sale-drawer', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = String(user?.userId || user?.id || '');
+    const actorName = String(user?.name || user?.username || 'Staff');
+    const actorRole = String(user?.role || 'cashier');
+    const reason = String(req.body?.reason || 'Open Drawer Without Sale').trim();
+
+    const log = logPosAnomaly(db, {
+      event_type: 'no_sale_drawer_open',
+      severity: 'medium',
+      risk_points: 10,
+      actor_user_id: actorId,
+      actor_user_name: actorName,
+      actor_role: actorRole,
+      reason,
+    });
+
+    try {
+      const { kickCashDrawer } = require('../services/printer');
+      if (typeof kickCashDrawer === 'function') kickCashDrawer();
+    } catch {}
+
+    res.json({ success: true, log, message: 'No-sale drawer opening recorded' });
+  } catch (error: any) {
+    console.error('[Finance] No-sale drawer opening error:', error);
+    res.status(500).json({ error: error.message || 'Failed to log drawer opening' });
+  }
+});
+
+// ── 3-Tier Main Safe Vault & Mid-Shift Safe Drops ─────────────────────────────
+
+financeRoutes.get('/safe-vault', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const tz = getSettingValue('store_timezone') || 'UTC';
+    const today = localDateInTimezone(new Date(), tz);
+
+    const safe_balance = getSafeVaultBalance(db);
+
+    const midShiftRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM safe_vault_ledger
+      WHERE tx_type = 'mid_shift_safe_drop' AND created_at >= ?
+    `).get(today) as any;
+    const total_mid_shift_drops_today = Number(midShiftRow?.total || 0);
+
+    const bankRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM safe_vault_ledger
+      WHERE tx_type = 'bank_deposit' AND direction = 'out'
+    `).get() as any;
+    const total_bank_deposits = Number(bankRow?.total || 0);
+
+    const expenseRow = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM safe_vault_ledger
+      WHERE tx_type = 'safe_expense_payout' AND direction = 'out'
+    `).get() as any;
+    const total_safe_expenses = Number(expenseRow?.total || 0);
+
+    const ledger = db.prepare(`
+      SELECT * FROM safe_vault_ledger
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).all();
+
+    res.json({
+      safe_balance,
+      current_balance: safe_balance,
+      total_mid_shift_drops_today,
+      drops_today: total_mid_shift_drops_today,
+      total_bank_deposits,
+      total_safe_expenses,
+      ledger,
+    });
+  } catch (error: any) {
+    console.error('[Finance] Error getting safe vault info:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch safe vault data' });
+  }
+});
+
+financeRoutes.post('/safe-vault/drop', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = String(user?.userId || user?.id || '');
+    const actorName = String(user?.name || user?.username || 'Staff');
+    const amount = Number(req.body?.amount);
+    const notes = String(req.body?.notes || req.body?.reason || '').trim();
+
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'Valid positive amount is required' });
+    }
+
+    const tz = getSettingValue('store_timezone') || 'UTC';
+    const bDate = localDateInTimezone(new Date(), tz);
+    const activeSession = getOpenSession(db);
+    const shiftId = activeSession?.id ? String(activeSession.id) : null;
+
+    // Resolve valid user ID for SQLite foreign key constraint
+    let resolvedUserId = actorId;
+    const userExists = actorId ? db.prepare('SELECT id FROM users WHERE id = ?').get(actorId) : null;
+    if (!userExists) {
+      const fallbackUser = (db.prepare("SELECT id FROM users WHERE role = 'owner' OR role = 'admin' LIMIT 1").get() as any)
+        || (db.prepare("SELECT id FROM users LIMIT 1").get() as any);
+      resolvedUserId = fallbackUser?.id || 'usr_admin_001';
+    }
+
+    const result = db.transaction(() => {
+      // 1. Insert into cash_drawer_movements so POS register expected cash is immediately reduced
+      db.prepare(`
+        INSERT INTO cash_drawer_movements (
+          business_date, movement_type, amount_cents, reason, created_by, created_at
+        ) VALUES (?, 'safe_drop', ?, ?, ?, datetime('now'))
+      `).run(bDate, Math.round(amount * 100), `Mid-Shift Safe Drop to Main Safe: ${notes}`, resolvedUserId);
+
+      // 2. Insert into cash_movements
+      const moveId = `cm_${crypto.randomUUID()}`;
+      db.prepare(`
+        INSERT INTO cash_movements (
+          id, session_id, movement_type, category, amount, payment_method, notes, created_by, created_at
+        ) VALUES (?, ?, 'safe_drop', 'safe_drop', ?, 'cash', ?, ?, datetime('now'))
+      `).run(moveId, shiftId, amount, `Mid-Shift Safe Drop: ${notes}`, resolvedUserId);
+
+      // 3. Current safe balance
+      const currentBalance = getSafeVaultBalance(db);
+      const balanceAfter = currentBalance + amount;
+
+      // 4. Insert into safe_vault_ledger
+      const ledgerId = `svl_${crypto.randomUUID()}`;
+      db.prepare(`
+        INSERT INTO safe_vault_ledger (
+          id, tx_type, direction, amount, balance_after, shift_id, reference_note, actor_user_id, actor_user_name, created_at
+        ) VALUES (?, 'mid_shift_safe_drop', 'in', ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(ledgerId, amount, balanceAfter, shiftId, notes || null, resolvedUserId, actorName);
+
+      return {
+        id: ledgerId,
+        amount,
+        balance_after: balanceAfter,
+        notes,
+      };
+    })();
+
+    res.json({ success: true, drop: result });
+  } catch (error: any) {
+    console.error('[Finance] Error processing safe drop:', error);
+    res.status(500).json({ error: error.message || 'Failed to record safe drop' });
+  }
+});
+
+financeRoutes.post('/safe-vault/transaction', requirePermission('finance.expenses.manage'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const user = (req as any).user;
+    const actorId = String(user?.userId || user?.id || '');
+    const actorName = String(user?.name || user?.username || 'Staff');
+
+    const body = req.body || {};
+    let rawType = String(body.tx_type || body.type || 'manual_adjustment');
+    if (rawType === 'deposit') rawType = 'bank_deposit';
+    if (rawType === 'withdrawal') rawType = 'owner_withdrawal';
+
+    const validTypes = ['bank_deposit', 'owner_withdrawal', 'safe_expense_payout', 'safe_to_drawer_float', 'shift_close_transfer', 'manual_adjustment'];
+    if (!validTypes.includes(rawType)) {
+      rawType = 'manual_adjustment';
+    }
+
+    const numAmount = Number(body.amount);
+    if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Valid positive amount is required' });
+    }
+
+    const dir: 'in' | 'out' = (body.direction === 'out' || rawType === 'owner_withdrawal' || rawType === 'safe_expense_payout') ? 'out' : 'in';
+    const refNote = String(body.reference_note || body.notes || body.reason || body.category || '').trim();
+    const shiftId = body.shift_id ? String(body.shift_id) : null;
+    const closureId = body.closure_id ? String(body.closure_id) : null;
+
+    let resolvedUserId = actorId;
+    const userExists = actorId ? db.prepare('SELECT id FROM users WHERE id = ?').get(actorId) : null;
+    if (!userExists) {
+      const fallbackUser = (db.prepare("SELECT id FROM users WHERE role = 'owner' OR role = 'admin' LIMIT 1").get() as any)
+        || (db.prepare("SELECT id FROM users LIMIT 1").get() as any);
+      resolvedUserId = fallbackUser?.id || 'usr_admin_001';
+    }
+
+    const result = db.transaction(() => {
+      const currentBalance = getSafeVaultBalance(db);
+      const balanceAfter = dir === 'in' ? currentBalance + numAmount : currentBalance - numAmount;
+      const ledgerId = `svl_${crypto.randomUUID()}`;
+
+      db.prepare(`
+        INSERT INTO safe_vault_ledger (
+          id, tx_type, direction, amount, balance_after, shift_id, closure_id, reference_note, actor_user_id, actor_user_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(ledgerId, rawType, dir, numAmount, balanceAfter, shiftId, closureId, refNote || null, resolvedUserId, actorName);
+
+      return {
+        id: ledgerId,
+        tx_type: rawType,
+        direction: dir,
+        amount: numAmount,
+        balance_after: balanceAfter,
+      };
+    })();
+
+    res.json({ success: true, transaction: result });
+  } catch (error: any) {
+    console.error('[Finance] Safe vault transaction error:', error);
+    res.status(500).json({ error: error.message || 'Failed to process safe vault transaction' });
+  }
+});
+
 

@@ -264,7 +264,9 @@ export default function OrdersPage() {
       items: pendingAttempt.items,
       special_instructions: pendingAttempt.specialInstructions,
     }, { headers: { 'Idempotency-Key': pendingAttempt.idempotencyKey } }).then(() => {
-      if (!clearAppendAttempt(getAppendAttemptStorage(), pendingAttempt!)) throw new Error('Unable to clear append retry state');
+      if (!clearAppendAttempt(getAppendAttemptStorage(), pendingAttempt!)) {
+        console.error('Unable to clear append retry state');
+      }
       if (addItemsAttemptRef.current?.idempotencyKey !== pendingAttempt!.idempotencyKey) return;
       addItemsAttemptRef.current = null;
       toast.success(tOrders('itemsAdded', { count: pendingAttempt!.items.length }));

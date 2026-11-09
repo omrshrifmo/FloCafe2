@@ -144,6 +144,7 @@ export default function POSPage() {
     supportError ? String(supportError.payload.category || 'general') : null,
   );
   const activeUserId = user?.id == null ? null : String(user.id);
+  const pendingScaleQuantityRef = useRef<number | null>(null);
   const prepaidAttemptRef = useRef<PrepaidAttempt | null>(null);
   const prepaidAttemptKeyRef = useRef<string | null>(null);
   const postpaidAttemptRef = useRef<PostpaidAttempt | null>(null);
@@ -648,7 +649,9 @@ export default function POSPage() {
   };
 
   const handleAddonAdd = (product: Product, quantity: number, addons: Addon[], instructions: string) => {
-    cart.addItem(product, quantity, addons, instructions);
+    const qty = pendingScaleQuantityRef.current ?? quantity;
+    pendingScaleQuantityRef.current = null;
+    cart.addItem(product, qty, addons, instructions);
   };
 
   const handleEditItemSave = (_product: Product, quantity: number, addons: Addon[], instructions: string) => {
@@ -673,6 +676,9 @@ export default function POSPage() {
       if (scan.scaleBarcode && (!scan.product.addon_groups || scan.product.addon_groups.length === 0)) {
         cart.addItem(scan.product, scan.quantity);
       } else {
+        if (scan.scaleBarcode) {
+          pendingScaleQuantityRef.current = scan.quantity;
+        }
         handleProductClick(scan.product);
       }
     } else {
@@ -786,7 +792,7 @@ export default function POSPage() {
           ? { data: { order: orderAttempt.order } }
           : await api.post('/orders', orderPayload, { headers: { 'Idempotency-Key': orderAttempt.idempotencyKey } });
         if (!orderAttempt.order && !savePostpaidAttempt({ ...orderAttempt, order: data.order as Order })) {
-          throw new OrderAttemptStorageError();
+          console.error('Failed to cache postpaid attempt after successful order placement');
         }
         toast.success(t('orderPlaced', { number: data.order.order_number }));
         orderForKot = data.order as Order;

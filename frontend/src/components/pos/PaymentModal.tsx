@@ -30,6 +30,7 @@ import {
   type DiscountType,
 } from '@/lib/discount-settings';
 import { createPaymentIdempotencyKey } from '@/lib/payment-idempotency';
+import { useAppLanguage } from '@/lib/i18n/bilingual';
 
 interface Props {
   bill: Bill;
@@ -106,6 +107,8 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
   const printPreliminaryReceipt = usePrinterStore((s) => s.printPreliminaryReceipt);
 
+  const { isAr, tr } = useAppLanguage();
+
   const handlePrintPreliminary = async () => {
     if (printingPreliminary) return;
     setPrintingPreliminary(true);
@@ -114,13 +117,16 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
         billId: bill.id,
         orderId: bill.order_id,
       });
+      if (bill.order_id) {
+        api.post(`/orders/${bill.order_id}/pre-bill-printed`).catch(() => {});
+      }
       if (warnings.length > 0) {
         toast(warnings[0].message || tPrint('preliminaryTitle'), { icon: '⚠️' });
       } else {
         toast.success(tPrint('preliminaryTitle'));
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to print preliminary receipt');
+      toast.error(err instanceof Error ? err.message : tr('Failed to print preliminary receipt', 'فشل في طباعة الفاتورة المبدئية'));
     } finally {
       setPrintingPreliminary(false);
     }

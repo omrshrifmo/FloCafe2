@@ -28,6 +28,8 @@ import {
   CheckCircle2,
   Layers,
   Package,
+  ShieldAlert,
+  ArrowDownCircle,
 } from 'lucide-react';
 
 interface FinanceSummary {
@@ -122,8 +124,102 @@ export default function FinancePage() {
   const { formatDate } = useFormatDate();
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier' | 'multibranch'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'movements' | 'expenses' | 'courier' | 'multibranch' | 'safe_vault' | 'anti_theft'>('overview');
   const [pnlMode, setPnlMode] = useState<'full_erp' | 'standalone_bom'>('full_erp');
+
+  // Safe Vault State
+  const [safeVaultData, setSafeVaultData] = useState<{
+    current_balance: number;
+    drops_today: number;
+    payouts_today: number;
+    ledger: Array<{
+      id: string | number;
+      entry_type: string;
+      category: string;
+      amount: number;
+      running_balance: number;
+      reference_no: string | null;
+      notes: string | null;
+      actor_name: string | null;
+      created_at: string;
+    }>;
+  }>({ current_balance: 0, drops_today: 0, payouts_today: 0, ledger: [] });
+  const [loadingSafeVault, setLoadingSafeVault] = useState(false);
+  const [showSafeTxModal, setShowSafeTxModal] = useState(false);
+  const [safeTxForm, setSafeTxForm] = useState({
+    type: 'deposit' as 'deposit' | 'withdrawal' | 'bank_transfer' | 'supplier_payout',
+    amount: '',
+    category: 'General',
+    reference_no: '',
+    notes: '',
+  });
+
+  // Anti-Theft Summary State
+  const [antiTheftData, setAntiTheftData] = useState<{
+    total_anomalies: number;
+    overall_risk_score: number;
+    post_print_deletions: number;
+    no_sale_drawer_opens: number;
+    excessive_discounts: number;
+    pre_blind_shortages: number;
+    downward_overrides: number;
+    cashier_rankings: Array<{
+      cashier_id: string;
+      cashier_name: string;
+      risk_score: number;
+      anomaly_count: number;
+    }>;
+    recent_anomalies: Array<{
+      id: string | number;
+      event_type: string;
+      severity: string;
+      risk_points: number;
+      cashier_name: string | null;
+      order_number: string | null;
+      details: string | null;
+      created_at: string;
+    }>;
+  }>({
+    total_anomalies: 0,
+    overall_risk_score: 0,
+    post_print_deletions: 0,
+    no_sale_drawer_opens: 0,
+    excessive_discounts: 0,
+    pre_blind_shortages: 0,
+    downward_overrides: 0,
+    cashier_rankings: [],
+    recent_anomalies: [],
+  });
+  const [loadingAntiTheft, setLoadingAntiTheft] = useState(false);
+
+  const loadSafeVault = useCallback(async () => {
+    setLoadingSafeVault(true);
+    try {
+      const res = await api.get('/finance/safe-vault');
+      setSafeVaultData(res.data);
+    } catch (err) {
+      console.error('Failed to load safe vault', err);
+    } finally {
+      setLoadingSafeVault(false);
+    }
+  }, []);
+
+  const loadAntiTheft = useCallback(async () => {
+    setLoadingAntiTheft(true);
+    try {
+      const res = await api.get('/finance/anti-theft/summary');
+      setAntiTheftData(res.data);
+    } catch (err) {
+      console.error('Failed to load anti theft summary', err);
+    } finally {
+      setLoadingAntiTheft(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'safe_vault') void loadSafeVault();
+    if (activeTab === 'anti_theft') void loadAntiTheft();
+  }, [activeTab, loadSafeVault, loadAntiTheft]);
 
   interface MultiBranchEodLog {
     id: string;
@@ -397,6 +493,24 @@ export default function FinancePage() {
   }, [activeTab, loadOperatingExpenses]);
 
   // Handlers
+  const handleCreateSafeTx = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(safeTxForm.amount);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error(tr('Please enter a valid amount', 'يرجى إدخال مبلغ صحيح'));
+      return;
+    }
+    try {
+      await api.post('/finance/safe-vault/transaction', safeTxForm);
+      toast.success(tr('Vault transaction recorded', 'تم تسجيل حركة الخزنة بنجاح'));
+      setShowSafeTxModal(false);
+      setSafeTxForm({ type: 'deposit', amount: '', category: 'General', reference_no: '', notes: '' });
+      loadSafeVault();
+    } catch {
+      toast.error(tr('Failed to record vault transaction', 'فشل في تسجيل حركة الخزنة'));
+    }
+  };
+
   const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.amount || Number(formData.amount) <= 0) {
@@ -662,6 +776,30 @@ export default function FinancePage() {
         >
           <Building className="h-4 w-4" />
           {tr('Multi-Branch EOD Sync', 'مزامنة الفروع ونهاية اليوم')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('safe_vault')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'safe_vault'
+              ? 'bg-brand text-brand-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <ArrowDownCircle className="h-4 w-4" />
+          {tr('Main Safe Vault', 'الخزنة الرئيسية والتوريدات')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('anti_theft')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'anti_theft'
+              ? 'bg-brand text-brand-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          }`}
+        >
+          <ShieldAlert className="h-4 w-4" />
+          {tr('Anti-Theft Scorecard', 'مؤشر نزاهة الكاشير والتلاعب')}
         </button>
       </div>
 
@@ -1533,6 +1671,282 @@ export default function FinancePage() {
         </div>
       )}
 
+      {/* TAB 7: MAIN STORE SAFE VAULT & MID-SHIFT DROPS */}
+      {activeTab === 'safe_vault' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">
+                {tr('Main Store Safe Vault & Mid-Shift Drops', 'الخزنة الرئيسية للمحل وتوريدات الورديات')}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {tr(
+                  'Independent secure vault ledger tracking mid-shift cashier skim drops, bank transfers, and cash settlements',
+                  'سجل مستقل للخزنة الرئيسية لتتبع توريدات الدرج النقدية والتحويلات البنكية والمصروفات'
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setShowSafeTxModal(true)} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                <Plus className="h-4 w-4" />
+                {tr('Record Vault Transaction', 'تسجيل حركة بالخزنة')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-card p-5 rounded-2xl border border-emerald-500/30 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">
+                  {tr('Current Main Safe Balance', 'رصيد الخزنة الرئيسية الفعلي')}
+                </span>
+                <ArrowDownCircle className="h-5 w-5 text-emerald-500" />
+              </div>
+              <div className="text-2xl font-black text-foreground mt-2">
+                {fmtCurrency(safeVaultData.current_balance)}
+              </div>
+            </div>
+
+            <div className="bg-card p-5 rounded-2xl border border-blue-500/30 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">
+                  {tr('Drops Received Today', 'توريدات مستلمة اليوم')}
+                </span>
+                <ArrowUpRight className="h-5 w-5 text-blue-500" />
+              </div>
+              <div className="text-2xl font-black text-foreground mt-2">
+                +{fmtCurrency(safeVaultData.drops_today)}
+              </div>
+            </div>
+
+            <div className="bg-card p-5 rounded-2xl border border-amber-500/30 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-amber-600 uppercase tracking-wider">
+                  {tr('Vault Payouts Today', 'مسحوبات الخزنة اليوم')}
+                </span>
+                <ArrowDownRight className="h-5 w-5 text-amber-500" />
+              </div>
+              <div className="text-2xl font-black text-foreground mt-2">
+                -{fmtCurrency(safeVaultData.payouts_today)}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h3 className="font-bold text-sm text-foreground">
+                {tr('Vault Ledger & Audit Trail', 'سجل حركات الخزنة الرئيسية')}
+              </h3>
+              <Button variant="outline" size="sm" onClick={loadSafeVault} disabled={loadingSafeVault}>
+                {loadingSafeVault ? tr('Refreshing...', 'جاري التحديث...') : tr('Refresh', 'تحديث')}
+              </Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-muted/50 border-b border-border text-muted-foreground uppercase text-[10px]">
+                  <tr>
+                    <th className="p-3">{tr('Date / Time', 'التاريخ والوقت')}</th>
+                    <th className="p-3">{tr('Entry Type', 'نوع الحركة')}</th>
+                    <th className="p-3">{tr('Category', 'التصنيف')}</th>
+                    <th className="p-3">{tr('Amount', 'المبلغ')}</th>
+                    <th className="p-3">{tr('Safe Balance', 'رصيد الخزنة')}</th>
+                    <th className="p-3">{tr('Reference / Slip', 'المرجع / رقم المظروف')}</th>
+                    <th className="p-3">{tr('Actor', 'المسؤول')}</th>
+                    <th className="p-3">{tr('Notes', 'ملاحظات')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {safeVaultData.ledger.map((item) => {
+                    const isCredit = ['drop', 'deposit', 'transfer_in'].includes(item.entry_type);
+                    return (
+                      <tr key={item.id} className="hover:bg-muted/30">
+                        <td className="p-3 font-mono">{formatDate(item.created_at)}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isCredit ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-600'
+                          }`}>
+                            {item.entry_type.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="p-3">{item.category}</td>
+                        <td className={`p-3 font-bold font-mono ${isCredit ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {isCredit ? '+' : '-'}{fmtCurrency(Math.abs(item.amount))}
+                        </td>
+                        <td className="p-3 font-mono font-bold">{fmtCurrency(item.running_balance)}</td>
+                        <td className="p-3 font-mono text-muted-foreground">{item.reference_no || '-'}</td>
+                        <td className="p-3 text-muted-foreground">{item.actor_name || '-'}</td>
+                        <td className="p-3 text-muted-foreground">{item.notes || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                  {safeVaultData.ledger.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                        {loadingSafeVault
+                          ? tr('Loading safe vault ledger...', 'جاري تحميل سجل الخزنة...')
+                          : tr('No vault transactions recorded yet. Drops from the POS will appear here.', 'لا توجد حركات بالخزنة بعد. توريدات نقاط البيع ستظهر هنا مباشرة.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 8: CASHIER ANTI-THEFT & INTEGRITY AUDIT SCORECARD */}
+      {activeTab === 'anti_theft' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-card p-4 rounded-xl border border-border">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">
+                {tr('Cashier Anti-Theft & Integrity Audit Scorecard', 'مؤشر نزاهة الكاشير وكاشف التلاعب والأنماط المشبوهة')}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {tr(
+                  'Automated anomaly detector monitoring post-print deletions, unauthorized drawer opens, and suspicious discounts',
+                  'نظام ذكي يرصد حذف الأصناف بعد تسليم الفاتورة المبدئية، فتح الدرج بدون بيع، والتلاعب بالأسعار والخصومات'
+                )}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadAntiTheft} disabled={loadingAntiTheft}>
+              {loadingAntiTheft ? tr('Refreshing...', 'جاري التحديث...') : tr('Refresh Scorecard', 'تحديث المؤشر')}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="bg-card p-4 rounded-xl border border-red-500/30 shadow-xs">
+              <span className="text-[11px] font-semibold text-red-600 block uppercase">
+                {tr('Overall Risk Score', 'مؤشر الخطورة الإجمالي')}
+              </span>
+              <div className="text-2xl font-black text-red-600 mt-1">
+                {antiTheftData.overall_risk_score}
+              </div>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-xs">
+              <span className="text-[11px] font-semibold text-muted-foreground block uppercase">
+                {tr('Total Anomalies', 'إجمالي الأنماط المشبوهة')}
+              </span>
+              <div className="text-2xl font-black text-foreground mt-1">
+                {antiTheftData.total_anomalies}
+              </div>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-amber-500/30 shadow-xs">
+              <span className="text-[11px] font-semibold text-amber-600 block uppercase">
+                {tr('Post-Print Deletions', 'حذف بعد المبدئية')}
+              </span>
+              <div className="text-2xl font-black text-amber-600 mt-1">
+                {antiTheftData.post_print_deletions}
+              </div>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-xs">
+              <span className="text-[11px] font-semibold text-muted-foreground block uppercase">
+                {tr('No-Sale Drawer Opens', 'فتح الدرج بدون بيع')}
+              </span>
+              <div className="text-2xl font-black text-foreground mt-1">
+                {antiTheftData.no_sale_drawer_opens}
+              </div>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-xs">
+              <span className="text-[11px] font-semibold text-muted-foreground block uppercase">
+                {tr('Excessive Discounts', 'خصومات مرتفعة >= 20%')}
+              </span>
+              <div className="text-2xl font-black text-foreground mt-1">
+                {antiTheftData.excessive_discounts}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Cashier Ranking Table */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="p-4 border-b border-border">
+                <h3 className="font-bold text-sm text-foreground">
+                  {tr('Cashier Risk Rankings', 'تصنيف الكاشير حسب مؤشر الخطورة')}
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-muted/50 border-b border-border text-muted-foreground uppercase text-[10px]">
+                    <tr>
+                      <th className="p-3">{tr('Cashier', 'الكاشير')}</th>
+                      <th className="p-3">{tr('Anomalies', 'الأنماط')}</th>
+                      <th className="p-3">{tr('Risk Score', 'نقاط الخطورة')}</th>
+                      <th className="p-3">{tr('Status', 'الحالة')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {antiTheftData.cashier_rankings.map((c) => {
+                      const isHigh = c.risk_score >= 50;
+                      const isMed = c.risk_score >= 20 && c.risk_score < 50;
+                      return (
+                        <tr key={c.cashier_id} className="hover:bg-muted/30">
+                          <td className="p-3 font-semibold">{c.cashier_name}</td>
+                          <td className="p-3 font-mono">{c.anomaly_count}</td>
+                          <td className="p-3 font-mono font-bold">{c.risk_score}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isHigh ? 'bg-red-500/10 text-red-600' : isMed ? 'bg-amber-500/10 text-amber-600' : 'bg-emerald-500/10 text-emerald-600'
+                            }`}>
+                              {isHigh ? tr('High Risk', 'خطر مرتفع') : isMed ? tr('Moderate', 'متوسط') : tr('Clean', 'سليم')}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {antiTheftData.cashier_rankings.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-6 text-center text-muted-foreground">
+                          {tr('No cashier anomalies recorded.', 'لا توجد أنماط خطورة مسجلة لأي كاشير.')}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Recent Anomaly Logs */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="p-4 border-b border-border">
+                <h3 className="font-bold text-sm text-foreground">
+                  {tr('Recent Suspicious Events', 'أحدث الأنماط المشبوهة المرصودة')}
+                </h3>
+              </div>
+              <div className="max-h-96 overflow-y-auto divide-y divide-border">
+                {antiTheftData.recent_anomalies.map((a) => (
+                  <div key={a.id} className="p-3 text-xs space-y-1 hover:bg-muted/30">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        a.severity === 'critical' ? 'bg-red-500/10 text-red-600' : 'bg-amber-500/10 text-amber-600'
+                      }`}>
+                        {a.severity.toUpperCase()} (+{a.risk_points} pts)
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {formatDate(a.created_at)}
+                      </span>
+                    </div>
+                    <div className="font-semibold text-foreground">
+                      {a.event_type} {a.order_number ? `• Order #${a.order_number}` : ''}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {tr('Cashier', 'الكاشير')}: <strong>{a.cashier_name || 'Staff'}</strong>
+                      {a.details ? ` | ${a.details}` : ''}
+                    </div>
+                  </div>
+                ))}
+                {antiTheftData.recent_anomalies.length === 0 && (
+                  <div className="p-8 text-center text-muted-foreground text-xs">
+                    {tr('Zero suspicious anomalies detected. Clean operational record!', 'لم يتم رصد أي تلاعب أو عمليات مشبوهة. سجل العمليات نظيف تماماً!')}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL 1: New Transaction (General Ledger) */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
@@ -1850,6 +2264,110 @@ export default function FinancePage() {
                 </Button>
                 <Button type="submit" disabled={submitting}>
                   {submitting ? 'Adding...' : 'Add Expense'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Safe Vault Transaction */}
+      {showSafeTxModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+              <h3 className="text-lg font-bold text-foreground">
+                {tr('Record Main Vault Transaction', 'تسجيل حركة بالخزنة الرئيسية')}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSafeTxModal(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSafeTx} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase">
+                  {tr('Transaction Type', 'نوع الحركة')}
+                </label>
+                <select
+                  value={safeTxForm.type}
+                  onChange={(e) => setSafeTxForm({ ...safeTxForm, type: e.target.value as any })}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-semibold"
+                >
+                  <option value="deposit">{tr('Deposit into Vault (إيداع بالخزنة)', 'إيداع بالخزنة')}</option>
+                  <option value="withdrawal">{tr('Withdrawal from Vault (سحب من الخزنة)', 'سحب من الخزنة')}</option>
+                  <option value="bank_transfer">{tr('Transfer to Bank Account (توريد بنكي)', 'توريد بنكي')}</option>
+                  <option value="supplier_payout">{tr('Supplier / AP Cash Payout (سداد موردين)', 'سداد موردين كاش')}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase">
+                  {tr('Amount', 'المبلغ')}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={safeTxForm.amount}
+                  onChange={(e) => setSafeTxForm({ ...safeTxForm, amount: e.target.value })}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-base font-bold"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase">
+                  {tr('Category / Reason', 'التصنيف / السبب')}
+                </label>
+                <input
+                  type="text"
+                  value={safeTxForm.category}
+                  onChange={(e) => setSafeTxForm({ ...safeTxForm, category: e.target.value })}
+                  placeholder={tr('e.g. Bank Deposit, Supplier Payment', 'مثال: إيداع بنكي، سداد مورد')}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase">
+                  {tr('Reference / Receipt #', 'المرجع / رقم الإيصال')}
+                </label>
+                <input
+                  type="text"
+                  value={safeTxForm.reference_no}
+                  onChange={(e) => setSafeTxForm({ ...safeTxForm, reference_no: e.target.value })}
+                  placeholder={tr('Bank slip #, supplier voucher #', 'رقم إشعار الإيداع، سند الصرف')}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase">
+                  {tr('Notes', 'ملاحظات')}
+                </label>
+                <textarea
+                  value={safeTxForm.notes}
+                  onChange={(e) => setSafeTxForm({ ...safeTxForm, notes: e.target.value })}
+                  placeholder={tr('Optional details', 'تفاصيل إضافية')}
+                  rows={2}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3 border-t border-border">
+                <Button type="button" variant="outline" onClick={() => setShowSafeTxModal(false)}>
+                  {tr('Cancel', 'إلغاء')}
+                </Button>
+                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                  {tr('Save Transaction', 'حفظ الحركة')}
                 </Button>
               </div>
             </form>

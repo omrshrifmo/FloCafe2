@@ -40,6 +40,8 @@ import {
   CheckCircle2,
   Lock,
   FileText,
+  ArrowDownCircle,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface FastTouchModeProps {
@@ -321,6 +323,53 @@ export function FastTouchMode({
   const [wasteItemId, setWasteItemId] = useState<string>('');
   const [wasteQuantity, setWasteQuantity] = useState<number>(1);
   const [isLoggingWaste, setIsLoggingWaste] = useState(false);
+
+  // 1-Tap Safe Drop & No-Sale Drawer State
+  const [showSafeModal, setShowSafeModal] = useState(false);
+  const [safeTab, setSafeTab] = useState<'drop' | 'no_sale'>('drop');
+  const [dropAmount, setDropAmount] = useState('');
+  const [dropReason, setDropReason] = useState('mid_shift_excess');
+  const [dropNotes, setDropNotes] = useState('');
+  const [noSaleReason, setNoSaleReason] = useState('');
+  const [safeSubmitting, setSafeSubmitting] = useState(false);
+  const [safeSuccessMsg, setSafeSuccessMsg] = useState<string | null>(null);
+
+  const handleSafeAction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSafeSubmitting(true);
+    try {
+      if (safeTab === 'drop') {
+        const amt = parseFloat(dropAmount);
+        if (isNaN(amt) || amt <= 0) {
+          toast.error(tr('Please enter a valid amount', 'يرجى إدخال مبلغ صحيح'));
+          setSafeSubmitting(false);
+          return;
+        }
+        await api.post('/finance/safe-vault/drop', {
+          amount: amt,
+          reason: dropReason,
+          notes: dropNotes || undefined,
+        });
+        setSafeSuccessMsg(tr('Safe Drop recorded! Funds vaulted.', 'تم تسجيل التوريد ونقل المبلغ إلى الخزنة!'));
+      } else {
+        await api.post('/finance/anti-theft/no-sale-drawer', {
+          reason: noSaleReason || tr('Change / Inspection', 'فك فكة / فحص الدرج'),
+        });
+        setSafeSuccessMsg(tr('Drawer opened & logged in audit.', 'تم فتح الدرج وتوثيقه في التدقيق!'));
+      }
+      setTimeout(() => {
+        setSafeSuccessMsg(null);
+        setShowSafeModal(false);
+        setDropAmount('');
+        setDropNotes('');
+        setNoSaleReason('');
+      }, 1200);
+    } catch (err: unknown) {
+      toast.error(tr('Action failed', 'فشلت العملية'));
+    } finally {
+      setSafeSubmitting(false);
+    }
+  };
 
   // Delivery Aggregator & Driver COD Settlement State
   const [selectedAggregator, setSelectedAggregator] = useState<string | null>(null);
@@ -1050,6 +1099,17 @@ export function FastTouchMode({
           >
             <Trash2 className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             <span className="hidden sm:inline">{tr('1-Tap Waste', 'تسجيل هدر سريع')}</span>
+          </button>
+
+          {/* 1-Tap Safe Drop / Drawer Button */}
+          <button
+            type="button"
+            onClick={() => setShowSafeModal(true)}
+            className="flex items-center gap-1.5 h-11 min-h-[44px] px-3.5 rounded-xl text-sm border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 font-bold active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
+            title={tr('Safe Drop or Open Drawer', 'توريد للخزنة أو فتح الدرج')}
+          >
+            <ArrowDownCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">{tr('Safe Drop', 'توريد للخزنة')}</span>
           </button>
 
           <button
@@ -1929,6 +1989,152 @@ export function FastTouchMode({
                 ? tr('Logging Waste...', 'جارِ التسجيل...')
                 : tr('Confirm Waste Deduction', 'تأكيد الخصم من المخزون')}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 🗄️ 1-Tap Safe Drop & Drawer Modal */}
+      {showSafeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <ArrowDownCircle className="h-5 w-5 text-emerald-600" />
+                <h3 className="font-bold text-base text-foreground">
+                  {tr('Safe Drop & Drawer Operations', 'عمليات الخزنة ودرج النقدية')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSafeModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {safeSuccessMsg ? (
+              <div className="py-6 text-center text-emerald-600 font-bold text-base animate-in fade-in">
+                ✓ {safeSuccessMsg}
+              </div>
+            ) : (
+              <form onSubmit={handleSafeAction} className="space-y-4">
+                <div className="flex rounded-xl bg-muted p-1">
+                  <button
+                    type="button"
+                    onClick={() => setSafeTab('drop')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      safeTab === 'drop' ? 'bg-card text-emerald-600 shadow-sm' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {tr('Mid-Shift Safe Drop', 'توريد للخزنة (Safe Drop)')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSafeTab('no_sale')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      safeTab === 'no_sale' ? 'bg-card text-amber-600 shadow-sm' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {tr('Open Drawer (No Sale)', 'فتح الدرج بدون بيع')}
+                  </button>
+                </div>
+
+                {safeTab === 'drop' ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
+                        {tr('Transfer Amount to Safe Vault', 'المبلغ المحول إلى الخزنة')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={dropAmount}
+                        onChange={(e) => setDropAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full rounded-xl border border-input bg-background px-3 py-2 text-base font-bold focus:ring-2 focus:ring-emerald-500"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
+                        {tr('Reason', 'السبب')}
+                      </label>
+                      <select
+                        value={dropReason}
+                        onChange={(e) => setDropReason(e.target.value)}
+                        className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="mid_shift_excess">{tr('Mid-Shift Cash Skim (Excess Cash)', 'تخفيف نقدية الدرج الزائدة')}</option>
+                        <option value="high_cash_security">{tr('High Cash Security Vaulting', 'إيداع أمني لمبالغ كبيرة')}</option>
+                        <option value="shift_change_handover">{tr('Shift Change Partial Drop', 'توريد جزئي قبل تبديل الوردية')}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
+                        {tr('Notes / Envelope #', 'ملاحظات / رقم المظروف')}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={tr('e.g. Envelope #42 / Manager count', 'مثال: مظروف رقم 42 / عد المدير')}
+                        value={dropNotes}
+                        onChange={(e) => setDropNotes(e.target.value)}
+                        className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300">
+                      <ShieldAlert className="inline me-1" size={14} />
+                      {tr(
+                        'Audit Warning: No-sale drawer opens are recorded in cashier anti-theft logs and flagged on Z-Report.',
+                        'تنبيه تدقيق: فتح الدرج بدون بيع يتم تسجيله في سجل نزاهة الكاشير ويظهر في تقرير Z.'
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-muted-foreground block mb-1">
+                        {tr('Reason for Opening Drawer', 'سبب فتح الدرج')}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={tr('e.g. Making change / Routine check', 'مثال: فك فكة للعميل / جرد دوري')}
+                        value={noSaleReason}
+                        onChange={(e) => setNoSaleReason(e.target.value)}
+                        className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowSafeModal(false)}
+                    className="flex-1 rounded-xl border border-border py-2 text-sm font-medium hover:bg-muted"
+                  >
+                    {tr('Cancel', 'إلغاء')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={safeSubmitting}
+                    className={`flex-1 rounded-xl py-2 text-sm font-bold text-white disabled:opacity-50 ${
+                      safeTab === 'drop' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                    }`}
+                  >
+                    {safeSubmitting
+                      ? tr('Processing...', 'جاري المعالجة...')
+                      : safeTab === 'drop'
+                        ? tr('Confirm Safe Drop', 'تأكيد التوريد للخزنة')
+                        : tr('Open Drawer & Log', 'فتح الدرج وتوثيق')}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

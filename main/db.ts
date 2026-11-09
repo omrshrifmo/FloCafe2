@@ -6569,6 +6569,69 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 114,
+    name: 'v114_anti_theft_anomalies_and_safe_vault',
+    up: () => {
+      // 1. Track pre-bill printing on orders
+      const orderCols = getColumns(db, 'orders');
+      if (orderCols.length > 0) {
+        if (!orderCols.includes('pre_bill_printed_at')) db.exec('ALTER TABLE orders ADD COLUMN pre_bill_printed_at TEXT');
+        if (!orderCols.includes('pre_bill_print_count')) db.exec('ALTER TABLE orders ADD COLUMN pre_bill_print_count INTEGER NOT NULL DEFAULT 0');
+        if (!orderCols.includes('pre_bill_last_total')) db.exec('ALTER TABLE orders ADD COLUMN pre_bill_last_total REAL');
+      }
+
+      // 2. Cashier Anti-Theft & Operational Anomaly Logs
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pos_anomaly_logs (
+          id TEXT PRIMARY KEY,
+          event_type TEXT NOT NULL,
+          severity TEXT NOT NULL DEFAULT 'medium',
+          risk_points INTEGER NOT NULL DEFAULT 10,
+          order_id TEXT,
+          order_number TEXT,
+          bill_id TEXT,
+          shift_id TEXT,
+          actor_user_id TEXT,
+          actor_user_name TEXT,
+          actor_role TEXT,
+          item_name TEXT,
+          quantity REAL DEFAULT 0,
+          amount_impact REAL NOT NULL DEFAULT 0,
+          reason TEXT,
+          details_json TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+
+      // 3. 3-Tier Cash Control: Main Store Safe Vault Ledger & Mid-Shift Safe Drops
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS safe_vault_ledger (
+          id TEXT PRIMARY KEY,
+          tx_type TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          amount REAL NOT NULL,
+          balance_after REAL NOT NULL,
+          shift_id TEXT,
+          closure_id TEXT,
+          reference_note TEXT,
+          actor_user_id TEXT,
+          actor_user_name TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+
+      // 4. Track mid-shift safe drops on cash_closures
+      const closureCols = getColumns(db, 'cash_closures');
+      if (closureCols.length > 0) {
+        if (!closureCols.includes('safe_drops_total')) db.exec('ALTER TABLE cash_closures ADD COLUMN safe_drops_total REAL NOT NULL DEFAULT 0');
+        if (!closureCols.includes('anomaly_count')) db.exec('ALTER TABLE cash_closures ADD COLUMN anomaly_count INTEGER NOT NULL DEFAULT 0');
+        if (!closureCols.includes('anomaly_risk_score')) db.exec('ALTER TABLE cash_closures ADD COLUMN anomaly_risk_score INTEGER NOT NULL DEFAULT 0');
+        if (!closureCols.includes('post_print_deletions_count')) db.exec('ALTER TABLE cash_closures ADD COLUMN post_print_deletions_count INTEGER NOT NULL DEFAULT 0');
+        if (!closureCols.includes('no_sale_drawer_opens_count')) db.exec('ALTER TABLE cash_closures ADD COLUMN no_sale_drawer_opens_count INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {

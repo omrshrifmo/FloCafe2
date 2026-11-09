@@ -7,7 +7,7 @@
   },
   "extraMetadata": {
     "name": "flo-owner-control",
-    "version": "4.8.0",
+    "version": "4.9.0",
     "main": "owner-system/owner-main.cjs",
     "description": "FloOwner Control System - Standalone remote fleet manager for FloCafe POS"
   },

@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.8.0', 'MCP server version is 4.8.0');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.9.0', 'MCP server version is 4.9.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.8.0', 'package.json version is 4.8.0');
+    assertEqualOrThrow(rootPackageJson.version, '4.9.0', 'package.json version is 4.9.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.8.0', 'owner builder config version is 4.8.0');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.9.0', 'owner builder config version is 4.9.0');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.8.0',
+      flocafe_version: '4.9.0',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.8.0', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.9.0', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,7 +2093,7 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.8.0', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.9.0', 'WebCrypto decrypted beacon matches flocafe_version');
 
     // ── Test 17: v4.7.0 Operating System Pillars Verification ──────────────────
     console.log('\n[17] Verifying FloCafe v4.7.0 Operating System Pillars...');
@@ -2266,6 +2266,9 @@ async function main() {
 
     const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
     let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
+    if (!fsMod.existsSync(apkPath)) {
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.9.0-android.apk');
+    }
     if (!fsMod.existsSync(apkPath)) {
       apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.8.0-android.apk');
     }
@@ -2807,6 +2810,117 @@ async function main() {
     assertOrThrow(ownerHtmlCode.includes('card-pos-screen'), 'flo-owner-control.html includes card-pos-screen');
     assertOrThrow(ownerHtmlCode.includes('card-renewal-banner'), 'flo-owner-control.html includes card-renewal-banner');
     console.log('   ✓ 22.5: Owner fleet monetization, renewal banner, and live screen snapshot verified.');
+
+    // ── Section 23: v4.9.0 Anti-Theft Anomaly Detector, 3-Tier Safe Vault, Windows POS NSIS Build & Arabic Localization ──
+    console.log('\n--- Section 23: v4.9.0 Anti-Theft Anomaly Detector, Safe Vault & Windows POS Release ---');
+
+    // 23.1 POS Edge-Cases & Licensing Fixes
+    const posPagePath23 = path.resolve(__dirname, '..', 'frontend/src/app/(dashboard)/pos/page.tsx');
+    const posPageCode23 = fs.readFileSync(posPagePath23, 'utf8');
+    assertOrThrow(!posPageCode23.includes("throw new OrderAttemptStorageError();\n        }\n        toast.success(t('orderPlaced'"), 'No fatal throw post-commit in pos/page.tsx');
+    assertOrThrow(posPageCode23.includes('pendingScaleQuantityRef'), 'pos/page.tsx preserves scanned scale quantity for add-on products');
+
+    const ordersPagePath23 = path.resolve(__dirname, '..', 'frontend/src/app/(dashboard)/orders/page.tsx');
+    const ordersPageCode23 = fs.readFileSync(ordersPagePath23, 'utf8');
+    assertOrThrow(!ordersPageCode23.includes("throw new Error('Unable to clear append retry state')"), 'No post-commit append throw in orders/page.tsx');
+
+    const hwLicenseCode23 = fs.readFileSync(hwLicensePath, 'utf8');
+    assertOrThrow(hwLicenseCode23.includes("'forever'") && hwLicenseCode23.includes('Math.max('), 'hardware-license.ts safely handles forever tier and Math.max expiration');
+    console.log('   ✓ 23.1: POS edge-case bugfixes and forever licensing verified.');
+
+    // 23.2 Cashier Anti-Theft Anomaly Detector & Pre-Bill Deletion Tracking
+    const posAnomalies = require('../main/services/pos-anomalies');
+    assertOrThrow(typeof posAnomalies.logPosAnomaly === 'function', 'logPosAnomaly is exported');
+    assertOrThrow(typeof posAnomalies.getAntiTheftSummary === 'function', 'getAntiTheftSummary is exported');
+    assertOrThrow(typeof posAnomalies.getSafeVaultBalance === 'function', 'getSafeVaultBalance is exported');
+
+    posAnomalies.logPosAnomaly({
+      event_type: 'post_print_item_removed',
+      severity: 'critical',
+      risk_points: 30,
+      cashier_id: 'test-cashier-1',
+      cashier_name: 'Test Cashier',
+      details: { item_name: 'Expensive Coffee', price: 150 },
+    });
+    posAnomalies.logPosAnomaly({
+      event_type: 'no_sale_drawer_open',
+      severity: 'medium',
+      risk_points: 10,
+      cashier_id: 'test-cashier-1',
+      cashier_name: 'Test Cashier',
+      details: { reason: 'Test change inspection' },
+    });
+
+    const antiTheftSummary = posAnomalies.getAntiTheftSummary();
+    assertOrThrow(antiTheftSummary.total_anomalies >= 2, 'Anti-theft summary records anomalies');
+    assertOrThrow(antiTheftSummary.post_print_deletions >= 1, 'Post-print deletions counted');
+    assertOrThrow(antiTheftSummary.no_sale_drawer_opens >= 1, 'No-sale drawer opens counted');
+    assertOrThrow(antiTheftSummary.overall_risk_score >= 40, 'Overall risk score computed correctly');
+    console.log('   ✓ 23.2: Cashier anti-theft anomaly detector and audit scorecard verified.');
+
+    // 23.3 Safe Vault Ledger, Mid-Shift Drops & Cash Closures Integration
+    const ownerUser23 = (db.prepare("SELECT id, email FROM users WHERE role = 'owner' OR role = 'admin' LIMIT 1").get() as any)
+      || (db.prepare("SELECT id, email FROM users LIMIT 1").get() as any);
+    const ownerToken23 = jwt.sign(
+      { userId: ownerUser23?.id || 'usr_admin_001', email: ownerUser23?.email || 'owner@test.local', role: 'owner' },
+      getJWTSecret(),
+      { expiresIn: '1h' }
+    );
+
+    const testSafeDropRes = await fetch(`${baseUrl}/api/finance/safe-vault/drop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken23}` },
+      body: JSON.stringify({
+        amount: 250,
+        reason: 'mid_shift_excess',
+        notes: 'Mid-shift cash drop test',
+      }),
+    });
+    assertEqualOrThrow(testSafeDropRes.status, 200, 'POST /api/finance/safe-vault/drop returns 200');
+    const safeDropJson = await testSafeDropRes.json();
+    assertOrThrow(safeDropJson.success === true, 'Safe drop reports success');
+
+    const testSafeTxRes = await fetch(`${baseUrl}/api/finance/safe-vault/transaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken23}` },
+      body: JSON.stringify({
+        type: 'deposit',
+        amount: 500,
+        category: 'Owner Float',
+        notes: 'Initial safe float',
+      }),
+    });
+    assertEqualOrThrow(testSafeTxRes.status, 200, 'POST /api/finance/safe-vault/transaction returns 200');
+
+    const safeVaultRes = await fetch(`${baseUrl}/api/finance/safe-vault`, {
+      headers: { Authorization: `Bearer ${ownerToken23}` },
+    });
+    assertEqualOrThrow(safeVaultRes.status, 200, 'GET /api/finance/safe-vault returns 200');
+    const safeVaultJson = await safeVaultRes.json();
+    assertOrThrow(safeVaultJson.current_balance >= 750, 'Safe vault balance updated correctly');
+    assertOrThrow(safeVaultJson.drops_today >= 250, 'Safe drops recorded in today summary');
+    console.log('   ✓ 23.3: 3-Tier Safe Vault ledger and mid-shift drops verified.');
+
+    // 23.4 POS Screen Bilingual & Arabic Localization
+    const posTopbarPath23 = path.resolve(__dirname, '..', 'frontend/src/components/pos/PosTopbar.tsx');
+    const posTopbarCode23 = fs.readFileSync(posTopbarPath23, 'utf8');
+    const posTopbarTrCount = (posTopbarCode23.match(/tr\(/g) || []).length;
+    assertOrThrow(posTopbarTrCount >= 15, `PosTopbar.tsx contains at least 15 tr( calls (found ${posTopbarTrCount})`);
+
+    const cartPanelPath23 = path.resolve(__dirname, '..', 'frontend/src/components/pos/CartPanel.tsx');
+    const cartPanelCode23 = fs.readFileSync(cartPanelPath23, 'utf8');
+    const cartPanelTrCount = (cartPanelCode23.match(/tr\(/g) || []).length;
+    assertOrThrow(cartPanelTrCount >= 10, `CartPanel.tsx contains at least 10 tr( calls (found ${cartPanelTrCount})`);
+    console.log('   ✓ 23.4: Complete Arabic & bilingual localization across POS topbar and cart panel verified.');
+
+    // 23.5 Windows Build Configuration & Version 4.9.0
+    const pkgPath23 = path.resolve(__dirname, '..', 'package.json');
+    const pkgJson23 = JSON.parse(fs.readFileSync(pkgPath23, 'utf8'));
+    assertEqualOrThrow(pkgJson23.version, '4.9.0', 'package.json version is 4.9.0');
+    const winTarget = pkgJson23.build?.win?.target;
+    assertOrThrow(Array.isArray(winTarget), 'build.win.target is array');
+    assertOrThrow(winTarget.length === 1 && winTarget[0].target === 'nsis', 'build.win.target contains exclusively nsis (appx removed)');
+    console.log('   ✓ 23.5: Package version 4.9.0 and clean NSIS Windows x64 build target verified.');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

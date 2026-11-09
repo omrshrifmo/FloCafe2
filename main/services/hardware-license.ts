@@ -404,10 +404,14 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     };
   }
 
-  const effectiveTier = (record.tier || payloadObj.tier) as LicenseTier;
-  const effectiveExpiresAt = record.expires_at !== undefined && record.expires_at !== null
-    ? Number(record.expires_at)
-    : payloadObj.expires_at;
+  const effectiveTier =
+    payloadObj.tier === 'forever' || record.tier === 'forever'
+      ? 'forever'
+      : (record.tier || payloadObj.tier);
+  const effectiveExpiresAt =
+    effectiveTier === 'forever' || payloadObj.tier === 'forever' || payloadObj.expires_at === null
+      ? null
+      : (Math.max(Number(record.expires_at) || 0, Number(payloadObj.expires_at) || 0) || null);
 
   const now = Date.now();
 

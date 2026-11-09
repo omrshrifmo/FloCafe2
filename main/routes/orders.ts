@@ -27,6 +27,7 @@ import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 import { depleteBomForOrderItem, restoreBomForOrderItem } from '../services/bom-depletion';
 import { isAllowedPrivateIp } from '../middleware/security';
+import { logPosAnomaly } from '../services/pos-anomalies';
 
 const router = Router();
 const orderReadRateLimit = expressRateLimit({
@@ -931,6 +932,23 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
             openSession?.id ? String(openSession.id) : null,
             itemCreatedAt
           );
+
+          if (unitPrice < originalUnitPrice) {
+            logPosAnomaly(db, {
+              event_type: 'price_override_down',
+              severity: 'medium',
+              risk_points: 10,
+              order_id: String(orderId),
+              order_number: orderNumber,
+              actor_user_id: authenticatedUserId,
+              actor_user_name: (req as any).user?.name || (req as any).user?.username || 'Staff',
+              actor_role: (req as any).user?.role || 'cashier',
+              item_name: product.name,
+              quantity,
+              amount_impact: (originalUnitPrice - unitPrice) * quantity,
+              reason: item.override_reason || item.reason || 'Downward Price Override',
+            });
+          }
         }
 
         let itemSubtotal = unitPrice * quantity;
@@ -1600,6 +1618,21 @@ router.patch('/:id/status', orderWriteRateLimit, requirePermission('orders.statu
         }
 
         case 'cancelled': {
+          if (currentOrder.pre_bill_print_count > 0) {
+            logPosAnomaly(db, {
+              event_type: 'post_print_order_cancelled',
+              severity: 'critical',
+              risk_points: 25,
+              order_id: String(currentOrder.id),
+              order_number: currentOrder.order_number,
+              actor_user_id: authUser.userId,
+              actor_user_name: authUser.name || authUser.username,
+              actor_role: authUser.role,
+              amount_impact: currentOrder.total,
+              reason: reason || 'Order cancelled after pre-bill print',
+            });
+          }
+
           // Select only items eligible for restocking (exclude already cancelled, voided, or accounting adjustments)
           const eligibleItems = db.prepare(`
             SELECT * FROM order_items
@@ -1759,7 +1792,7 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requirePermission(
   }
 });
 
-router.patch('/:id/discount', orderWriteRateLimit, requirePermission('orders.discount.apply'), (req: Request, res: Response) => {
+router.patch('/:id/discount', orderWriteRateLimit, (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id) as any;
@@ -1773,6 +1806,15 @@ router.patch('/:id/discount', orderWriteRateLimit, requirePermission('orders.dis
     // Cannot apply discount to completed or cancelled orders
     if (['completed', 'cancelled'].includes(order.status)) {
       return res.status(400).json({ error: 'Cannot apply discount to a completed or cancelled order' });
+    }
+
+    const requestUserId = String((req as any).user?.userId || '');
+    const userRole = String((req as any).user?.role || '');
+    const hasDirectDiscountPerm =
+      ['owner', 'admin', 'manager'].includes(userRole) ||
+      hasPermission(requestUserId, 'orders.discount.apply');
+    if (!hasDirectDiscountPerm && !req.body?.override_pin) {
+      return res.status(403).json({ error: 'Manager override PIN or discount permission is required' });
     }
 
     const { discount_type, discount_value, discount_reason } = req.body || {};
@@ -1790,7 +1832,7 @@ router.patch('/:id/discount', orderWriteRateLimit, requirePermission('orders.dis
     // Check if approval is required
     let approvedByUserId: string | undefined;
     if (discount_value > 0) {
-      const requiresApproval = getSettingValue('discount_requires_approval') === 'true';
+      const requiresApproval = !hasDirectDiscountPerm || getSettingValue('discount_requires_approval') === 'true';
       if (requiresApproval) {
         const { override_pin } = req.body || {};
         if (!override_pin) {
@@ -1938,6 +1980,21 @@ router.patch('/:id/discount', orderWriteRateLimit, requirePermission('orders.dis
       const updatedOrder = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id)) as any;
       return updatedOrder;
     });
+
+    if (result && result.subtotal > 0 && result.discount_amount > 0 && (result.discount_amount / result.subtotal) >= 0.20) {
+      logPosAnomaly(db, {
+        event_type: 'excessive_discount',
+        severity: 'medium',
+        risk_points: 10,
+        order_id: String(result.id),
+        order_number: result.order_number,
+        actor_user_id: requestUserId,
+        actor_user_name: (req as any).user?.name || (req as any).user?.username || 'Staff',
+        actor_role: userRole,
+        amount_impact: result.discount_amount,
+        reason: discount_reason || 'Discount >= 20% applied',
+      });
+    }
 
     notifyOrderUpdated();
     res.json({ order: result });
@@ -2378,6 +2435,23 @@ router.patch('/:orderId/items/:itemId/cancel', orderItemCancelRateLimit, (req: R
         details: { ...(approvedByUserId && { approved_by: approvedByUserId }) },
       });
 
+      if (currentOrder.pre_bill_print_count > 0) {
+        logPosAnomaly(db, {
+          event_type: 'post_print_item_removed',
+          severity: 'critical',
+          risk_points: 25,
+          order_id: String(currentOrder.id),
+          order_number: currentOrder.order_number,
+          actor_user_id: actorId,
+          actor_user_name: (req as any).user?.name || (req as any).user?.username || 'Staff',
+          actor_role: (req as any).user?.role || 'cashier',
+          item_name: currentItem.product_name,
+          quantity: currentItem.quantity,
+          amount_impact: currentItem.total || (currentItem.unit_price * currentItem.quantity),
+          reason: reason || 'Item cancelled after pre-bill print',
+        });
+      }
+
       const updatedOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
       const items = attachEffectiveAddons(db, db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId).map(parseItemJson) as any[]);
       return {
@@ -2397,6 +2471,88 @@ router.patch('/:orderId/items/:itemId/cancel', orderItemCancelRateLimit, (req: R
     console.error('[Orders] Cancel item error:', error);
     console.error("[API] Internal error:", error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
+  }
+});
+
+// ── Pre-Bill Printed Tracking & Direct Item Deletion ──────────────────────────
+
+router.post('/:id/pre-bill-printed', orderWriteRateLimit, (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id) as any;
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    db.prepare(`
+      UPDATE orders
+      SET pre_bill_printed_at = COALESCE(pre_bill_printed_at, datetime('now')),
+          pre_bill_print_count = COALESCE(pre_bill_print_count, 0) + 1,
+          pre_bill_last_total = total
+      WHERE id = ?
+    `).run(req.params.id);
+
+    const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+    res.json({ success: true, order: updated });
+  } catch (err: any) {
+    console.error('[Orders] pre-bill-printed error:', err);
+    res.status(500).json({ error: err.message || 'Failed to record pre-bill print' });
+  }
+});
+
+router.delete('/:id/items/:itemId', orderItemCancelRateLimit, (req: Request, res: Response) => {
+  try {
+    const orderId = String(req.params.id);
+    const itemId = String(req.params.itemId);
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const item = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?').get(itemId, orderId) as any;
+    if (!item) return res.status(404).json({ error: 'Item not found in this order' });
+
+    const actorId = String((req as any).user?.userId || '');
+    const actorName = String((req as any).user?.name || (req as any).user?.username || 'Staff');
+    const userRole = String((req as any).user?.role || 'cashier');
+
+    if (order.pre_bill_print_count > 0) {
+      logPosAnomaly(db, {
+        event_type: 'post_print_item_removed',
+        severity: 'critical',
+        risk_points: 25,
+        order_id: String(order.id),
+        order_number: order.order_number,
+        actor_user_id: actorId,
+        actor_user_name: actorName,
+        actor_role: userRole,
+        item_name: item.product_name || item.name,
+        quantity: item.quantity,
+        amount_impact: item.total || (item.unit_price * item.quantity),
+        reason: req.body?.reason || 'Item removed after pre-bill print',
+      });
+    }
+
+    db.prepare("UPDATE order_items SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(itemId);
+
+    if (item.inventory_deducted_quantity > 0) {
+      adjustProductStock(db, {
+        productId: item.inventory_product_id || item.product_id,
+        quantityDelta: item.inventory_deducted_quantity,
+        movementType: 'cancel_restore',
+        referenceType: 'order_item',
+        referenceId: `${item.id}:${now()}`,
+        reason: 'Item deleted',
+        actorUserId: actorId,
+      });
+    }
+
+    // Recalculate order totals
+    recalculateAndPersistOrder(db, orderId);
+
+    notifyOrderUpdated();
+    res.json({ success: true, message: 'Item removed successfully' });
+  } catch (error: any) {
+    console.error('[Orders] DELETE item error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete item' });
   }
 });
 

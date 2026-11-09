@@ -279,6 +279,36 @@ export function buildFullZReportThermalSlip(
   commands.push(
     { text: `${isAr ? 'النقدية الفعلية المعدودة' : 'Actual Counted Cash'}: ${actualCash.toFixed(2)}`, align: 'center', bold: true, doubleHeight: true },
     { text: `${isAr ? 'فارق الدرج' : 'Cash Variance'}: ${varianceText}`, align: 'center', bold: true },
+  );
+
+  const safeDropsTotal = Number(data.safeDropsTotal ?? data.safe_drops_total ?? 0);
+  const safeBalance = Number(data.safeBalance ?? data.safe_balance ?? 0);
+  if (safeDropsTotal > 0 || safeBalance > 0) {
+    if (safeDropsTotal > 0) {
+      commands.push({ text: `${isAr ? 'توريدات الخزنة بالوردية' : 'Mid-Shift Safe Drops'}: ${safeDropsTotal.toFixed(2)}`, align: 'center' });
+    }
+    if (safeBalance > 0) {
+      commands.push({ text: `${isAr ? 'رصيد الخزنة الرئيسية' : 'Main Safe Balance'}: ${safeBalance.toFixed(2)}`, align: 'center', bold: true });
+    }
+  }
+
+  // 4b. Cashier Anti-Theft & Integrity Summary
+  const anomalyRiskScore = Number(data.anomalyRiskScore ?? data.anomaly_risk_score ?? 0);
+  const anomalyCount = Number(data.anomalyCount ?? data.anomaly_count ?? 0);
+  const postPrintDeletions = Number(data.postPrintDeletionsCount ?? data.post_print_deletions_count ?? 0);
+  const noSaleOpens = Number(data.noSaleDrawerOpensCount ?? data.no_sale_drawer_opens_count ?? 0);
+
+  if (anomalyRiskScore > 0 || anomalyCount > 0 || postPrintDeletions > 0 || noSaleOpens > 0) {
+    commands.push(
+      { text: dashed, align: 'center' },
+      { text: isAr ? '--- نزاهة الوردية وكاشف التلاعب ---' : '--- ANTI-THEFT & INTEGRITY AUDIT ---', align: 'center', bold: true },
+      { text: `${isAr ? 'مؤشر الخطورة' : 'Risk Score'}: ${anomalyRiskScore} | ${isAr ? 'الأنماط' : 'Anomalies'}: ${anomalyCount}`, align: 'center', bold: true },
+      { text: `${isAr ? 'حذف بعد المبدئية' : 'Post-Prebill Deletions'}: ${postPrintDeletions}`, align: 'center' },
+      { text: `${isAr ? 'فتح درج بدون بيع' : 'No-Sale Drawer Opens'}: ${noSaleOpens}`, align: 'center' },
+    );
+  }
+
+  commands.push(
     { text: divider, align: 'center', bold: true },
   );
 
