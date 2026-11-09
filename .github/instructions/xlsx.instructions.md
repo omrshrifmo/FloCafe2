@@ -6,7 +6,7 @@ applyTo:
   - **/*.xlsm
   - **/*.csv
   - **/*.tsv
-deployedAt: "2026-11-09T16:19:34.115Z"
+deployedAt: "2026-11-09T17:05:00.398Z"
 ---
 
 # xlsx
