@@ -390,39 +390,43 @@ export default function PrepaidCheckoutModal({ currency, onClose, onConfirm }: P
     }
 
     setProcessing(true);
-    let cashLineCount = 0;
-    const splitLines: PrepaidPayment[] = payments
-      .map((p) => {
-        const customMethod = customMethods.find((m) => m.id === p.payment_method_id);
-        const methodName = customMethod?.name || (p.payment_method_id === undefined ? p.method : 'custom');
-        const amt = toStoredUnit(parseFloat(p.amount) || 0);
-        const isCash = p.method === 'cash';
-        const cashLineIndex = isCash ? cashLineCount++ : -1;
-        const assignedChange = isCash && cashLineIndex === 0 ? change : 0;
-        const tendered = isCash
-          ? (p.tendered && Number(p.tendered) >= amt ? Number(p.tendered) : Number((amt + assignedChange).toFixed(2)))
-          : undefined;
-        return {
-          method: p.payment_method_id === undefined ? p.method : 'custom',
-          ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id, method_id: p.payment_method_id } : {}),
-          method_name: methodName,
-          amount: amt,
-          tendered,
-          change: assignedChange,
-        };
-      })
-      .filter((p) => p.amount > 0 && !isNaN(p.amount));
+    try {
+      let cashLineCount = 0;
+      const splitLines: PrepaidPayment[] = payments
+        .map((p) => {
+          const customMethod = customMethods.find((m) => m.id === p.payment_method_id);
+          const methodName = customMethod?.name || (p.payment_method_id === undefined ? p.method : 'custom');
+          const amt = toStoredUnit(parseFloat(p.amount) || 0);
+          const isCash = p.method === 'cash';
+          const cashLineIndex = isCash ? cashLineCount++ : -1;
+          const assignedChange = isCash && cashLineIndex === 0 ? change : 0;
+          const tendered = isCash
+            ? (p.tendered && Number(p.tendered) >= amt ? Number(p.tendered) : Number((amt + assignedChange).toFixed(2)))
+            : undefined;
+          return {
+            method: p.payment_method_id === undefined ? p.method : 'custom',
+            ...(p.payment_method_id !== undefined ? { payment_method_id: p.payment_method_id, method_id: p.payment_method_id } : {}),
+            method_name: methodName,
+            amount: amt,
+            tendered,
+            change: assignedChange,
+          };
+        })
+        .filter((p) => p.amount > 0 && !isNaN(p.amount));
 
-    const finalDiscount: PrepaidDiscount | null = preview.discountAmount > 0
-      ? {
-        type: discountType,
-        value: previewDiscount?.value ?? 0,
-        reason: discountReason || undefined,
-        override_pin: discountRequiresApproval && discountPin ? discountPin : undefined,
-      }
-      : null;
+      const finalDiscount: PrepaidDiscount | null = preview.discountAmount > 0
+        ? {
+          type: discountType,
+          value: previewDiscount?.value ?? 0,
+          reason: discountReason || undefined,
+          override_pin: discountRequiresApproval && discountPin ? discountPin : undefined,
+        }
+        : null;
 
-    onConfirm(splitLines, walletAmt, finalDiscount);
+      onConfirm(splitLines, walletAmt, finalDiscount);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (

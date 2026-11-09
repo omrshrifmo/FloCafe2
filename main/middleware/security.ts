@@ -71,7 +71,7 @@ export function rateLimit(options: RateLimitOptions = {}) {
     if (options.skipSuccessfulRequests) {
       const originalSend = res.send.bind(res);
       res.send = (body: any) => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
+        if (res.statusCode < 400) {
           record!.count = Math.max(0, record!.count - 1);
         }
         return originalSend(body);
@@ -90,6 +90,7 @@ export function authRateLimit(options: { max?: number } = {}) {
     max: options.max ?? (Number.isFinite(envMax) ? envMax : 10),
     message: 'Too many authentication attempts. Please try again later.',
     bypassPrivateIp: false,
+    skipSuccessfulRequests: true,
   });
 }
 

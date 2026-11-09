@@ -503,12 +503,19 @@ export default function POSPage() {
       { headers: { 'Idempotency-Key': pendingAttempt.idempotencyKey } },
     ).then(() => {
       const storage = getAppendAttemptStorage();
-      if (!clearAppendAttempt(storage, pendingAttempt!)) throw new Error('Unable to clear append retry state');
+      if (!clearAppendAttempt(storage, pendingAttempt!)) {
+        console.error('Unable to clear append retry state');
+      }
       if (addItemsAttemptRef.current?.idempotencyKey !== pendingAttempt!.idempotencyKey) return;
       addItemsAttemptRef.current = null;
       // Do not clear cart or checkout state that may have been started while
       // recovery was in flight. A reload starts empty; any current UI is newer.
-      toast.success(t('itemsAddedToOrder', { number: pendingAttempt!.orderNumber || pendingAttempt!.orderId }));
+      const addedCount = (pendingAttempt!.items || []).reduce((sum: number, item: any) => sum + (Number(item.quantity) || 1), 0);
+      try {
+        toast.success(t('itemsAddedToOrder', { count: addedCount, number: pendingAttempt!.orderNumber || pendingAttempt!.orderId }));
+      } catch (err) {
+        console.error('Toast notification failed for itemsAddedToOrder', err);
+      }
       refreshTables();
     }).catch(() => {
       toast.error(t('addItemsFailed'));
@@ -656,10 +663,18 @@ export default function POSPage() {
     || shift.openModalOpen || shift.closeModalOpen;
 
   useBarcodeScanner((code) => {
+    if (!shift.session) {
+      toast.error(isArabic ? 'يجب فتح الوردية أولاً قبل إنشاء أو تسجيل أي طلب.' : 'You must open a shift first before making any orders.');
+      shift.setOpenModalOpen(true);
+      return;
+    }
     const scan = resolveScannedProduct(code, products);
     if (scan) {
-      if (scan.scaleBarcode) cart.addItem(scan.product, scan.quantity);
-      else handleProductClick(scan.product);
+      if (scan.scaleBarcode && (!scan.product.addon_groups || scan.product.addon_groups.length === 0)) {
+        cart.addItem(scan.product, scan.quantity);
+      } else {
+        handleProductClick(scan.product);
+      }
     } else {
       toast.error(t('barcodeNotFound', { code }));
     }
@@ -723,12 +738,19 @@ export default function POSPage() {
           { items: newItems, special_instructions: specialInstructions },
           { headers: { 'Idempotency-Key': itemAttempt.idempotencyKey } },
         );
-        toast.success(t('itemsAddedToOrder', { number: pendingOrder.order_number }));
+        const addedCount = newItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+        try {
+          toast.success(t('itemsAddedToOrder', { count: addedCount, number: pendingOrder.order_number }));
+        } catch (err) {
+          console.error('Toast notification failed for itemsAddedToOrder', err);
+        }
         const updatedOrder = data.order as Order;
         const existingItemIds = new Set((pendingOrder.items || []).map((item) => Number(item.id)));
         const appendedItems = (updatedOrder.items || []).filter((item) => !existingItemIds.has(Number(item.id)));
         orderForKot = appendedItems.length > 0 ? { ...updatedOrder, items: appendedItems } : updatedOrder;
-        if (!clearAppendAttempt(storage, itemAttempt)) throw new Error('Unable to clear append retry state');
+        if (!clearAppendAttempt(storage, itemAttempt)) {
+          console.error('Unable to clear append retry state');
+        }
         addItemsAttemptRef.current = null;
         setPendingOrder(null);
       } else {
@@ -1173,9 +1195,16 @@ export default function POSPage() {
       }, { headers: { 'Idempotency-Key': itemAttempt.idempotencyKey } });
       // A resolved response is the confirmation boundary. Keep the durable
       // attempt through all network errors so a lost response can replay it.
-      if (!clearAppendAttempt(storage, itemAttempt)) throw new Error('Unable to clear append retry state');
+      if (!clearAppendAttempt(storage, itemAttempt)) {
+        console.error('Unable to clear append retry state');
+      }
       addItemsAttemptRef.current = null;
-      toast.success(t('itemsAddedToOrder', { number: order.order_number }));
+      const addedCount = items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+      try {
+        toast.success(t('itemsAddedToOrder', { count: addedCount, number: order.order_number }));
+      } catch (err) {
+        console.error('Toast notification failed for itemsAddedToOrder', err);
+      }
       const updatedOrder = data.order as Order;
       const existingItemIds = new Set((order.items || []).map((item) => Number(item.id)));
       const appendedItems = (updatedOrder.items || []).filter((item) => !existingItemIds.has(Number(item.id)));

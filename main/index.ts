@@ -15,6 +15,7 @@ import { telemetry, sendEvent as sendTelemetryEvent } from './services/telemetry
 import { googleDrive } from './services/google-drive';
 import { startKdsServer, stopKdsServer, getKdsPort, isKdsServerRunning } from './kds-server';
 import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } from './server-app';
+import { startScreenSnapshotInterval } from './services/screen-snapshot';
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
 import { registerIpcHandlers, isTrustedSender } from './ipc';
@@ -809,6 +810,8 @@ function createWindow(): void {
   mainWindow.webContents.on('responsive', () => {
     console.log('[Window] Window became responsive again');
   });
+
+  startScreenSnapshotInterval(() => mainWindow, 30000);
 }
 
 async function handleMainWindowActivation(): Promise<void> {

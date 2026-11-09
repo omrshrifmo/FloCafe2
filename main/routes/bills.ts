@@ -587,6 +587,8 @@ router.post('/generate', requirePermission('bills.generate'), async (req: Reques
       code: error.code || (isBusy ? 'DATABASE_BUSY' : 'BILL_GENERATION_FAILED'),
       supportId,
       transient: isBusy,
+      recovered: !!existingBill,
+      billId: existingBill?.id || null,
       existingBill,
     });
   }
@@ -2054,8 +2056,8 @@ function preparePaymentBatch(
 
   if (prepared.some((line) => line.payment.method === 'wallet')) {
     if (!effectiveCustomerId) throw Object.assign(new Error('Customer association is required for wallet payment'), { statusCode: 400 });
-    const credits = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type = 'credit' AND (expires_at IS NULL OR expires_at > datetime('now'))`).get(effectiveCustomerId) as { total: number };
-    const debits = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type = 'debit'`).get(effectiveCustomerId) as { total: number };
+    const credits = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type IN ('credit', 'earn') AND (expires_at IS NULL OR expires_at > datetime('now'))`).get(effectiveCustomerId) as { total: number };
+    const debits = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = ? AND type IN ('redeem', 'debit')`).get(effectiveCustomerId) as { total: number };
     const walletPoints = Math.max(0, Number(credits.total) - Number(debits.total));
     const pointsRequired = prepared.filter((line) => line.payment.method === 'wallet').reduce((sum, line) => sum + line.amountCents, 0) / minorFactor * LOYALTY_REDEMPTION_RATE;
     if (walletPoints < pointsRequired) throw Object.assign(new Error(`Insufficient wallet balance. Available: ${walletPoints} points, Required: ${pointsRequired}`), { statusCode: 400 });
@@ -2119,7 +2121,7 @@ export function applyPaymentBatch(
   }
   // Shift enforcement (#279) runs after replay detection: retrying an already
   // recorded payment must succeed even if its shift has since closed.
-  requireOpenSessionForCashTender(db, payments);
+  requireOpenSessionForCashTender(db, prepared.map((line) => line.payment));
   const activeSessionId = getOpenSession(db)?.id ?? NO_CASH_SESSION_ID;
   const currency = getTenantCurrency();
   const minorFactor = getCurrencyMinorUnitFactor(currency);
@@ -2252,7 +2254,7 @@ export function applyPaymentBatch(
         if (order.table_id) db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(changedAt, order.table_id);
       }
     }
-    const cashback = calculateCashback(db, bill, effectiveCustomerId);
+    const cashback = calculateCashback(db, bill, effectiveCustomerId ? String(effectiveCustomerId) : null);
     const alreadyCredited = db.prepare(`SELECT id FROM loyalty_ledger WHERE bill_id = ? AND type = 'credit'`).get(bill.id);
     if (cashback > 0 && !alreadyCredited) {
       const walletCents = allPayments.filter((p: any) => p.method === 'wallet').reduce((sum: number, p: any) => sum + Math.round(Number(p.amount || 0) * minorFactor), 0);

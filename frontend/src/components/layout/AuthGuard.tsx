@@ -22,10 +22,12 @@ export function getLandingPage(tenant?: Tenant | null): string {
     ['settings.view', '/settings'],
     ['support.use', '/support'],
   ] as const;
-  return candidates.find(([permission]) => tenantCan(tenant, permission))?.[1] ?? '/auth/login';
+  const matched = candidates.find(([permission]) => tenantCan(tenant, permission))?.[1];
+  if (matched) return matched;
+  return (tenant as any)?.user_role === 'chef' || (tenant as any)?.role === 'chef' ? '/kds' : (tenant ? '/pos' : '/auth/login');
 }
 
-const PUBLIC_PATHS = ['/kds', '/kds-standalone', '/server-standalone', '/auth/login', '/auth/register', '/auth/recover', '/setup'];
+const PUBLIC_PATHS = ['/kds', '/kds-standalone', '/server-standalone', '/auth/login', '/auth/register', '/auth/recover', '/auth/recovery', '/setup'];
 
 const PAGE_PERMISSIONS = [
   ['/pos', 'pos.use'],

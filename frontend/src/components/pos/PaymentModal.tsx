@@ -97,8 +97,10 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
   const toMinorUnits = (amount: number) => Math.round(amount * minorFactor);
 
   const idempotencyKeyRef = useRef<string | null>(null);
+  const idempotencyFingerprintRef = useRef<string | null>(null);
   useEffect(() => {
     idempotencyKeyRef.current = null;
+    idempotencyFingerprintRef.current = null;
   }, [bill.id]);
   const [justPaid, setJustPaid] = useState(false);
   const [printingPreliminary, setPrintingPreliminary] = useState(false);
@@ -416,6 +418,15 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
 
       // Atomic call ensures all split payment lines succeed together
       // or fail together without leaving partial payments.
+      const currentFingerprint = JSON.stringify({
+        billId: bill.id,
+        payments: splitLines,
+        customer_id: effectiveCustomerId,
+      });
+      if (idempotencyFingerprintRef.current !== currentFingerprint) {
+        idempotencyKeyRef.current = createPaymentIdempotencyKey();
+        idempotencyFingerprintRef.current = currentFingerprint;
+      }
       const idempotencyKey = idempotencyKeyRef.current || createPaymentIdempotencyKey();
       idempotencyKeyRef.current = idempotencyKey;
       const res = await api.post(
@@ -427,7 +438,10 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
       if (!updatedBill || updatedBill.payment_status !== 'paid') {
         // This request committed a partial payment, so the next attempt is a
         // new request and must not reuse the completed request's hash.
-        if (updatedBill) idempotencyKeyRef.current = null;
+        if (updatedBill) {
+          idempotencyKeyRef.current = null;
+          idempotencyFingerprintRef.current = null;
+        }
         if (updatedBill && onBillUpdate) onBillUpdate(updatedBill);
         toast.error(t('paymentIncomplete', {
           amount: currencyFmt(Number(updatedBill?.balance) || 0),
@@ -442,7 +456,11 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
         toast.success(t('paymentRecorded'));
       }
       setJustPaid(true);
-    } catch {
+    } catch (err: any) {
+      if (err?.response?.status && err.response.status >= 400 && err.response.status < 500) {
+        idempotencyKeyRef.current = null;
+        idempotencyFingerprintRef.current = null;
+      }
       toast.error(t('paymentFailed'));
     } finally {
       setProcessing(false);

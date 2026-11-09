@@ -103,7 +103,9 @@ function LoginContent() {
         setLoginError(t('storageUnavailable'));
       } else {
         const failure = parseLoginFailure(err);
-        if (failure.status === 401) {
+        if (failure.code === 'DB_ERROR' || failure.status === 500) {
+          setDbError(failure.message || t('loginFailed'));
+        } else if (failure.status === 401) {
           const remaining = failure.attemptsRemaining;
           if (remaining === 0) {
             // Just got locked out
@@ -120,7 +122,8 @@ function LoginContent() {
           }
         } else if (failure.status === 429) {
           // Middleware-level lockout (authRateLimit window exhausted)
-          setLoginError(t('lockedOut', { minutes: 15 }));
+          const mins = failure.lockoutMinutes ?? 15;
+          setLoginError(t('lockedOut', { minutes: mins }));
         } else if (failure.status === undefined) {
           // No HTTP response at all: the server was unreachable (network).
           setLoginError(t('connectionFailed'));

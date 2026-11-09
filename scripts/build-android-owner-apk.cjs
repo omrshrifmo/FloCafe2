@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * FloOwner Control System v4.7.2 - Official Google Android Toolchain APK Builder
+ * FloOwner Control System v4.8.0 - Official Google Android Toolchain APK Builder
  * Compiles a 100% real, installable, hardware-accelerated Android WebView APK
  * using official Google Android SDK Build-Tools (ecj + d8 + aapt + zipalign + apksigner v1/v2/v3).
  *
  * Produces:
- *   - release/FloOwner-Control-4.7.2-android.apk
+ *   - release/FloOwner-Control-4.8.0-android.apk
  *   - release/FloOwner-Android-Package.zip
  */
 
@@ -24,8 +24,8 @@ const PLATFORM_JAR = path.join(cacheDir, 'platform', 'android.jar');
 const ECJ_JAR = path.join(cacheDir, 'ecj.jar');
 const KEYSTORE_PATH = path.join(cacheDir, 'floowner-release.jks');
 
-const VERSION_NAME = '4.7.2';
-const VERSION_CODE = '40702';
+const VERSION_NAME = '4.8.0';
+const VERSION_CODE = '40800';
 const PACKAGE_NAME = 'com.flocafe.ownercontrol';
 
 console.log('='.repeat(70));

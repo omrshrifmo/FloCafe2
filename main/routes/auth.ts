@@ -6,7 +6,7 @@ import { getCurrentSchemaVersion, getDatabase, getSettingValue, now } from '../d
 import { getJWTSecret } from '../security/jwt-secret';
 import { seedSetupProfile } from '../setup/seed-data';
 import { authorizeMasterPin, isMasterPinAvailable, isMasterPinSet, setMasterPin } from '../services/master-pin';
-import { checkPinRateLimit } from './orders';
+import { checkPinRateLimit, recordFailedPinAttempt, resetPinRateLimit } from './orders';
 import { authRateLimit, validatePassword, revokeToken, isTokenRevoked, isTokenStale, invalidateUserAuthCache } from '../middleware/security';
 import { getCurrencySymbol, getCountryByCode, isValidTimeZone, resolveRegionalSnapshot, type RegionalSnapshot } from '../countries';
 import { countryConfirmationPatch } from '../services/country-provenance';
@@ -151,43 +151,58 @@ function requireLocalSetup(req: Request, res: Response): boolean {
 }
 
 // ── Rate Limiting (In-Memory for local offline apps) ──────────────────────────
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+interface LoginAttemptRecord {
+  count: number;
+  lockedUntil: number;
+  firstAttemptAt: number;
+}
+const loginAttempts = new Map<string, LoginAttemptRecord>();
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
+const ATTEMPT_WINDOW_MS = LOCKOUT_MINUTES * 60 * 1000;
 const passwordChangeAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const PASSWORD_CHANGE_MAX_ATTEMPTS = 5;
 const PASSWORD_CHANGE_LOCKOUT_MINUTES = 5;
 
-function checkRateLimit(ip: string): { allowed: boolean; waitMinutes?: number } {
+export function getLoginAttemptKey(ip: string, email?: string): string {
+  const normIp = (ip || 'unknown').trim().toLowerCase();
+  const normEmail = (email || '').trim().toLowerCase();
+  return `${normIp}:${normEmail}`;
+}
+
+function checkRateLimit(key: string): { allowed: boolean; waitMinutes?: number } {
   const nowMs = Date.now();
-  let record = loginAttempts.get(ip);
+  let record = loginAttempts.get(key);
 
   if (record) {
     if (record.lockedUntil > nowMs) {
       const waitMinutes = Math.ceil((record.lockedUntil - nowMs) / 60000);
       return { allowed: false, waitMinutes };
     }
-    // If lock expired, reset
-    if (record.lockedUntil > 0 && record.lockedUntil <= nowMs) {
-      record = { count: 0, lockedUntil: 0 };
-      loginAttempts.set(ip, record);
+    // If lock expired, or sliding window expired
+    if ((record.lockedUntil > 0 && record.lockedUntil <= nowMs) || (record.firstAttemptAt && nowMs - record.firstAttemptAt > ATTEMPT_WINDOW_MS)) {
+      loginAttempts.delete(key);
     }
   }
   return { allowed: true };
 }
 
-function incrementFailedLogin(ip: string): number {
-  const record = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
+function incrementFailedLogin(key: string): number {
+  const nowMs = Date.now();
+  let record = loginAttempts.get(key);
+  if (!record || (record.firstAttemptAt && nowMs - record.firstAttemptAt > ATTEMPT_WINDOW_MS && record.lockedUntil <= nowMs)) {
+    record = { count: 0, lockedUntil: 0, firstAttemptAt: nowMs };
+  }
   record.count += 1;
   if (record.count >= MAX_ATTEMPTS) {
-    record.lockedUntil = Date.now() + LOCKOUT_MINUTES * 60000;
+    record.lockedUntil = nowMs + LOCKOUT_MINUTES * 60000;
   }
-  loginAttempts.set(ip, record);
+  loginAttempts.set(key, record);
   return Math.max(0, MAX_ATTEMPTS - record.count);
 }
 
-function resetSuccessfulLogin(ip: string) {
-  loginAttempts.delete(ip);
+function resetSuccessfulLogin(key: string) {
+  loginAttempts.delete(key);
 }
 
 function checkPasswordChangeRateLimit(userId: string): { allowed: boolean; waitMinutes?: number } {
@@ -222,13 +237,17 @@ function resetPasswordChangeRateLimit(userId: string): void {
 router.post('/login', authRateLimit(), asyncHandler(async (req: Request, res: Response) => {
   try {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const rateLimit = checkRateLimit(ip);
-    if (!rateLimit.allowed) {
-      return res.status(429).json({ error: `Too many failed attempts. Try again in ${rateLimit.waitMinutes} minutes.` });
-    }
-
     const email = normalizeEmail(req.body?.email);
     const { password, rememberMe } = req.body || {};
+
+    const attemptKey = getLoginAttemptKey(ip, email);
+    const rateLimit = checkRateLimit(attemptKey);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({
+        error: `Too many failed attempts. Try again in ${rateLimit.waitMinutes} minutes.`,
+        lockoutMinutes: rateLimit.waitMinutes,
+      });
+    }
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
@@ -246,14 +265,18 @@ router.post('/login', authRateLimit(), asyncHandler(async (req: Request, res: Re
     }
 
     if (!user || !passwordMatches) {
-      const attemptsRemaining = incrementFailedLogin(ip);
+      const attemptsRemaining = incrementFailedLogin(attemptKey);
       return res.status(401).json({
         error: 'Invalid credentials',
         attempts_remaining: attemptsRemaining,
+        attemptsRemaining,
         lockout_minutes: attemptsRemaining === 0 ? LOCKOUT_MINUTES : undefined,
+        lockoutMinutes: attemptsRemaining === 0 ? LOCKOUT_MINUTES : undefined,
       });
     }
 
+    resetSuccessfulLogin(attemptKey);
+    resetSuccessfulLogin(getLoginAttemptKey(ip, ''));
     resetSuccessfulLogin(ip);
 
     const remember = !!rememberMe;
@@ -275,6 +298,7 @@ router.post('/login', authRateLimit(), asyncHandler(async (req: Request, res: Re
         email: user.email,
         role: user.role,
         category_ids: parseCategoryIds(user.category_ids),
+        permission_ids: tenant.permission_ids || [],
       },
       // Single tenant — frontend auto-selects when tenants.length === 1
       tenants: [tenant],
@@ -303,7 +327,7 @@ router.post('/tenants/select', (req: Request, res: Response) => {
     const decoded = jwt.verify(token, getJWTSecret()) as any;
 
     const db = getDatabase();
-    const user = db.prepare('SELECT id, name, email, role, is_active, tokens_valid_after FROM users WHERE id = ?').get(decoded.userId) as any;
+    const user = db.prepare('SELECT id, name, email, role, is_active, tokens_valid_after, category_ids FROM users WHERE id = ?').get(decoded.userId) as any;
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.is_active !== 1 || isTokenStale(decoded.iat, user.tokens_valid_after)) {
       return res.status(401).json({ error: 'Invalid token' });
@@ -323,6 +347,14 @@ router.post('/tenants/select', (req: Request, res: Response) => {
       access_token: newToken,
       token_type: 'bearer',
       tenant,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        category_ids: parseCategoryIds(user.category_ids),
+        permission_ids: tenant.permission_ids || [],
+      },
     });
   } catch (error: any) {
     res.status(401).json({ error: 'Invalid token' });
@@ -364,14 +396,14 @@ router.post('/refresh', (req: Request, res: Response) => {
     // Without this, a token minted before a password/PIN change (#173) could
     // keep refreshing itself into new tokens forever, bypassing revocation entirely.
     const db = getDatabase();
-    const user = db.prepare('SELECT is_active, tokens_valid_after FROM users WHERE id = ?').get(decoded.userId) as any;
+    const user = db.prepare('SELECT id, email, role, is_active, tokens_valid_after FROM users WHERE id = ?').get(decoded.userId) as any;
     if (!user || user.is_active !== 1 || isTokenStale(decoded.iat, user.tokens_valid_after)) {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
     const remember = !!decoded.remember;
     const newToken = jwt.sign(
-      { userId: decoded.userId, email: decoded.email, role: decoded.role, tenantId: decoded.tenantId, remember, jti: randomUUID() },
+      { userId: user.id, email: user.email, role: user.role, tenantId: decoded.tenantId, remember, jti: randomUUID() },
       getJWTSecret(),
       { expiresIn: expiresInFor(remember) }
     );
@@ -402,7 +434,7 @@ router.get('/me', (req: Request, res: Response) => {
     const decoded = jwt.verify(token, getJWTSecret()) as any;
 
     const db = getDatabase();
-    const user = db.prepare('SELECT id, name, email, role, is_active, tokens_valid_after FROM users WHERE id = ?').get(decoded.userId) as any;
+    const user = db.prepare('SELECT id, name, email, role, is_active, tokens_valid_after, category_ids FROM users WHERE id = ?').get(decoded.userId) as any;
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.is_active !== 1 || isTokenStale(decoded.iat, user.tokens_valid_after)) {
       return res.status(401).json({ error: 'Invalid token' });
@@ -411,7 +443,14 @@ router.get('/me', (req: Request, res: Response) => {
     const tenant = buildLocalTenant(db, user.id, user.role);
 
     res.json({
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        category_ids: parseCategoryIds(user.category_ids),
+        permission_ids: tenant.permission_ids || [],
+      },
       tenants: [tenant],
     });
   } catch {
@@ -553,6 +592,10 @@ router.post('/recover-password', authRateLimit(), (req: Request, res: Response) 
       } : {}),
     });
     console.warn(`[Auth] Password recovery: ${restoredOwnerAccess ? 'owner access' : 'owner password'} was reset locally via Master PIN for user ${user.id}`);
+
+    resetSuccessfulLogin(getLoginAttemptKey(ip, email));
+    resetSuccessfulLogin(getLoginAttemptKey(ip, ''));
+    resetSuccessfulLogin(ip);
 
     res.json({ message: restoredOwnerAccess
       ? 'Owner access restored. You can now log in with your new password.'
@@ -873,6 +916,7 @@ router.post('/verify-admin-pin', (req: Request, res: Response) => {
     });
 
     if (matchingAdmin) {
+      resetPinRateLimit(rateLimitKey);
       return res.json({
         ok: true,
         admin: {
@@ -887,6 +931,7 @@ router.post('/verify-admin-pin', (req: Request, res: Response) => {
     if (isMasterPinAvailable() && isMasterPinSet()) {
       const masterAuth = authorizeMasterPin(trimmedPin, rateLimitKey);
       if (masterAuth.ok) {
+        resetPinRateLimit(rateLimitKey);
         return res.json({
           ok: true,
           admin: {
@@ -898,6 +943,7 @@ router.post('/verify-admin-pin', (req: Request, res: Response) => {
       }
     }
 
+    recordFailedPinAttempt(rateLimitKey);
     return res.status(401).json({ ok: false, error: 'Invalid or unauthorized Admin PIN' });
   } catch (error: any) {
     console.error('[Auth] verify-admin-pin error:', error);

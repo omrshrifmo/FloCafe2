@@ -13,7 +13,7 @@ const os = require('os');
 const crypto = require('crypto');
 
 const SERVER_NAME = 'flocafe-owner-mcp';
-const SERVER_VERSION = '4.7.2';
+const SERVER_VERSION = '4.8.0';
 
 // Default local nodes and config
 let knownNodes = [
@@ -206,6 +206,36 @@ const TOOLS = [
       required: ['node_url', 'action'],
     },
   },
+  {
+    name: 'flocafe_node_screen_snapshot',
+    description: 'Capture or retrieve the latest live POS screen snapshot, resolution, and window state from a FloCafe node.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_url: { type: 'string', description: 'Base URL of target node.' },
+        capture_fresh: { type: 'boolean', description: 'Force a fresh screen capture instead of reading cached (default: false).' },
+        owner_password: { type: 'string', description: 'Owner password.' },
+      },
+      required: ['node_url'],
+    },
+  },
+  {
+    name: 'flocafe_node_renewal_banner',
+    description: 'Set, update, or clear a remote subscription renewal reminder banner displayed across POS and Dashboard screens.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_url: { type: 'string', description: 'Base URL of target node.' },
+        active: { type: 'boolean', description: 'Whether the renewal banner is active (true to show, false to dismiss/clear).' },
+        message: { type: 'string', description: 'Banner message text to display to staff/cashiers.' },
+        banner_type: { type: 'string', enum: ['warning', 'critical', 'info'], description: 'Visual urgency level (default: warning).' },
+        action_url: { type: 'string', description: 'Optional action/payment link for the banner.' },
+        dismissible: { type: 'boolean', description: 'Whether staff can dismiss the banner (default: true).' },
+        owner_password: { type: 'string', description: 'Owner password.' },
+      },
+      required: ['node_url', 'active'],
+    },
+  },
 ];
 
 async function handleToolCall(name, args) {
@@ -321,6 +351,24 @@ async function handleToolCall(name, args) {
         reactivationPassword: ownerPassword,
       };
       const res = await httpRequest(args.node_url, '/api/sentinel/tunnel', 'POST', body, headers);
+      return res.data;
+    }
+
+    case 'flocafe_node_screen_snapshot': {
+      const method = args.capture_fresh ? 'POST' : 'GET';
+      const res = await httpRequest(args.node_url, '/api/sentinel/screen-snapshot', method, null, headers);
+      return res.data;
+    }
+
+    case 'flocafe_node_renewal_banner': {
+      const body = {
+        active: args.active,
+        message: args.message,
+        banner_type: args.banner_type || 'warning',
+        action_url: args.action_url,
+        dismissible: args.dismissible !== undefined ? args.dismissible : true,
+      };
+      const res = await httpRequest(args.node_url, '/api/sentinel/renewal-banner', 'POST', body, headers);
       return res.data;
     }
 

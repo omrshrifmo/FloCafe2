@@ -840,7 +840,9 @@ export default function OrdersPage() {
       await api.post(`/orders/${addItemsOrder.id}/items`, {
         items,
       }, { headers: { 'Idempotency-Key': attempt.idempotencyKey } });
-      if (!clearAppendAttempt(storage, attempt)) throw new Error('Unable to clear append retry state');
+      if (!clearAppendAttempt(storage, attempt)) {
+        console.error('Unable to clear append retry state');
+      }
       addItemsAttemptRef.current = null;
       toast.success(tOrders('itemsAdded', { count: selectedItems.length }));
       openAddItemsModal(null);

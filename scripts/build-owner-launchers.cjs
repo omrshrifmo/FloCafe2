@@ -19,7 +19,7 @@ if (fs.existsSync(ownerHtml)) {
 const batPath = path.join(releaseDir, 'Launch-FloOwner-Control-Windows.bat');
 const batContent = `@echo off
 setlocal
-title FloOwner Control System v4.7.2
+title FloOwner Control System v4.8.0
 
 if exist "%~dp0Flo Cafe.exe" (
     start "" "%~dp0Flo Cafe.exe" --owner-app

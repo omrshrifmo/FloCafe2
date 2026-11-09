@@ -7828,10 +7828,9 @@ export function syncOrderStatusAfterItemUpdate(targetDb: any, orderId: number | 
 
   const allServed = items.every((i) => i.status === 'served');
   if (allServed) {
-    const bill = activeDb.prepare("SELECT payment_status, balance, total FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1").get(orderId) as any;
-    const isPaid = bill && (bill.payment_status === 'paid' || (Number(bill.balance) <= 0 && Number(bill.total) > 0));
+    const paidBill = activeDb.prepare("SELECT 1 FROM bills WHERE order_id = ? AND payment_status = 'paid' LIMIT 1").get(orderId);
     const nowStr = now();
-    if (isPaid) {
+    if (paidBill) {
       activeDb.prepare("UPDATE orders SET status = 'completed', completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE id = ?").run(nowStr, nowStr, orderId);
       if (order.table_id) {
         activeDb.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(nowStr, order.table_id);

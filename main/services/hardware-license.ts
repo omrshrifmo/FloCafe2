@@ -125,99 +125,28 @@ export function verifyReactivationPassword(password: string): boolean {
 
 let cachedHwid: string | null = null;
 
+const hwidModule = require('./hardware-fingerprint.cjs');
+export const readStableMachineId: () => string = hwidModule.readStableMachineId;
+
+export function getCompatibleHardwareFingerprints(): Set<string> {
+  if (testMockHwid) {
+    return new Set([testMockHwid]);
+  }
+  return hwidModule.getCompatibleHardwareFingerprints();
+}
+
 export function clearCachedHwidForTest(): void {
   cachedHwid = null;
+  if (typeof hwidModule.clearCachedHwidForTest === 'function') {
+    hwidModule.clearCachedHwidForTest();
+  }
 }
 
 export function computeHardwareFingerprint(): string {
   if (cachedHwid) return cachedHwid;
-
-  const parts: string[] = [];
-  const platform = os.platform();
-
-  // 1. Machine ID
-  let machineId = '';
-  if (platform === 'win32') {
-    try {
-      const regOut = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', {
-        encoding: 'utf8',
-        timeout: 1500,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      const match = regOut.match(/MachineGuid\s+REG_SZ\s+([^\r\n]+)/i);
-      if (match && match[1]) {
-        machineId = match[1].trim();
-      }
-    } catch {}
-  } else if (platform === 'darwin') {
-    try {
-      const ioregOut = execSync('ioreg -rd1 -c IOPlatformExpertDevice', {
-        encoding: 'utf8',
-        timeout: 1500,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      const match = ioregOut.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/i);
-      if (match && match[1]) {
-        machineId = match[1].trim();
-      }
-    } catch {}
-  } else {
-    // Linux / BSD
-    for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
-      if (fs.existsSync(p)) {
-        try {
-          const content = fs.readFileSync(p, 'utf8').trim();
-          if (content.length > 0) {
-            machineId = content;
-            break;
-          }
-        } catch {}
-      }
-    }
-  }
-
-  if (machineId) parts.push(`mid:${machineId}`);
-
-  // 2. CPU Architecture & Model
-  const cpus = os.cpus() || [];
-  const cpuModel = cpus[0]?.model || os.arch();
-  const cpuCores = cpus.length;
-  parts.push(`cpu:${cpuModel}:${cpuCores}`);
-
-  // 3. Total Memory (bucketed to 512MB to avoid dynamic memory shifts in VMs)
-  const totalMem = Math.round(os.totalmem() / (512 * 1024 * 1024));
-  parts.push(`mem:${totalMem}`);
-
-  // 4. Primary Network MAC (filter out loopback, virtual/docker interfaces)
-  let primaryMac = '';
-  try {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces).sort()) {
-      if (/veth|docker|br-|tun|tap/i.test(name)) continue;
-      const list = interfaces[name];
-      if (Array.isArray(list)) {
-        for (const iface of list) {
-          if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-            primaryMac = iface.mac.toLowerCase();
-            break;
-          }
-        }
-      }
-      if (primaryMac) break;
-    }
-  } catch {}
-  if (primaryMac) parts.push(`mac:${primaryMac}`);
-
-  // 5. Hostname / System identifier
-  const hostname = (os.hostname() || 'flocafe-node').toLowerCase();
-  parts.push(`host:${hostname}`);
-
-  const combined = parts.join('|');
-  const fullHash = crypto.createHash('sha256').update(combined).digest('hex').toUpperCase();
-  const formatted = `FLOHW-${fullHash.slice(0, 4)}-${fullHash.slice(4, 8)}-${fullHash.slice(8, 12)}-${fullHash.slice(12, 16)}`;
-
-  cachedHwid = formatted;
-  return formatted;
+  const hwid = hwidModule.getHardwareFingerprint();
+  cachedHwid = hwid;
+  return hwid;
 }
 
 // Testing hooks
@@ -238,18 +167,29 @@ export function getHardwareFingerprint(): string {
   return computeHardwareFingerprint();
 }
 
-function getUserDataAnchorPath(): string {
+export function getCandidateAnchorPaths(): string[] {
+  const paths: string[] = [];
   try {
     const { app } = require('electron');
     if (app && typeof app.getPath === 'function') {
-      return path.join(app.getPath('userData'), '.hw-license-anchor.json');
+      paths.push(path.join(app.getPath('userData'), '.hw-license-anchor.json'));
     }
   } catch {}
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-    return path.join(appData, 'flo-desktop', '.hw-license-anchor.json');
+    paths.push(path.join(appData, 'flo-desktop', '.hw-license-anchor.json'));
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    paths.push(path.join(localAppData, 'flo-desktop', '.hw-license-anchor.json'));
+  } else {
+    paths.push(path.join(os.homedir(), '.config', 'flo-desktop', '.hw-license-anchor.json'));
+    paths.push(path.join(os.homedir(), '.local', 'share', 'flo-desktop', '.hw-license-anchor.json'));
   }
-  return path.join(os.homedir(), '.config', 'flo-desktop', '.hw-license-anchor.json');
+  return [...new Set(paths)];
+}
+
+function getUserDataAnchorPath(): string {
+  const candidates = getCandidateAnchorPaths();
+  return candidates[0] || path.join(os.homedir(), '.config', 'flo-desktop', '.hw-license-anchor.json');
 }
 
 function getOsTombstonePath(): string {
@@ -258,6 +198,20 @@ function getOsTombstonePath(): string {
     return path.join(localAppData, '.flocafe-hw-seal');
   }
   return path.join(os.homedir(), '.local', 'share', '.flocafe-hw-seal');
+}
+
+export function writeFileAtomically(filePath: string, content: string, mode = 0o600): void {
+  try {
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    fs.writeFileSync(tmpPath, content, { mode });
+    fs.renameSync(tmpPath, filePath);
+  } catch {
+    try {
+      fs.writeFileSync(filePath, content, { mode });
+    } catch {}
+  }
 }
 
 export function initHardwareLicenseSchema(db: any): void {
@@ -306,20 +260,10 @@ function readAnchorFromFile(filePath: string): StoredLicenseRecord | null {
 
 function writeTombstoneFiles(record: StoredLicenseRecord): void {
   const jsonStr = JSON.stringify(record, null, 2);
-
-  // 1. User-data anchor
-  try {
-    const anchorPath = getUserDataAnchorPath();
-    fs.mkdirSync(path.dirname(anchorPath), { recursive: true });
-    fs.writeFileSync(anchorPath, jsonStr, { mode: 0o600 });
-  } catch {}
-
-  // 2. OS-level hidden tombstone
-  try {
-    const osPath = getOsTombstonePath();
-    fs.mkdirSync(path.dirname(osPath), { recursive: true });
-    fs.writeFileSync(osPath, jsonStr, { mode: 0o600 });
-  } catch {}
+  for (const p of getCandidateAnchorPaths()) {
+    writeFileAtomically(p, jsonStr, 0o600);
+  }
+  writeFileAtomically(getOsTombstonePath(), jsonStr, 0o600);
 }
 
 export function checkHardwareTombstoneExists(db: any, hwidToCheck?: string): boolean {
@@ -336,17 +280,13 @@ export function checkHardwareTombstoneExists(db: any, hwidToCheck?: string): boo
     } catch {}
   }
 
-  // Check 2: User data anchor file
-  try {
-    const anchor = readAnchorFromFile(getUserDataAnchorPath());
-    if (anchor) return true;
-  } catch {}
-
-  // Check 3: OS tombstone file
-  try {
-    const osAnchor = readAnchorFromFile(getOsTombstonePath());
-    if (osAnchor) return true;
-  } catch {}
+  // Check candidate anchor paths
+  for (const candidate of getCandidateAnchorPaths()) {
+    try {
+      const anchor = readAnchorFromFile(candidate);
+      if (anchor) return true;
+    } catch {}
+  }
 
   return false;
 }
@@ -374,26 +314,29 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     } catch {}
   }
 
-  // If SQLite is empty, check user-data anchor file for recovery
+  // If SQLite is empty, check candidate anchor files for recovery
   if (!record) {
-    const anchor = readAnchorFromFile(getUserDataAnchorPath());
-    if (anchor) {
-      record = anchor;
-      if (db) {
-        try {
-          db.prepare(`
-            INSERT OR REPLACE INTO _flo_hardware_license (id, payload, signature, tier, hwid, activated_at, expires_at, max_seen_timestamp, updated_at)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-          `).run(
-            record.payload,
-            record.signature,
-            record.tier,
-            record.hwid,
-            record.activated_at,
-            record.expires_at,
-            record.max_seen_timestamp,
-          );
-        } catch {}
+    for (const candidate of getCandidateAnchorPaths()) {
+      const anchor = readAnchorFromFile(candidate);
+      if (anchor) {
+        record = anchor;
+        if (db) {
+          try {
+            db.prepare(`
+              INSERT OR REPLACE INTO _flo_hardware_license (id, payload, signature, tier, hwid, activated_at, expires_at, max_seen_timestamp, updated_at)
+              VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            `).run(
+              record.payload,
+              record.signature,
+              record.tier,
+              record.hwid,
+              record.activated_at,
+              record.expires_at,
+              record.max_seen_timestamp,
+            );
+          } catch {}
+        }
+        break;
       }
     }
   }
@@ -449,7 +392,9 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     return { valid: false, reason: 'tombstone_corrupted', hwid: currentHwid };
   }
 
-  if (payloadObj.hwid !== currentHwid) {
+  const compatibleHwids = getCompatibleHardwareFingerprints();
+  compatibleHwids.add(currentHwid);
+  if (!compatibleHwids.has(payloadObj.hwid)) {
     return {
       valid: false,
       reason: 'hardware_mismatch',
@@ -459,32 +404,45 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
     };
   }
 
+  const effectiveTier = (record.tier || payloadObj.tier) as LicenseTier;
+  const effectiveExpiresAt = record.expires_at !== undefined && record.expires_at !== null
+    ? Number(record.expires_at)
+    : payloadObj.expires_at;
+
+  const now = Date.now();
+
   // 3. Monotonic Clock-Tamper Check
   let maxDbTime = Number(record.max_seen_timestamp) || 0;
-  if (db) {
+  if (db && effectiveTier !== 'forever') {
     try {
+      const parseUtcTime = (ts: string | null | undefined): number => {
+        if (!ts) return 0;
+        const cleanTs = ts.includes('T') ? ts : ts.replace(' ', 'T') + (ts.endsWith('Z') ? '' : 'Z');
+        const t = new Date(cleanTs).getTime();
+        return isNaN(t) ? 0 : t;
+      };
       const orderRow = db.prepare("SELECT MAX(created_at) as max_c FROM orders").get() as any;
       if (orderRow?.max_c) {
-        const orderTime = new Date(orderRow.max_c).getTime();
-        if (!isNaN(orderTime)) maxDbTime = Math.max(maxDbTime, orderTime);
+        const orderTime = parseUtcTime(orderRow.max_c);
+        if (orderTime > 0) maxDbTime = Math.max(maxDbTime, orderTime);
       }
       const stockRow = db.prepare("SELECT MAX(created_at) as max_s FROM stock_logs").get() as any;
       if (stockRow?.max_s) {
-        const stockTime = new Date(stockRow.max_s).getTime();
-        if (!isNaN(stockTime)) maxDbTime = Math.max(maxDbTime, stockTime);
+        const stockTime = parseUtcTime(stockRow.max_s);
+        if (stockTime > 0) maxDbTime = Math.max(maxDbTime, stockTime);
       }
     } catch {}
   }
 
-  const now = Date.now();
-  // Check if system clock was rolled backward by more than 5 minutes
-  if (now < maxDbTime - 300_000) {
+  // Check if system clock was rolled backward (tolerance 5 minutes for record, 1 hour for DB records)
+  const tolerance = effectiveTier === 'forever' ? 300_000 : (maxDbTime > (Number(record.max_seen_timestamp) || 0) ? 3_600_000 : 300_000);
+  if (now < maxDbTime - tolerance) {
     return {
       valid: false,
       reason: 'clock_tamper_detected',
       hwid: currentHwid,
-      tier: payloadObj.tier,
-      expires_at: payloadObj.expires_at,
+      tier: effectiveTier,
+      expires_at: effectiveExpiresAt,
     };
   }
 
@@ -499,14 +457,14 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
   }
 
   // 4. Expiration Check
-  if (payloadObj.expires_at !== null && payloadObj.expires_at !== undefined) {
-    if (now >= payloadObj.expires_at) {
+  if (effectiveTier !== 'forever' && effectiveExpiresAt !== null && effectiveExpiresAt !== undefined) {
+    if (now >= effectiveExpiresAt) {
       return {
         valid: false,
         reason: 'license_expired',
-        tier: payloadObj.tier,
-        expired_at: payloadObj.expires_at,
-        expires_at: payloadObj.expires_at,
+        tier: effectiveTier,
+        expired_at: effectiveExpiresAt,
+        expires_at: effectiveExpiresAt,
         hwid: currentHwid,
         requires_owner_override: true,
       };
@@ -515,10 +473,10 @@ export function verifyHardwareLicense(dbInstance?: any): HardwareLicenseStatus {
 
   return {
     valid: true,
-    tier: payloadObj.tier,
+    tier: effectiveTier,
     activated_at: payloadObj.activated_at,
-    expires_at: payloadObj.expires_at,
-    remaining_ms: payloadObj.expires_at ? Math.max(0, payloadObj.expires_at - now) : null,
+    expires_at: effectiveExpiresAt,
+    remaining_ms: effectiveExpiresAt ? Math.max(0, effectiveExpiresAt - now) : null,
     hwid: currentHwid,
   };
 }
@@ -666,11 +624,12 @@ export function activateWithKeyFile(db: any, params: ActivateKeyParams): Activat
   const isKeyAlreadyUsed =
     (Number(tierKeyJson.usage_count) || 0) >= 1 ||
     Boolean(tierKeyJson.consumed) ||
-    (Array.isArray(tierKeyJson.bound_hwids) && tierKeyJson.bound_hwids.length > 0);
+    (Array.isArray(tierKeyJson.bound_hwids) && tierKeyJson.bound_hwids.length > 0 && !tierKeyJson.bound_hwids.includes(currentHwid));
 
   const hasPriorMachineHistory = checkHardwareTombstoneExists(db, currentHwid);
+  const isNewlyIssuedRenewalKey = !isKeyAlreadyUsed && (!tierKeyJson.usage_count || tierKeyJson.usage_count === 0);
 
-  if (isKeyAlreadyUsed || hasPriorMachineHistory || params.forceReplaceActive) {
+  if (isKeyAlreadyUsed || params.forceReplaceActive || (hasPriorMachineHistory && !isNewlyIssuedRenewalKey)) {
     // Both Password and Owner Master Key are required for re-activation/override
     if (!params.reactivationPassword || !params.ownerMasterKeyContent) {
       return {
@@ -846,11 +805,12 @@ export function revokeLicense(db: any, params: {
     } catch {}
   }
 
-  // 4. Remove local userData anchor (preserves OS seal tombstone)
-  try {
-    const anchorPath = getUserDataAnchorPath();
-    if (fs.existsSync(anchorPath)) fs.unlinkSync(anchorPath);
-  } catch {}
+  // 4. Remove all local anchor files (preserves OS seal tombstone)
+  for (const candidate of getCandidateAnchorPaths()) {
+    try {
+      if (fs.existsSync(candidate)) fs.unlinkSync(candidate);
+    } catch {}
+  }
 
   return { success: true };
 }
@@ -872,21 +832,23 @@ export function autoSeedDevOrTestLicense(db: any): void {
   const currentHwid = getHardwareFingerprint();
 
   // 1. Try reading existing anchor file
-  const anchor = readAnchorFromFile(getUserDataAnchorPath()) || readAnchorFromFile(getOsTombstonePath());
-  if (anchor && anchor.hwid === currentHwid) {
-    db.prepare(`
-      INSERT OR REPLACE INTO _flo_hardware_license (id, payload, signature, tier, hwid, activated_at, expires_at, max_seen_timestamp, updated_at)
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).run(
-      anchor.payload,
-      anchor.signature,
-      anchor.tier,
-      anchor.hwid,
-      anchor.activated_at,
-      anchor.expires_at,
-      anchor.max_seen_timestamp || Date.now(),
-    );
-    return;
+  for (const candidate of getCandidateAnchorPaths()) {
+    const anchor = readAnchorFromFile(candidate);
+    if (anchor && (anchor.hwid === currentHwid || getCompatibleHardwareFingerprints().has(anchor.hwid))) {
+      db.prepare(`
+        INSERT OR REPLACE INTO _flo_hardware_license (id, payload, signature, tier, hwid, activated_at, expires_at, max_seen_timestamp, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        anchor.payload,
+        anchor.signature,
+        anchor.tier,
+        anchor.hwid,
+        anchor.activated_at,
+        anchor.expires_at,
+        anchor.max_seen_timestamp || Date.now(),
+      );
+      return;
+    }
   }
 
   // 2. Try loading owner-private-keys/forever.flokey if available (local dev or test environment)
@@ -1044,23 +1006,13 @@ export function checkAndApplyAutoRenew(db: any): { renewed: boolean; tier?: stri
     const durationMs = TIER_DURATIONS[renewTier] || 2_592_000_000;
     const baseTime = (license.expires_at && license.expires_at > nowMs) ? license.expires_at : nowMs;
     const newExpiresAt = baseTime + durationMs;
-
     const currentHwid = getHardwareFingerprint();
-    const updatedPayload = {
-      hwid: currentHwid,
-      tier: renewTier,
-      activated_at: nowMs,
-      expires_at: newExpiresAt,
-      nonce: crypto.randomUUID(),
-      auto_renewed: true,
-    };
-    const canonicalPayload = JSON.stringify(updatedPayload);
 
     db.prepare(`
       UPDATE _flo_hardware_license
-      SET payload = ?, tier = ?, expires_at = ?, max_seen_timestamp = ?, updated_at = datetime('now')
+      SET tier = ?, expires_at = ?, max_seen_timestamp = ?, updated_at = datetime('now')
       WHERE id = 1
-    `).run(canonicalPayload, renewTier, newExpiresAt, nowMs);
+    `).run(renewTier, newExpiresAt, nowMs);
 
     const updatedCount = (policy.renewals_count || 0) + 1;
     const updatedPolicy: AutoRenewPolicy = {

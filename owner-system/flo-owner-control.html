@@ -223,7 +223,7 @@ input,textarea,select{font-family:var(--font)}
       <path d="M12 28C12 22 18 16 20 13C22 16 28 22 28 28" stroke="#6c63ff" stroke-width="2.5" stroke-linecap="round"/>
       <circle cx="20" cy="21" r="5" fill="#6c63ff" opacity=".3"/><circle cx="20" cy="21" r="2.5" fill="#6c63ff"/>
       <path d="M16 28L24 28" stroke="#00d4aa" stroke-width="2" stroke-linecap="round"/></svg>
-    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.7.2 &middot; Standalone Native Fleet Manager</p></div>
+    <div id="logo-text"><h1>FloOwner Control</h1><p>v4.8.0 &middot; Standalone Native Fleet Manager</p></div>
   </div>
   <div id="key-vault">
     <label>&#128273; Owner Key:</label>
@@ -279,6 +279,44 @@ input,textarea,select{font-family:var(--font)}
         <div class="card"><div class="card-title"><span class="dot"></span> Node Status</div><div class="stat-grid" id="overview-stats"></div></div>
         <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span> Network</div><div id="overview-net"></div></div>
         <div class="card"><div class="card-title"><span class="dot" style="background:var(--warning)"></span> System Resources</div><div id="overview-sys"></div></div>
+        <div class="card" id="card-pos-screen">
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+            <div><span class="dot" style="background:var(--accent)"></span> Live POS Screen Snapshot</div>
+            <button class="btn btn-ghost btn-sm" onclick="fetchPosScreenSnapshot(true)">Refresh Live View</button>
+          </div>
+          <div id="pos-screen-container" style="min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:8px">
+            <span style="color:var(--muted);font-size:.8rem">No snapshot loaded. Click Refresh Live View.</span>
+          </div>
+        </div>
+        <div class="card" id="card-renewal-banner">
+          <div class="card-title"><span class="dot" style="background:var(--warning)"></span> Remote Subscription Renewal Reminder Banner</div>
+          <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">Remotely display or dismiss a high-visibility renewal reminder across this node's POS and Dashboard.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:4px">Urgency Level</label>
+              <select id="rb-type" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px;font-size:.8rem">
+                <option value="warning">Warning (Amber)</option>
+                <option value="critical">Critical (Red)</option>
+                <option value="info">Info (Blue)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:4px">Staff Dismissible</label>
+              <select id="rb-dismissible" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px;font-size:.8rem">
+                <option value="true">Yes (Dismissible)</option>
+                <option value="false">No (Sticky Banner)</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:4px">Custom Renewal Message</label>
+            <input type="text" id="rb-message" placeholder="e.g. Subscription expires soon. Contact store owner to renew." style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:.8rem" />
+          </div>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn btn-primary" onclick="setRemoteRenewalBanner(true)">Publish Renewal Banner</button>
+            <button class="btn btn-ghost" onclick="setRemoteRenewalBanner(false)">Clear / Dismiss Banner</button>
+          </div>
+        </div>
       </div>
       <div class="section" id="sec-analytics">
         <div id="analytics-alert" class="alert"></div>
@@ -788,7 +826,55 @@ async function loadOverview(){
     const ips=[...(d.lan_ips||[]),...(d.p2p_details||[]).map(p=>p.ip)].map(ip=>'<span class="ip-pill">'+ip+'</span>').join('');
     document.getElementById('overview-net').innerHTML='<div class="info-row"><span class="lbl">Hostname</span><span class="val">'+esc(d.node_name||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">IPs</span><span class="val">'+(ips||'<span class="tag-warn">None</span>')+'</span></div>'+'<div class="info-row"><span class="lbl">Tunnel</span><span class="val">'+(d.tunnel_url?'<a href="'+esc(d.tunnel_url)+'" target="_blank" style="color:var(--accent2)">'+esc(d.tunnel_url)+'</a>':'--')+'</span></div>';
     try{const dr=await apiFetch(n.url,'/api/sentinel/diagnostics','GET',null,authHeaders());if(dr.ok){const dd=await dr.json();const mem=dd.system&&dd.system.memory;document.getElementById('overview-sys').innerHTML='<div class="info-row"><span class="lbl">OS</span><span class="val">'+esc((dd.system&&dd.system.platform)||'')+'</span></div>'+'<div class="info-row"><span class="lbl">CPU Cores</span><span class="val">'+((dd.system&&dd.system.cpu_cores)||'--')+'</span></div>'+'<div class="info-row"><span class="lbl">Memory</span><span class="val">'+(mem?pct(mem.used_percent)+'% used ('+fmtBytes(mem.total_bytes-mem.free_bytes)+' / '+fmtBytes(mem.total_bytes)+')':'--')+'</span></div>'+'<div class="info-row"><span class="lbl">DB Size</span><span class="val">'+fmtBytes(dd.sqlite&&dd.sqlite.db_size_bytes)+'</span></div>'+'<div class="info-row"><span class="lbl">DB OK</span><span class="val '+(dd.sqlite&&dd.sqlite.integrity==='ok'?'tag-ok':'tag-warn')+'">'+(dd.sqlite&&dd.sqlite.integrity||'--')+'</span></div>';}}catch{}
+    void fetchPosScreenSnapshot(false);
   }catch(e){showAlert('overview-alert','err','Error: '+e.message);}
+}
+
+async function fetchPosScreenSnapshot(forceFresh){
+  const n=activeNode();if(!n)return;
+  const c=document.getElementById('pos-screen-container');
+  if(c)c.innerHTML='<span style="color:var(--muted);font-size:.8rem">Capturing snapshot...</span>';
+  try{
+    const{res,data}=forceFresh?await ownerPost('/api/sentinel/screen-snapshot',{}):await ownerGet('/api/sentinel/screen-snapshot');
+    if(data?.snapshot&&c){
+      const snap=data.snapshot;
+      let html='<div style="width:100%;font-size:.75rem;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:8px">'+
+        '<span>Captured: '+new Date(snap.timestamp).toLocaleTimeString()+'</span>'+
+        '<span>Memory: '+snap.memory_mb+' MB | Uptime: '+Math.round(snap.uptime_sec/60)+' min</span>'+
+      '</div>';
+      if(snap.image_base64){
+        html+='<img src="data:image/jpeg;base64,'+snap.image_base64+'" alt="Live POS Screen" style="max-width:100%;border-radius:6px;border:1px solid var(--border)" />';
+      }else{
+        html+='<div style="padding:16px;text-align:center;color:var(--muted);font-size:.8rem">Headless state &mdash; POS UI window not currently rendered. Memory and uptime healthy.</div>';
+      }
+      c.innerHTML=html;
+    }
+  }catch(err){
+    if(c)c.innerHTML='<span style="color:var(--danger);font-size:.8rem">Failed to load snapshot: '+esc(err.message)+'</span>';
+  }
+}
+
+async function setRemoteRenewalBanner(active){
+  const n=activeNode();if(!n)return;
+  try{
+    const msg=(document.getElementById('rb-message')?.value||'').trim();
+    const bType=document.getElementById('rb-type')?.value||'warning';
+    const dismissible=document.getElementById('rb-dismissible')?.value==='true';
+    const body={
+      active,
+      message:msg,
+      banner_type:bType,
+      dismissible,
+    };
+    const{res,data}=await ownerPost('/api/sentinel/renewal-banner',body);
+    if(data?.success){
+      showAlert('overview-alert','ok',active?'Renewal banner published to node POS & Dashboard.':'Renewal banner cleared from node.');
+    }else{
+      showAlert('overview-alert','err','Failed: '+(data?.error||'Unknown error'));
+    }
+  }catch(err){
+    showAlert('overview-alert','err','Error setting renewal banner: '+err.message);
+  }
 }
 async function loadAnalytics(){
   const n=activeNode();if(!n)return;

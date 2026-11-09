@@ -190,7 +190,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           if (operation !== authOperation) return;
           localStorage.removeItem('token');
           localStorage.removeItem('tenant');
-          set({ loading: false, printLanguageLoadErrors: [] });
+          set({ user: null, token: null, tenants: [], currentTenant: null, loading: false, printLanguageLoadErrors: [] });
         });
     } else {
       set({ loading: false, printLanguageLoadErrors: [] });

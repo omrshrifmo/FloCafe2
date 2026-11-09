@@ -174,10 +174,8 @@ export function createSafeAppendAttemptStorage(
       try {
         const persisted = candidate.getItem(key);
         if (persisted === null || persisted === undefined) continue;
-        if (value !== undefined && value !== persisted) throw new Error('Conflicting append retry state');
-        value = persisted;
-      } catch (error) {
-        if (error instanceof Error && error.message === 'Conflicting append retry state') throw error;
+        if (value === undefined) value = persisted;
+      } catch {
         unavailable = true;
       }
     }
@@ -204,7 +202,6 @@ export function createSafeAppendAttemptStorage(
       if (!persisted) {
         throw new Error('Unable to persist append retry state');
       }
-      if (readPersisted(key) !== value) throw new Error('Conflicting append retry state');
       unverifiedRemovals.delete(key);
       try {
         memory.set(key, value);
@@ -696,10 +693,6 @@ export function getOrCreateAppendAttempt(
     && prior.attempt.fingerprint === options.fingerprint
   ) {
     return prior.attempt;
-  }
-
-  if (prior) {
-    throw new Error('A previous append attempt is still pending');
   }
 
   const idempotencyKey = options.createKey();

@@ -26,10 +26,21 @@ import { getTenantCurrency, syncUnpaidBillsForOrder, getOrCreateBillForOrder, ap
 import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 import { depleteBomForOrderItem, restoreBomForOrderItem } from '../services/bom-depletion';
+import { isAllowedPrivateIp } from '../middleware/security';
 
 const router = Router();
-const orderReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
-const orderWriteRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
+const orderReadRateLimit = expressRateLimit({
+  windowMs: 60 * 1000,
+  limit: (req: Request) => (isAllowedPrivateIp(req.ip || req.socket.remoteAddress || '') ? 1200 : 120),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const orderWriteRateLimit = expressRateLimit({
+  windowMs: 60 * 1000,
+  limit: (req: Request) => (isAllowedPrivateIp(req.ip || req.socket.remoteAddress || '') ? 600 : 60),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 // Kept as its own bucket rather than folded into orderWriteRateLimit: this limit
 // had its own counter when the route lived in the registrar, and sharing a
 // counter would let unrelated order writes exhaust the item-void budget.
@@ -101,12 +112,23 @@ export function checkPinRateLimit(key: string): boolean {
   }
   const entry = pinAttempts.get(key);
   if (!entry || now > entry.resetAt) {
-    pinAttempts.set(key, { count: 1, resetAt: now + PIN_WINDOW_MS });
     return true;
   }
-  if (entry.count >= PIN_MAX_ATTEMPTS) return false;
-  entry.count++;
-  return true;
+  return entry.count < PIN_MAX_ATTEMPTS;
+}
+
+export function recordFailedPinAttempt(key: string): void {
+  const now = Date.now();
+  const entry = pinAttempts.get(key);
+  if (!entry || now > entry.resetAt) {
+    pinAttempts.set(key, { count: 1, resetAt: now + PIN_WINDOW_MS });
+  } else {
+    entry.count++;
+  }
+}
+
+export function resetPinRateLimit(key: string): void {
+  pinAttempts.delete(key);
 }
 
 export function resetPinRateLimitForTests(): void {
@@ -956,15 +978,15 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         insertOrderItemAddons(db, insertItemResult.lastInsertRowid, item.addons, itemCreatedAt);
 
         if (deduction) {
-          adjustProductStock(db, {
-            productId: deduction.productId,
-            quantityDelta: -deduction.deductedQuantity,
-            movementType: 'sale',
-            referenceType: 'order_item',
-            referenceId: String(insertItemResult.lastInsertRowid),
-            actorUserId: authenticatedUserId,
-            createdAt: itemCreatedAt,
-          });
+          adjustProductStock(
+            db,
+            deduction.productId,
+            -deduction.deductedQuantity,
+            `POS Order #${orderNumber}`,
+            'order_item',
+            String(insertItemResult.lastInsertRowid),
+            authenticatedUserId
+          );
         }
 
         if (recipeSnapshot) {
@@ -1025,7 +1047,7 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
         db.prepare("UPDATE tables SET status = 'occupied', updated_at = ? WHERE id = ?").run(now(), table_id);
       }
 
-      const order = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
+      let order = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
 
       // Handle delivery aggregator direct settlement or explicit payment
       let effectivePayments = body.payments;
@@ -1035,26 +1057,23 @@ router.post('/', orderWriteRateLimit, requirePermission('orders.create'), (req: 
       }
 
       if (effectivePayments || effectivePaymentMethod) {
-        try {
-          const generated = getOrCreateBillForOrder(db, orderId);
-          if (generated?.id) {
-            let directPayments: any[] = [];
-            if (Array.isArray(effectivePayments)) {
-              directPayments = effectivePayments;
-            } else {
-              directPayments = [{
-                method: effectivePaymentMethod,
-                payment_method_id: body.payment_method_id ?? body.method_id,
-                method_name: body.payment_method_name ?? body.method_name ?? effectivePaymentMethod,
-                amount: body.paid_amount ?? order.total,
-                tendered: body.tendered ?? body.paid_amount ?? order.total,
-                change: body.change ?? 0,
-              }];
-            }
-            applyPaymentBatch(db, String(generated.id), directPayments, customer_id, true);
+        const generated = getOrCreateBillForOrder(db, orderId);
+        if (generated?.id) {
+          let directPayments: any[] = [];
+          if (Array.isArray(effectivePayments)) {
+            directPayments = effectivePayments;
+          } else {
+            directPayments = [{
+              method: effectivePaymentMethod,
+              payment_method_id: body.payment_method_id ?? body.method_id,
+              method_name: body.payment_method_name ?? body.method_name ?? effectivePaymentMethod,
+              amount: body.paid_amount ?? order.total,
+              tendered: body.tendered ?? body.paid_amount ?? order.total,
+              change: body.change ?? 0,
+            }];
           }
-        } catch (payErr) {
-          console.warn('[Orders] Direct checkout payment failed:', payErr);
+          applyPaymentBatch(db, String(generated.id), directPayments, customer_id, true);
+          order = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
         }
       }
       const orderItems = attachEffectiveAddons(db, db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId).map(parseItemJson) as any[]);
@@ -1167,8 +1186,13 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
       if (db.prepare('SELECT 1 FROM bills WHERE order_id = ? AND split_group_id IS NOT NULL LIMIT 1').get(req.params.id)) {
         throw Object.assign(new Error('Items cannot be changed after a check has been split'), { statusCode: 409 });
       }
-      if (['completed', 'cancelled'].includes(currentOrder.status)) {
+      const paidBill = db.prepare("SELECT 1 FROM bills WHERE order_id = ? AND payment_status = 'paid' LIMIT 1").get(req.params.id);
+      if (currentOrder.status === 'cancelled' || (currentOrder.status === 'completed' && paidBill)) {
         throw Object.assign(new Error('Cannot add items to a completed or cancelled order'), { statusCode: 400 });
+      }
+      if (currentOrder.status === 'completed' && !paidBill) {
+        db.prepare("UPDATE orders SET status = 'pending', updated_at = ? WHERE id = ?").run(now(), req.params.id);
+        currentOrder.status = 'pending';
       }
       const refundedBill = db.prepare(
         `SELECT 1 FROM bills WHERE order_id = ? AND payment_status IN ('refunded', 'partially_refunded') LIMIT 1`,
@@ -1272,8 +1296,12 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
           });
         }
 
+        const variantId = item.variant_id || item.variant_selection?.id || null;
+        const addonIds = (item.addons || []).map((a: any) => a.addon_id || a.id).filter(Boolean);
         depleteBomForOrderItem(db, {
           productId: product.id,
+          variantId,
+          addonIds,
           quantity: item.quantity,
           orderId: String(req.params.id),
           orderNumber: currentOrder.order_number,
@@ -1356,6 +1384,54 @@ router.post('/:id/items', orderWriteRateLimit, requirePermission('orders.create'
   } catch (error: any) {
     console.error("[API] Internal error:", error);
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
+  }
+});
+
+router.post('/:id/checkout-prepaid', orderWriteRateLimit, requirePermission('orders.create'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    requireConfirmedIdentity(req);
+    const orderId = String(req.params.id);
+    const { payments, customer_id } = req.body || {};
+    const userId = String((req as any).user?.userId || 'unknown');
+    const idempotencyKey = orderIdempotencyKey(req);
+    const requestHash = idempotencyKey
+      ? createHash('sha256').update(JSON.stringify({ order_id: orderId, payments, customer_id })).digest('hex')
+      : undefined;
+
+    const result: any = withTxn(() => {
+      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+      if (!order) {
+        throw Object.assign(new Error('Order not found'), { statusCode: 404 });
+      }
+      const bill = getOrCreateBillForOrder(db, orderId);
+      const normalizedPayments = Array.isArray(payments) ? payments : [];
+      const payResult = applyPaymentBatch(
+        db,
+        String(bill.id),
+        normalizedPayments,
+        customer_id,
+        false,
+        idempotencyKey,
+        requestHash,
+        userId
+      );
+      const updatedOrder = parseRowJson(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)) as any;
+      const orderItems = attachEffectiveAddons(db, db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId).map(parseItemJson) as any[]);
+      return {
+        ...payResult,
+        order: { ...updatedOrder, items: orderItems },
+      };
+    });
+
+    notifyKdsUpdate();
+    notifyOrderUpdated();
+    broadcastWsEvent('orders_updated', { order: result.order });
+
+    res.json(result);
+  } catch (error: any) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({ error: error.message || 'Failed to complete prepaid checkout' });
   }
 });
 
@@ -1445,8 +1521,10 @@ router.patch('/:id/status', orderWriteRateLimit, requirePermission('orders.statu
           .find((candidate) => hasRole(candidate.role, ROLE_ACCESS.ownerManager) && hasPermission(candidate.id, 'orders.item.cancel') && verifyPin(candidate.pin_hash, override_pin));
 
         if (!user) {
+          recordFailedPinAttempt(rateLimitKey);
           throw Object.assign(new Error('Invalid manager PIN'), { statusCode: 403 });
         }
+        resetPinRateLimit(rateLimitKey);
         approvedByUserId = user.id;
       }
 
@@ -1726,8 +1804,10 @@ router.patch('/:id/discount', orderWriteRateLimit, requirePermission('orders.dis
         const user = (db.prepare('SELECT * FROM users WHERE is_active = 1 AND pin_hash IS NOT NULL').all() as any[])
           .find((candidate) => hasRole(candidate.role, ROLE_ACCESS.ownerManager) && hasPermission(candidate.id, 'orders.discount.apply') && verifyPin(candidate.pin_hash, override_pin));
         if (!user) {
+          recordFailedPinAttempt(rateLimitKey);
           return res.status(403).json({ error: 'Invalid manager PIN' });
         }
+        resetPinRateLimit(rateLimitKey);
         approvedByUserId = user.id;
       }
     }
@@ -1925,8 +2005,10 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requirePermissi
       const user = (db.prepare('SELECT * FROM users WHERE is_active = 1 AND pin_hash IS NOT NULL').all() as any[])
         .find((candidate) => hasRole(candidate.role, ROLE_ACCESS.ownerManager) && hasPermission(candidate.id, 'orders.discount.apply') && verifyPin(candidate.pin_hash, override_pin));
       if (!user) {
+        recordFailedPinAttempt(rateLimitKey);
         return res.status(403).json({ error: 'Invalid manager PIN' });
       }
+      resetPinRateLimit(rateLimitKey);
       approvedByUserId = user.id;
     }
 
@@ -2162,8 +2244,10 @@ router.patch('/:orderId/items/:itemId/cancel', orderItemCancelRateLimit, (req: R
           }
         }
         if (!pinUser) {
+          recordFailedPinAttempt(rateLimitKey);
           throw Object.assign(new Error('Invalid manager PIN'), { statusCode: 403 });
         }
+        resetPinRateLimit(rateLimitKey);
         approvedByUserId = pinUser.id;
       }
 
@@ -2653,8 +2737,10 @@ router.post('/:id/defer-payment', orderWriteRateLimit, requirePermission('orders
       const managerUser = (db.prepare('SELECT * FROM users WHERE is_active = 1 AND pin_hash IS NOT NULL').all() as any[])
         .find((candidate) => hasRole(candidate.role, ROLE_ACCESS.ownerManager) && verifyPin(candidate.pin_hash, overridePin));
       if (!managerUser) {
+        recordFailedPinAttempt(rateLimitKey);
         return res.status(403).json({ error: 'Invalid manager PIN' });
       }
+      resetPinRateLimit(rateLimitKey);
       authorizedBy = managerUser.id;
     }
 

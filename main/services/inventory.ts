@@ -97,8 +97,24 @@ export function resolveInventoryDeduction(
 
 export function adjustProductStock(
   db: ReturnType<typeof getDatabase>,
-  options: StockChangeOptions,
+  optionsOrProductId: StockChangeOptions | string | number,
+  quantityDelta?: number,
+  reason?: string | null,
+  referenceType?: string | null,
+  referenceId?: string | number | bigint | null,
+  actorUserId?: string,
 ): { stockBefore: number; stockAfter: number } {
+  const options: StockChangeOptions = typeof optionsOrProductId === 'object' && optionsOrProductId !== null
+    ? optionsOrProductId
+    : {
+      productId: optionsOrProductId,
+      quantityDelta: quantityDelta ?? 0,
+      reason: reason || null,
+      movementType: 'sale',
+      referenceType: referenceType || 'order_item',
+      referenceId: referenceId || null,
+      actorUserId: actorUserId || 'system',
+    };
   if (!Number.isFinite(options.quantityDelta) || options.quantityDelta === 0) {
     throw new InventoryServiceError(400, 'quantity_delta must be a non-zero finite number');
   }

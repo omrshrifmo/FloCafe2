@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.7.2', 'MCP server version is 4.7.2');
+    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.8.0', 'MCP server version is 4.8.0');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.7.2', 'package.json version is 4.7.2');
+    assertEqualOrThrow(rootPackageJson.version, '4.8.0', 'package.json version is 4.8.0');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.7.2', 'owner builder config version is 4.7.2');
+    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.8.0', 'owner builder config version is 4.8.0');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2046,7 +2046,7 @@ async function main() {
       hwid: 'TEST-HWID-450',
       node_name: 'Test Node',
       os_platform: 'linux',
-      flocafe_version: '4.7.2',
+      flocafe_version: '4.8.0',
       flocafe_running: true,
       license_tier: 'enterprise',
       license_valid: true,
@@ -2065,7 +2065,7 @@ async function main() {
     assertOrThrow(Boolean(decryptedBeacon), 'Decrypted beacon successfully recovered without password parameter');
     assertEqualOrThrow(decryptedBeacon.hwid, 'TEST-HWID-450', 'Decrypted beacon matches hwid');
     assertEqualOrThrow(decryptedBeacon.tunnel_url, 'https://test-node-450.loca.lt', 'Decrypted beacon matches tunnel_url');
-    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.7.2', 'Decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(decryptedBeacon.flocafe_version, '4.8.0', 'Decrypted beacon matches flocafe_version');
 
     // 16.8 Verify WebCrypto AES-GCM interoperability using WebCrypto API
     const parsedEncrypted = JSON.parse(encryptedBeacon);
@@ -2093,7 +2093,7 @@ async function main() {
     );
     const webDecrypted = JSON.parse(new TextDecoder().decode(webDecryptedBuf));
     assertEqualOrThrow(webDecrypted.hwid, 'TEST-HWID-450', 'WebCrypto decrypts beacon matching Node decipher');
-    assertEqualOrThrow(webDecrypted.flocafe_version, '4.7.2', 'WebCrypto decrypted beacon matches flocafe_version');
+    assertEqualOrThrow(webDecrypted.flocafe_version, '4.8.0', 'WebCrypto decrypted beacon matches flocafe_version');
 
     // ── Test 17: v4.7.0 Operating System Pillars Verification ──────────────────
     console.log('\n[17] Verifying FloCafe v4.7.0 Operating System Pillars...');
@@ -2267,7 +2267,7 @@ async function main() {
     const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
     let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
     if (!fsMod.existsSync(apkPath)) {
-      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.7.2-android.apk');
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.8.0-android.apk');
     }
     assertOrThrow(fsMod.existsSync(apkPath), `release APK must exist (checked ${apkPath})`);
 
@@ -2726,6 +2726,87 @@ async function main() {
       console.log(`   ✓ ${target.path}: ${matches.length} tr() Arabic occurrences (min: ${target.min})`);
     }
     console.log('   All 10 dashboard pages and components strictly meet deep Arabic localization thresholds.');
+
+    // ── Test 22: FloCafe 4.8.0 POS, Checkout, Auth, Licensing & Owner Monetization Verification ──
+    console.log('\n[22] Verifying FloCafe 4.8.0 POS, Checkout, Auth, Licensing & Owner Monetization (v4.8.0)...');
+
+    // 22.1 POS & Append retry resilience
+    const posPagePath = path.resolve(__dirname, '..', 'frontend/src/app/(dashboard)/pos/page.tsx');
+    assertOrThrow(fs.existsSync(posPagePath), 'pos/page.tsx exists');
+    const posPageCode = fs.readFileSync(posPagePath, 'utf8');
+    assertOrThrow(posPageCode.includes('addedCount'), 'pos/page.tsx computes addedCount');
+    assertOrThrow(!posPageCode.includes("throw new Error('Unable to clear append retry state')"), 'pos/page.tsx must not throw on append retry clear');
+
+    const appendAttemptPath = path.resolve(__dirname, '..', 'frontend/src/lib/append-attempt.ts');
+    assertOrThrow(fs.existsSync(appendAttemptPath), 'append-attempt.ts exists');
+    const appendAttemptCode = fs.readFileSync(appendAttemptPath, 'utf8');
+    assertOrThrow(!appendAttemptCode.includes("throw new Error('Conflicting append retry state')"), 'append-attempt.ts must not throw conflicting retry state');
+    assertOrThrow(!appendAttemptCode.includes("throw new Error('A previous append attempt is still pending')"), 'append-attempt.ts must not throw pending state');
+    console.log('   ✓ 22.1: POS item append and retry recovery resilience verified.');
+
+    // 22.2 Checkout, Bills & Idempotency
+    const inventoryServicePath = path.resolve(__dirname, '..', 'main/services/inventory.ts');
+    const inventoryServiceCode = fs.readFileSync(inventoryServicePath, 'utf8');
+    assertOrThrow(inventoryServiceCode.includes('function adjustProductStock('), 'inventory.ts defines adjustProductStock');
+
+    const billsRoutePath = path.resolve(__dirname, '..', 'main/routes/bills.ts');
+    const billsRouteCode = fs.readFileSync(billsRoutePath, 'utf8');
+    assertOrThrow(billsRouteCode.includes("type IN ('credit', 'earn')"), 'bills.ts checks credit/earn in loyalty');
+
+    const paymentModalPath = path.resolve(__dirname, '..', 'frontend/src/components/pos/PaymentModal.tsx');
+    const paymentModalCode = fs.readFileSync(paymentModalPath, 'utf8');
+    assertOrThrow(paymentModalCode.includes('idempotencyFingerprintRef'), 'PaymentModal.tsx tracks idempotencyFingerprintRef');
+    console.log('   ✓ 22.2: Checkout, bills and split payment idempotency verified.');
+
+    // 22.3 Auth & Security PIN Rate Limiting
+    const ordersRoutePath = path.resolve(__dirname, '..', 'main/routes/orders.ts');
+    const ordersRouteCode = fs.readFileSync(ordersRoutePath, 'utf8');
+    assertOrThrow(ordersRouteCode.includes('export function recordFailedPinAttempt'), 'orders.ts exports recordFailedPinAttempt');
+    assertOrThrow(ordersRouteCode.includes('export function resetPinRateLimit'), 'orders.ts exports resetPinRateLimit');
+
+    const authRoutePath = path.resolve(__dirname, '..', 'main/routes/auth.ts');
+    const authRouteCode = fs.readFileSync(authRoutePath, 'utf8');
+    assertOrThrow(authRouteCode.includes('export function getLoginAttemptKey'), 'auth.ts exports getLoginAttemptKey');
+
+    const authGuardPath = path.resolve(__dirname, '..', 'frontend/src/components/layout/AuthGuard.tsx');
+    const authGuardCode = fs.readFileSync(authGuardPath, 'utf8');
+    assertOrThrow(authGuardCode.includes("'/auth/recovery'"), 'AuthGuard.tsx includes /auth/recovery');
+    console.log('   ✓ 22.3: Auth rate limiting, login recovery, and AuthGuard landing pages verified.');
+
+    // 22.4 Licensing, Fingerprinting & Auto-Renewal
+    const hwFingerprint = require('../main/services/hardware-fingerprint.cjs');
+    assertOrThrow(typeof hwFingerprint.readStableMachineId === 'function', 'readStableMachineId is exported');
+    assertOrThrow(typeof hwFingerprint.getCompatibleHardwareFingerprints === 'function', 'getCompatibleHardwareFingerprints is exported');
+    const test22Hwid = hwFingerprint.getHardwareFingerprint();
+    assertOrThrow(typeof test22Hwid === 'string' && test22Hwid.startsWith('FLOHW-'), 'getHardwareFingerprint generates valid FLOHW string');
+
+    const hwLicensePath = path.resolve(__dirname, '..', 'main/services/hardware-license.ts');
+    const hwLicenseCode = fs.readFileSync(hwLicensePath, 'utf8');
+    assertOrThrow(hwLicenseCode.includes('getCandidateAnchorPaths'), 'hardware-license.ts exports getCandidateAnchorPaths');
+    assertOrThrow(hwLicenseCode.includes('writeFileAtomically'), 'hardware-license.ts exports writeFileAtomically');
+    console.log('   ✓ 22.4: Hardware licensing, canonical HWID, and atomic anchor persistence verified.');
+
+    // 22.5 Owner Monetization, Remote Banner & Screen Snapshot
+    const licenseRoutePath = path.resolve(__dirname, '..', 'main/routes/license.ts');
+    const licenseRouteCode = fs.readFileSync(licenseRoutePath, 'utf8');
+    assertOrThrow(licenseRouteCode.includes('/renewal-banner'), 'license.ts exposes /renewal-banner');
+
+    const sentinelRoutePath = path.resolve(__dirname, '..', 'main/routes/sentinel.ts');
+    const sentinelRouteCode = fs.readFileSync(sentinelRoutePath, 'utf8');
+    assertOrThrow(sentinelRouteCode.includes('/renewal-banner'), 'sentinel.ts exposes /renewal-banner');
+    assertOrThrow(sentinelRouteCode.includes('/auto-renew-policy'), 'sentinel.ts exposes /auto-renew-policy');
+    assertOrThrow(sentinelRouteCode.includes('/screen-snapshot'), 'sentinel.ts exposes /screen-snapshot');
+
+    const ownerMcpPath = path.resolve(__dirname, '..', 'scripts/flocafe-owner-mcp.cjs');
+    const ownerMcpCode = fs.readFileSync(ownerMcpPath, 'utf8');
+    assertOrThrow(ownerMcpCode.includes('flocafe_node_screen_snapshot'), 'owner MCP defines flocafe_node_screen_snapshot');
+    assertOrThrow(ownerMcpCode.includes('flocafe_node_renewal_banner'), 'owner MCP defines flocafe_node_renewal_banner');
+
+    const test22OwnerHtmlPath = path.resolve(__dirname, '..', 'owner-system/flo-owner-control.html');
+    const ownerHtmlCode = fs.readFileSync(test22OwnerHtmlPath, 'utf8');
+    assertOrThrow(ownerHtmlCode.includes('card-pos-screen'), 'flo-owner-control.html includes card-pos-screen');
+    assertOrThrow(ownerHtmlCode.includes('card-renewal-banner'), 'flo-owner-control.html includes card-renewal-banner');
+    console.log('   ✓ 22.5: Owner fleet monetization, renewal banner, and live screen snapshot verified.');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');

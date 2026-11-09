@@ -20,6 +20,7 @@ import {
   REACTIVATION_PASSWORD_HASH,
   REACTIVATION_PASSWORD_SALT,
 } from '../services/hardware-license';
+import { readLatestScreenSnapshot, captureAndStoreScreenSnapshot } from '../services/screen-snapshot';
 
 export const sentinelRoutes = Router();
 
@@ -1022,6 +1023,65 @@ sentinelRoutes.get('/discover-fleet', requireOwnerAuth, async (_req: Request, re
     res.json({ status: 'ok', count: nodes.length, nodes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// 12. Remote Renewal Banner (Owner Auth)
+sentinelRoutes.post('/renewal-banner', requireOwnerAuth, (req: Request, res: Response) => {
+  try {
+    const db = getDatabaseSafe();
+    const { active, message, banner_type, action_url, dismissible } = req.body || {};
+    const bannerObj = {
+      active: active !== undefined ? Boolean(active) : true,
+      message: typeof message === 'string' ? message : '',
+      banner_type: banner_type || 'warning',
+      action_url: action_url || '',
+      dismissible: dismissible !== undefined ? Boolean(dismissible) : true,
+      updated_at: new Date().toISOString(),
+    };
+    db.prepare(`
+      INSERT INTO settings (key, value, updated_at)
+      VALUES ('license_renewal_banner_json', ?, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+    `).run(JSON.stringify(bannerObj));
+    return res.json({ success: true, banner: bannerObj });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to set remote renewal banner', details: err.message });
+  }
+});
+
+// 13. Remote Auto-Renew Policy (Owner Auth)
+sentinelRoutes.post('/auto-renew-policy', requireOwnerAuth, (req: Request, res: Response) => {
+  try {
+    const db = getDatabaseSafe();
+    const { policy } = req.body || {};
+    setAutoRenewPolicy(db, policy);
+    return res.json({ success: true, auto_renew_policy: getAutoRenewPolicy(db) });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to set auto-renew policy', details: err.message });
+  }
+});
+
+// 14. Live POS Screen Snapshot (Owner Auth)
+sentinelRoutes.get('/screen-snapshot', requireOwnerAuth, async (_req: Request, res: Response) => {
+  try {
+    const existing = readLatestScreenSnapshot();
+    if (existing) {
+      return res.json({ success: true, snapshot: existing });
+    }
+    const fresh = await captureAndStoreScreenSnapshot();
+    return res.json({ success: true, snapshot: fresh });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to get screen snapshot', details: err.message });
+  }
+});
+
+sentinelRoutes.post('/screen-snapshot', requireOwnerAuth, async (_req: Request, res: Response) => {
+  try {
+    const fresh = await captureAndStoreScreenSnapshot();
+    return res.json({ success: true, snapshot: fresh });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to capture screen snapshot', details: err.message });
   }
 });
 

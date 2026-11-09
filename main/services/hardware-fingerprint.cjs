@@ -7,13 +7,8 @@ const { execSync } = require('child_process');
 
 let cachedHwid = null;
 
-function getHardwareFingerprint() {
-  if (cachedHwid) return cachedHwid;
-
-  const parts = [];
+function readStableMachineId() {
   const platform = os.platform();
-
-  // 1. Machine ID
   let machineId = '';
   if (platform === 'win32') {
     try {
@@ -41,7 +36,7 @@ function getHardwareFingerprint() {
     } catch {}
   } else {
     // Linux / BSD
-    for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+    for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id', '/sys/class/dmi/id/product_uuid']) {
       if (fs.existsSync(p)) {
         try {
           const content = fs.readFileSync(p, 'utf8').trim();
@@ -53,46 +48,76 @@ function getHardwareFingerprint() {
       }
     }
   }
+  return machineId || 'default-node-id';
+}
 
-  if (machineId) parts.push(`mid:${machineId}`);
+function formatHwid(parts) {
+  const combined = parts.join('|');
+  const fullHash = crypto.createHash('sha256').update(combined).digest('hex').toUpperCase();
+  return `FLOHW-${fullHash.slice(0, 4)}-${fullHash.slice(4, 8)}-${fullHash.slice(8, 12)}-${fullHash.slice(12, 16)}`;
+}
 
-  // 2. CPU Architecture & Model
-  const cpus = os.cpus() || [];
-  const cpuModel = cpus[0]?.model || os.arch();
-  const cpuCores = cpus.length;
-  parts.push(`cpu:${cpuModel}:${cpuCores}`);
-
-  // 3. Total Memory (bucketed to 512MB to avoid dynamic memory shifts in VMs)
-  const totalMem = Math.round(os.totalmem() / (512 * 1024 * 1024));
-  parts.push(`mem:${totalMem}`);
-
-  // 4. Primary Network MAC (filter out loopback, virtual/docker interfaces)
-  let primaryMac = '';
+function getPrimaryMac() {
   try {
     const interfaces = os.networkInterfaces();
     for (const name of Object.keys(interfaces).sort()) {
       if (/veth|docker|br-|tun|tap/i.test(name)) continue;
       for (const iface of interfaces[name]) {
         if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-          primaryMac = iface.mac.toLowerCase();
-          break;
+          return iface.mac.toLowerCase();
         }
       }
-      if (primaryMac) break;
     }
   } catch {}
-  if (primaryMac) parts.push(`mac:${primaryMac}`);
+  return '';
+}
 
-  // 5. Hostname / System identifier
-  const hostname = (os.hostname() || 'flocafe-node').toLowerCase();
-  parts.push(`host:${hostname}`);
+function getHardwareFingerprint() {
+  if (cachedHwid) return cachedHwid;
 
-  const combined = parts.join('|');
-  const fullHash = crypto.createHash('sha256').update(combined).digest('hex').toUpperCase();
-  const formatted = `FLOHW-${fullHash.slice(0, 4)}-${fullHash.slice(4, 8)}-${fullHash.slice(8, 12)}-${fullHash.slice(12, 16)}`;
+  const machineId = readStableMachineId();
+  const cpus = os.cpus() || [];
+  const cpuModel = cpus[0]?.model || os.arch();
+  const cpuCores = cpus.length;
+  const totalMem2GB = Math.round(os.totalmem() / (2 * 1024 * 1024 * 1024));
 
+  const parts = [
+    `mid:${machineId}`,
+    `cpu:${cpuModel}:${cpuCores}`,
+    `mem:${totalMem2GB}`,
+  ];
+
+  const formatted = formatHwid(parts);
   cachedHwid = formatted;
   return formatted;
+}
+
+function getCompatibleHardwareFingerprints() {
+  const set = new Set();
+  const machineId = readStableMachineId();
+  const cpus = os.cpus() || [];
+  const cpuModel = cpus[0]?.model || os.arch();
+  const cpuCores = cpus.length;
+  const mem2GB = Math.round(os.totalmem() / (2 * 1024 * 1024 * 1024));
+  const mem512MB = Math.round(os.totalmem() / (512 * 1024 * 1024));
+  const mac = getPrimaryMac();
+  const host = (os.hostname() || 'flocafe-node').toLowerCase();
+
+  // Canonical (mem2GB, no mac/host)
+  set.add(formatHwid([`mid:${machineId}`, `cpu:${cpuModel}:${cpuCores}`, `mem:${mem2GB}`]));
+
+  // Legacy variants
+  for (const mem of [mem2GB, mem512MB]) {
+    const base = [`mid:${machineId}`, `cpu:${cpuModel}:${cpuCores}`, `mem:${mem}`];
+    set.add(formatHwid(base));
+    if (mac) {
+      set.add(formatHwid([...base, `mac:${mac}`]));
+      set.add(formatHwid([...base, `mac:${mac}`, `host:${host}`]));
+    }
+    set.add(formatHwid([...base, `host:${host}`]));
+  }
+
+  return set;
 }
 
 function clearCachedHwidForTest() {
@@ -101,5 +126,7 @@ function clearCachedHwidForTest() {
 
 module.exports = {
   getHardwareFingerprint,
+  readStableMachineId,
+  getCompatibleHardwareFingerprints,
   clearCachedHwidForTest,
 };
