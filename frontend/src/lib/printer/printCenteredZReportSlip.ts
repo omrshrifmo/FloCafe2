@@ -1,4 +1,5 @@
 import { renderPreBlindSlipHtml, renderFullZReportSlipHtml, PreBlindSlipData, FullZReportSlipData } from '@shared/print/templates/zreport';
+import api from '../api';
 
 interface RawClosurePayload {
   store_name?: string;
@@ -165,31 +166,65 @@ export function printCenteredZReportSlip(
     html = renderFullZReportSlipHtml(slipData, language);
   }
 
-  const printWindow = window.open('', '_blank', 'width=380,height=650');
-  if (!printWindow) return;
+  // Non-blocking hardware thermal printer dispatch
+  try {
+    api.post('/cash-closures/print-thermal', { zReport: closureData, language, mode }).catch(() => {});
+  } catch {}
 
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html lang="${language}" dir="${language === 'ar' ? 'rtl' : 'ltr'}">
-      <head>
-        <meta charset="utf-8">
-        <title>${mode === 'pre_blind_cashier' ? 'Pre-Blind Slip' : 'Z-Report'}</title>
-        <style>
-          @page { size: auto; margin: 4mm; }
-          body { margin: 0; padding: 0; background: #fff; }
-        </style>
-      </head>
-      <body>
-        ${html}
-        <script>
-          window.onload = function() {
-            window.focus();
-            window.print();
-            setTimeout(function() { window.close(); }, 500);
-          };
-        </script>
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
+  const fullDoc = `<!DOCTYPE html>
+<html lang="${language}" dir="${language === 'ar' ? 'rtl' : 'ltr'}">
+  <head>
+    <meta charset="utf-8">
+    <title>${mode === 'pre_blind_cashier' ? 'Pre-Blind Slip' : 'Z-Report'}</title>
+    <style>
+      @page { size: auto; margin: 4mm; }
+      body { margin: 0; padding: 0; background: #fff; color: #000; text-align: center; }
+    </style>
+  </head>
+  <body>${html}</body>
+</html>`;
+
+  try {
+    const existingFrame = document.getElementById('flocafe-zreport-print-frame');
+    if (existingFrame && existingFrame.parentNode) {
+      existingFrame.parentNode.removeChild(existingFrame);
+    }
+    const iframe = document.createElement('iframe');
+    iframe.id = 'flocafe-zreport-print-frame';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc && iframe.contentWindow) {
+      doc.open();
+      doc.write(fullDoc);
+      doc.close();
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {}
+      }, 150);
+      return;
+    }
+  } catch {}
+
+  // Fallback to window.open only if iframe is not supported
+  try {
+    const printWindow = window.open('', '_blank', 'width=380,height=650');
+    if (!printWindow) return;
+    printWindow.document.write(fullDoc);
+    printWindow.document.close();
+    setTimeout(() => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+        setTimeout(() => { printWindow.close(); }, 500);
+      } catch {}
+    }, 200);
+  } catch {}
 }

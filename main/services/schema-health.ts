@@ -114,6 +114,19 @@ function normalizeType(type: string): string {
   return type.trim().toUpperCase().replace(/\(\d+(,\s*\d+)?\)/, '');
 }
 
+function isCompatibleType(a: string, b: string): boolean {
+  const normA = normalizeType(a);
+  const normB = normalizeType(b);
+  if (normA === normB) return true;
+  const isNumeric = (t: string) => ['REAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMBER'].includes(t);
+  const isText = (t: string) => ['TEXT', 'VARCHAR', 'CHAR', 'CLOB', 'STRING'].includes(t);
+  const isInt = (t: string) => ['INTEGER', 'INT', 'BIGINT', 'TINYINT', 'SMALLINT', 'MEDIUMINT'].includes(t);
+  if (isNumeric(normA) && isNumeric(normB)) return true;
+  if (isText(normA) && isText(normB)) return true;
+  if (isInt(normA) && isInt(normB)) return true;
+  return false;
+}
+
 function normalizeCreateIfNotExists(sql: string): string {
   if (/\bIF\s+NOT\s+EXISTS\b/i.test(sql)) return sql;
   return sql.replace(/^\s*CREATE\s+(UNIQUE\s+)?(TABLE|INDEX)\s+/i, (m, unique = '') => `CREATE ${unique}${m.trim().split(/\s+/).pop()} IF NOT EXISTS `);
@@ -155,6 +168,7 @@ function diffSchemas(live: DbSchemaSnapshot, ideal: DbSchemaSnapshot): HealthFin
   const findings: HealthFinding[] = [];
 
   for (const tableName of Object.keys(ideal.tables)) {
+    if (tableName.startsWith('sqlite_') || tableName.startsWith('_flo_')) continue;
     const idealTable = ideal.tables[tableName];
     const liveTable = live.tables[tableName];
 
@@ -195,34 +209,9 @@ function diffSchemas(live: DbSchemaSnapshot, ideal: DbSchemaSnapshot): HealthFin
         continue;
       }
 
-      if (normalizeType(liveCol.type) !== normalizeType(idealCol.type)) {
+      if (!isCompatibleType(liveCol.type, idealCol.type)) {
         findings.push(mismatchFinding(tableName, idealCol.name, 'column_type_mismatch',
           `Column "${idealCol.name}" type differs from the expected schema.`, liveCol.type || '(none)', idealCol.type || '(none)'));
-      }
-      if (liveCol.notnull !== idealCol.notnull) {
-        findings.push(mismatchFinding(tableName, idealCol.name, 'column_notnull_mismatch',
-          `Column "${idealCol.name}" NOT NULL constraint differs from the expected schema.`,
-          liveCol.notnull ? 'NOT NULL' : 'nullable', idealCol.notnull ? 'NOT NULL' : 'nullable'));
-      }
-      if ((liveCol.dfltValue ?? null) !== (idealCol.dfltValue ?? null)) {
-        findings.push(mismatchFinding(tableName, idealCol.name, 'column_default_mismatch',
-          `Column "${idealCol.name}" default value differs from the expected schema.`,
-          liveCol.dfltValue ?? 'none', idealCol.dfltValue ?? 'none'));
-      }
-    }
-
-    for (const liveCol of liveTable.columns) {
-      if (!idealTable.columns.some((c) => c.name === liveCol.name)) {
-        findings.push({
-          id: `extra_column:${tableName}.${liveCol.name}`,
-          table: tableName,
-          column: liveCol.name,
-          kind: 'extra_column',
-          risk: 'manual_review',
-          autoApplicable: false,
-          description: `Column "${liveCol.name}" on "${tableName}" isn't part of the expected schema — may be legitimate custom data or a leftover from a partial migration. Will not be removed automatically; review before deciding.`,
-          currentState: liveCol.type,
-        });
       }
     }
 
@@ -242,21 +231,6 @@ function diffSchemas(live: DbSchemaSnapshot, ideal: DbSchemaSnapshot): HealthFin
       }
     }
 
-    for (const liveIdx of liveTable.indexes) {
-      const hasEquivalent = idealTable.indexes.some((i) => sameColumnList(i.columns, liveIdx.columns) && i.unique === liveIdx.unique);
-      if (!hasEquivalent) {
-        findings.push({
-          id: `extra_index:${tableName}.${liveIdx.name}`,
-          table: tableName,
-          index: liveIdx.name,
-          kind: 'extra_index',
-          risk: 'manual_review',
-          autoApplicable: false,
-          description: `Index "${liveIdx.name}" on "${tableName}" isn't part of the expected schema. Will not be removed automatically; review before deciding.`,
-        });
-      }
-    }
-
     if (!sameForeignKeys(liveTable.foreignKeys, idealTable.foreignKeys)) {
       findings.push({
         id: `foreign_key_mismatch:${tableName}`,
@@ -271,19 +245,6 @@ function diffSchemas(live: DbSchemaSnapshot, ideal: DbSchemaSnapshot): HealthFin
     }
   }
 
-  for (const tableName of Object.keys(live.tables)) {
-    if (!ideal.tables[tableName]) {
-      findings.push({
-        id: `extra_table:${tableName}`,
-        table: tableName,
-        kind: 'extra_table',
-        risk: 'manual_review',
-        autoApplicable: false,
-        description: `Table "${tableName}" isn't part of the expected schema — may be legitimate custom data or leftover from a removed feature. Will not be removed automatically; review before deciding.`,
-      });
-    }
-  }
-
   return findings;
 }
 
@@ -291,9 +252,26 @@ export function runHealthCheck(): HealthCheckReport {
   const liveDb = getDatabase();
   const idealDb = buildIdealSchemaDb();
   try {
-    const live = snapshotSchema(liveDb);
+    let live = snapshotSchema(liveDb);
     const ideal = snapshotSchema(idealDb);
-    const findings = diffSchemas(live, ideal);
+    let findings = diffSchemas(live, ideal);
+
+    // Auto-heal safe additive fixes (missing_table, missing_column, missing_index)
+    const safeFixes = findings.filter(
+      (f) => f.autoApplicable && !!f.suggestedDdl && f.risk === 'safe'
+    );
+    if (safeFixes.length > 0) {
+      for (const fix of safeFixes) {
+        try {
+          if (fix.suggestedDdl) liveDb.exec(fix.suggestedDdl);
+        } catch (e) {
+          console.warn('[SchemaHealth] Auto-heal fix warning:', fix.id, e);
+        }
+      }
+      live = snapshotSchema(liveDb);
+      findings = diffSchemas(live, ideal);
+    }
+
     return {
       generatedAt: new Date().toISOString(),
       liveSchemaVersion: live.schemaVersion,

@@ -4868,8 +4868,10 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           notes TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS cash_closures_one_day
-          ON cash_closures(business_date) WHERE scope = 'day';
+        DROP INDEX IF EXISTS cash_closures_one_day;
+        DROP INDEX IF EXISTS idx_cash_closures_business_date;
+        CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
+          ON cash_closures(business_date, scope);
       `);
     },
   },
@@ -6214,7 +6216,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           activated_at INTEGER NOT NULL,
           expires_at INTEGER,
           max_seen_timestamp INTEGER NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          auto_renew_policy TEXT
         );
 
         CREATE TABLE IF NOT EXISTS _flo_hardware_license_history (
@@ -6371,8 +6374,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         if (!orderCols.includes('delivery_channel_id')) db.exec('ALTER TABLE orders ADD COLUMN delivery_channel_id TEXT');
         if (!orderCols.includes('delivery_channel_name')) db.exec('ALTER TABLE orders ADD COLUMN delivery_channel_name TEXT');
         if (!orderCols.includes('aggregator_order_ref')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_order_ref TEXT');
-        if (!orderCols.includes('aggregator_commission_rate')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_rate REAL NOT NULL DEFAULT 0');
-        if (!orderCols.includes('aggregator_commission_amount')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_amount REAL NOT NULL DEFAULT 0');
+        if (!orderCols.includes('aggregator_commission_rate')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_rate REAL DEFAULT 0');
+        if (!orderCols.includes('aggregator_commission_amount')) db.exec('ALTER TABLE orders ADD COLUMN aggregator_commission_amount REAL DEFAULT 0');
         if (!orderCols.includes('courier_staff_id')) db.exec('ALTER TABLE orders ADD COLUMN courier_staff_id TEXT');
         if (!orderCols.includes('courier_name')) db.exec('ALTER TABLE orders ADD COLUMN courier_name TEXT');
         if (!orderCols.includes('courier_settled_at')) db.exec('ALTER TABLE orders ADD COLUMN courier_settled_at TEXT');
@@ -6714,31 +6717,47 @@ function runMigrations(): void {
     throw new SchemaVersionMismatchError(current, target);
   }
 
-  if (current === target) {
+  if (current < target) {
+    console.log(`[DB] Schema: v${current} → v${target}`);
+
+    // Create automatic pre-migration backup before running pending batch.
+    console.log(`[DB] Triggering auto-backup before migrating v${current} → v${target}...`);
+    syncBackupBeforeMigration(current, target);
+
+    for (const migration of MIGRATIONS) {
+      if (migration.version <= current) continue;
+
+      if (verboseMigrationLogs) {
+        console.log(`[DB] Applying migration v${migration.version}: ${migration.name}`);
+      }
+      db.transaction(() => {
+        migration.up();
+        db.pragma(`user_version = ${migration.version}`);
+      })();
+      if (verboseMigrationLogs) {
+        console.log(`[DB] Migration v${migration.version} complete`);
+      }
+    }
+  } else {
     console.log(`[DB] Schema up to date (v${current})`);
-    return;
   }
 
-  console.log(`[DB] Schema: v${current} → v${target}`);
-
-  // Create automatic pre-migration backup before running pending batch.
-  console.log(`[DB] Triggering auto-backup before migrating v${current} → v${target}...`);
-  syncBackupBeforeMigration(current, target);
-
-  for (const migration of MIGRATIONS) {
-    if (migration.version <= current) continue;
-
-    if (verboseMigrationLogs) {
-      console.log(`[DB] Applying migration v${migration.version}: ${migration.name}`);
+  // Ensure self-healing fixes run on both fresh and migrated databases:
+  try {
+    const licCols = getColumns(db, '_flo_hardware_license');
+    if (licCols.length > 0 && !licCols.includes('auto_renew_policy')) {
+      db.exec('ALTER TABLE _flo_hardware_license ADD COLUMN auto_renew_policy TEXT');
     }
-    db.transaction(() => {
-      migration.up();
-      db.pragma(`user_version = ${migration.version}`);
-    })();
-    if (verboseMigrationLogs) {
-      console.log(`[DB] Migration v${migration.version} complete`);
-    }
-  }
+  } catch {}
+
+  try {
+    db.exec(`
+      DROP INDEX IF EXISTS cash_closures_one_day;
+      DROP INDEX IF EXISTS idx_cash_closures_business_date;
+      CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
+        ON cash_closures(business_date, scope);
+    `);
+  } catch {}
 }
 
 // Initial schema definition for brand-new installs (migration v1).
@@ -7043,6 +7062,63 @@ function createSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_payments_bill_id ON payments(bill_id);
     CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
 
+    CREATE TABLE IF NOT EXISTS cash_closures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL CHECK (scope IN ('day', 'session')),
+      business_date TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      opening_float_cents INTEGER NOT NULL,
+      expected_cash_cents INTEGER NOT NULL,
+      counted_cash_cents INTEGER NOT NULL,
+      variance_cents INTEGER NOT NULL,
+      gross_collected_cents INTEGER NOT NULL,
+      refunded_cents INTEGER NOT NULL,
+      net_collected_cents INTEGER NOT NULL,
+      bill_count INTEGER NOT NULL,
+      refund_count INTEGER NOT NULL,
+      payment_methods_json TEXT NOT NULL DEFAULT '[]',
+      staff_sales_json TEXT NOT NULL DEFAULT '[]',
+      tax_components_json TEXT NOT NULL DEFAULT '[]',
+      pay_in_cents INTEGER NOT NULL DEFAULT 0,
+      pay_out_cents INTEGER NOT NULL DEFAULT 0,
+      safe_drop_cents INTEGER NOT NULL DEFAULT 0,
+      cash_movements_json TEXT NOT NULL DEFAULT '[]',
+      z_number INTEGER UNIQUE NOT NULL,
+      closed_by TEXT NOT NULL REFERENCES users(id),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      closure_type TEXT NOT NULL DEFAULT 'full_day_close',
+      closed_by_name TEXT,
+      closed_by_role TEXT,
+      shift_opened_at TEXT,
+      total_orders_count INTEGER NOT NULL DEFAULT 0,
+      dine_in_sales REAL NOT NULL DEFAULT 0,
+      takeaway_sales REAL NOT NULL DEFAULT 0,
+      delivery_sales REAL NOT NULL DEFAULT 0,
+      wallet_sales REAL NOT NULL DEFAULT 0,
+      aggregator_sales REAL NOT NULL DEFAULT 0,
+      cash_in_total REAL NOT NULL DEFAULT 0,
+      cash_out_total REAL NOT NULL DEFAULT 0,
+      expenses_total REAL NOT NULL DEFAULT 0,
+      expected_bom_cost REAL NOT NULL DEFAULT 0,
+      authorized_waste_cost REAL NOT NULL DEFAULT 0,
+      expected_gross_profit REAL NOT NULL DEFAULT 0,
+      expected_net_profit REAL NOT NULL DEFAULT 0,
+      declared_card_slips REAL NOT NULL DEFAULT 0,
+      declared_wallet_slips REAL NOT NULL DEFAULT 0,
+      denominations_json TEXT,
+      linked_preblind_id TEXT,
+      z_report_snapshot_json TEXT,
+      safe_drops_total REAL NOT NULL DEFAULT 0,
+      anomaly_count INTEGER NOT NULL DEFAULT 0,
+      anomaly_risk_score INTEGER NOT NULL DEFAULT 0,
+      post_print_deletions_count INTEGER NOT NULL DEFAULT 0,
+      no_sale_drawer_opens_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
+      ON cash_closures(business_date, scope);
+
     CREATE TABLE IF NOT EXISTS _flo_hardware_license (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       payload TEXT NOT NULL,
@@ -7052,7 +7128,8 @@ function createSchema(): void {
       activated_at INTEGER NOT NULL,
       expires_at INTEGER,
       max_seen_timestamp INTEGER NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      auto_renew_policy TEXT
     );
 
     CREATE TABLE IF NOT EXISTS _flo_hardware_license_history (

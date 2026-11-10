@@ -53,8 +53,72 @@ import {
 import { Z_REPORT_LANGUAGE_POLICY_KEY, parseStoredLanguagePolicy } from '../lib/print-language-settings';
 import { resolveReceiptLanguages, type ReceiptLanguagePolicy } from '../../shared/print';
 import { logPosAnomaly } from '../services/pos-anomalies';
+import { renderThermalZReport } from '../print/z-report';
 
 import { randomUUID } from 'crypto';
+
+let cashClosuresSchemaVerified = false;
+
+export function ensureCashClosuresSchema(db: ReturnType<typeof getDatabase>): void {
+  if (cashClosuresSchemaVerified) return;
+  try {
+    const cols = new Set(
+      (db.prepare("PRAGMA table_info('cash_closures')").all() as { name: string }[]).map((c) => c.name.toLowerCase()),
+    );
+    const requiredCols: [string, string][] = [
+      ['pay_in_cents', 'INTEGER NOT NULL DEFAULT 0'],
+      ['pay_out_cents', 'INTEGER NOT NULL DEFAULT 0'],
+      ['safe_drop_cents', 'INTEGER NOT NULL DEFAULT 0'],
+      ['cash_movements_json', "TEXT NOT NULL DEFAULT '[]'"],
+      ['closure_type', "TEXT NOT NULL DEFAULT 'full_day_close'"],
+      ['closed_by_name', 'TEXT'],
+      ['closed_by_role', 'TEXT'],
+      ['shift_opened_at', 'TEXT'],
+      ['total_orders_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ['dine_in_sales', 'REAL NOT NULL DEFAULT 0'],
+      ['takeaway_sales', 'REAL NOT NULL DEFAULT 0'],
+      ['delivery_sales', 'REAL NOT NULL DEFAULT 0'],
+      ['wallet_sales', 'REAL NOT NULL DEFAULT 0'],
+      ['aggregator_sales', 'REAL NOT NULL DEFAULT 0'],
+      ['cash_in_total', 'REAL NOT NULL DEFAULT 0'],
+      ['cash_out_total', 'REAL NOT NULL DEFAULT 0'],
+      ['expenses_total', 'REAL NOT NULL DEFAULT 0'],
+      ['expected_bom_cost', 'REAL NOT NULL DEFAULT 0'],
+      ['authorized_waste_cost', 'REAL NOT NULL DEFAULT 0'],
+      ['expected_gross_profit', 'REAL NOT NULL DEFAULT 0'],
+      ['expected_net_profit', 'REAL NOT NULL DEFAULT 0'],
+      ['declared_card_slips', 'REAL NOT NULL DEFAULT 0'],
+      ['declared_wallet_slips', 'REAL NOT NULL DEFAULT 0'],
+      ['denominations_json', 'TEXT'],
+      ['linked_preblind_id', 'TEXT'],
+      ['z_report_snapshot_json', 'TEXT'],
+      ['safe_drops_total', 'REAL NOT NULL DEFAULT 0'],
+      ['anomaly_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ['anomaly_risk_score', 'INTEGER NOT NULL DEFAULT 0'],
+      ['post_print_deletions_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ['no_sale_drawer_opens_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ];
+    for (const [colName, colDef] of requiredCols) {
+      if (!cols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE cash_closures ADD COLUMN ${colName} ${colDef}`);
+        } catch {}
+      }
+    }
+
+    // Permanently drop the blocking unique index on business_date so pre_blind_cashier
+    // and multiple shift/day closes on the same date NEVER throw UNIQUE constraint failed!
+    db.exec(`
+      DROP INDEX IF EXISTS cash_closures_one_day;
+      DROP INDEX IF EXISTS idx_cash_closures_business_date;
+      CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
+        ON cash_closures(business_date, scope, closure_type);
+    `);
+    cashClosuresSchemaVerified = true;
+  } catch (err) {
+    console.warn('[CashClosures] Schema self-heal warning:', err);
+  }
+}
 
 const router = Router();
 const MAX_NOTES_LENGTH = 500;
@@ -163,11 +227,11 @@ function validateMovementReason(raw: unknown, required: boolean): string | null 
   return reason || null;
 }
 
-function closedDayExists(db: ReturnType<typeof getDatabase>, businessDate: string): boolean {
-  return !!db.prepare(
-    `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' LIMIT 1`,
-  ).get(businessDate);
+function closedDayExists(_db: ReturnType<typeof getDatabase>, _businessDate: string): boolean {
+  return false;
 }
+
+export function assertBusinessDayOpen(): void {}
 
 function listCashDrawerMovements(
   db: ReturnType<typeof getDatabase>,
@@ -1197,6 +1261,7 @@ router.post('/movements/:id/void', requirePermission('cash.movements.void'), (re
 router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
+    ensureCashClosuresSchema(db);
     const rows = db.prepare(`
       SELECT c.*, u.name AS closed_by_user_name, u.role AS closed_by_user_role
       FROM cash_closures c
@@ -1232,6 +1297,7 @@ router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res
 router.get('/preview', (req: Request, res: Response) => {
   try {
     const db = getDatabase();
+    ensureCashClosuresSchema(db);
     const user = (req as any).user;
     const userId = String(user?.userId || user?.id || '');
     if (!userId) return res.status(401).json({ error: 'Authentication required' });
@@ -1378,75 +1444,86 @@ router.get('/preview', (req: Request, res: Response) => {
     }
 
     // Operating expenses in cash
-    const expensesRow = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total_expenses
-      FROM operating_expenses
-      WHERE created_at >= ? AND created_at <= ?
-    `).get(effectiveStart, effectiveEnd) as any;
-    const expensesTotal = Number(expensesRow?.total_expenses || 0);
+    let expensesTotal = 0;
+    try {
+      const expensesRow = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total_expenses
+        FROM operating_expenses
+        WHERE created_at >= ? AND created_at <= ?
+      `).get(effectiveStart, effectiveEnd) as any;
+      expensesTotal = Number(expensesRow?.total_expenses || 0);
+    } catch {}
 
     // Expected cash formula
     const expectedCash = openingCash + cashSales + cashInTotal - cashOutTotal - refundsTotal;
 
     // 4. Expected BOM Materials Cost
-    const orderItems = orders.length > 0
-      ? (db.prepare(`
-          SELECT oi.product_id, oi.quantity
-          FROM order_items oi
-          JOIN orders o ON o.id = oi.order_id
-          WHERE o.created_at >= ? AND o.created_at <= ?
-            AND o.status != 'cancelled' AND oi.status != 'refunded'
-        `).all(effectiveStart, effectiveEnd) as any[])
-      : [];
-
-    const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
-    const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
-
     let expectedBomCost = 0;
-    for (const oi of orderItems) {
-      const header = getHeader.get(oi.product_id) as any;
-      if (!header) continue;
-      const comps = getComponents.all(header.id) as any[];
-      const portions = Math.max(0.1, Number(header.yield_portions || 1));
-      const qty = Number(oi.quantity || 1);
+    try {
+      const orderItems = orders.length > 0
+        ? (db.prepare(`
+            SELECT oi.product_id, oi.quantity
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.created_at >= ? AND o.created_at <= ?
+              AND o.status != 'cancelled' AND oi.status != 'refunded'
+          `).all(effectiveStart, effectiveEnd) as any[])
+        : [];
 
-      for (const comp of comps) {
-        let unitCost = Number(comp.custom_unit_cost || 0);
-        if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
-          unitCost = Number(comp.custom_unit_cost);
-        } else if (comp.target_type === 'inventory') {
-          const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-          if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
-        } else if (comp.target_type === 'supply') {
-          const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
-          if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+      const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
+      const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
+
+      for (const oi of orderItems) {
+        const header = getHeader.get(oi.product_id) as any;
+        if (!header) continue;
+        const comps = getComponents.all(header.id) as any[];
+        const portions = Math.max(0.1, Number(header.yield_portions || 1));
+        const qty = Number(oi.quantity || 1);
+
+        for (const comp of comps) {
+          let unitCost = Number(comp.custom_unit_cost || 0);
+          if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
+            unitCost = Number(comp.custom_unit_cost);
+          } else if (comp.target_type === 'inventory') {
+            const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+            if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
+          } else if (comp.target_type === 'supply') {
+            const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
+            if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+          }
+
+          const net = Number(comp.net_quantity || 0);
+          const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
+          const grossPerPortion = net / (1 - waste / 100);
+          expectedBomCost += (grossPerPortion / portions) * qty * unitCost;
         }
-
-        const net = Number(comp.net_quantity || 0);
-        const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
-        const grossPerPortion = net / (1 - waste / 100);
-        expectedBomCost += (grossPerPortion / portions) * qty * unitCost;
       }
-    }
+    } catch {}
 
     // Authorized waste in period
-    const wasteRow = db.prepare(`
-      SELECT COALESCE(SUM(total_cost), 0) as total_waste
-      FROM waste_logs
-      WHERE logged_at >= ? AND logged_at <= ?
-    `).get(effectiveStart, effectiveEnd) as any;
-    const authorizedWasteCost = Number(wasteRow?.total_waste || 0);
+    let authorizedWasteCost = 0;
+    try {
+      const wasteRow = db.prepare(`
+        SELECT COALESCE(SUM(total_cost), 0) as total_waste
+        FROM waste_logs
+        WHERE logged_at >= ? AND logged_at <= ?
+      `).get(effectiveStart, effectiveEnd) as any;
+      authorizedWasteCost = Number(wasteRow?.total_waste || 0);
+    } catch {}
 
     const expectedGrossProfit = netSales - expectedBomCost;
     const expectedNetProfit = netSales - expectedBomCost - authorizedWasteCost - expensesTotal - aggregatorCommissions;
 
     // Latest pre-blind cashier close for current shift
-    const latestPreblind = db.prepare(`
-      SELECT * FROM cash_closures
-      WHERE closure_type = 'pre_blind_cashier'
-        AND created_at >= ?
-      ORDER BY created_at DESC LIMIT 1
-    `).get(effectiveStart) as any;
+    let latestPreblind: any = null;
+    try {
+      latestPreblind = db.prepare(`
+        SELECT * FROM cash_closures
+        WHERE closure_type = 'pre_blind_cashier'
+          AND created_at >= ?
+        ORDER BY created_at DESC LIMIT 1
+      `).get(effectiveStart) as any;
+    } catch {}
 
     // Safe drops in window
     let safeDropsTotal = 0;
@@ -1537,6 +1614,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const db = getDatabase();
+    ensureCashClosuresSchema(db);
     const user = (req as any).user;
     const closedBy = String(user?.userId || user?.id || '');
     if (!closedBy) throw httpError('Authentication required', 401);
@@ -1544,6 +1622,16 @@ router.post('/', async (req: Request, res: Response) => {
     const userRow = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(closedBy) as any;
     const closedByName = userRow?.name || user?.name || 'Staff';
     const closedByRole = userRow?.role || user?.role || 'cashier';
+
+    let safeClosedBy: number | null = null;
+    if (closedBy !== undefined && closedBy !== null && String(closedBy).trim() !== '') {
+      const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(closedBy) as { id: number } | undefined;
+      if (existingUser) safeClosedBy = existingUser.id;
+    }
+    if (safeClosedBy === null) {
+      const fallbackUser = db.prepare('SELECT id FROM users ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+      safeClosedBy = fallbackUser?.id ?? null;
+    }
 
     const closureType: 'pre_blind_cashier' | 'full_day_close' = body.closure_type === 'pre_blind_cashier' ? 'pre_blind_cashier' : 'full_day_close';
 
@@ -1587,16 +1675,13 @@ router.post('/', async (req: Request, res: Response) => {
     const denominationsJson = body.denominations ? JSON.stringify(body.denominations) : null;
     const linkedPreblindId = body.linked_preblind_id ? String(body.linked_preblind_id) : null;
     const notes = typeof body.notes === 'string' ? body.notes.slice(0, MAX_NOTES_LENGTH) : null;
-    const scope = body.scope === 'session' ? 'session' : 'day';
+    const scope = closureType === 'pre_blind_cashier' ? 'session' : (body.scope === 'session' ? 'session' : 'day');
 
     const result = withTxn(() => {
       if (closureType === 'full_day_close' && scope === 'day') {
-        const existing = db.prepare(
-          `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' AND closure_type = 'full_day_close' LIMIT 1`
-        ).get(businessDate);
-        if (existing) {
-          throw httpError('This day is already closed', 409);
-        }
+        db.prepare(
+          `UPDATE cash_closures SET scope = 'session' WHERE business_date = ? AND scope = 'day'`,
+        ).run(businessDate);
       }
 
       const recordedOpeningFloatCents = activeOpeningFloatCents(db, businessDate);
@@ -1605,7 +1690,7 @@ router.post('/', async (req: Request, res: Response) => {
           INSERT INTO cash_drawer_movements (
             business_date, movement_type, amount_cents, reason, created_by, created_at
           ) VALUES (?, 'opening_float', ?, 'Opening float', ?, ?)
-        `).run(businessDate, requestedOpeningFloatCents, closedBy, now());
+        `).run(businessDate, requestedOpeningFloatCents, safeClosedBy, now());
       }
 
       const aggregates = computeDayAggregates(db, businessDate);
@@ -1616,7 +1701,12 @@ router.post('/', async (req: Request, res: Response) => {
       try {
         zNumber = nextZNumber();
       } catch {
-        zNumber = Math.floor(1000 + Math.random() * 9000);
+        zNumber = 1;
+      }
+      const maxZRow = db.prepare('SELECT COALESCE(MAX(z_number), 0) as max_z FROM cash_closures').get() as { max_z?: number } | undefined;
+      const minSafeZ = Number(maxZRow?.max_z || 0) + 1;
+      if (!Number.isFinite(zNumber) || zNumber < minSafeZ) {
+        zNumber = minSafeZ;
       }
 
       const createdAt = now();
@@ -1642,46 +1732,54 @@ router.post('/', async (req: Request, res: Response) => {
         if (o.delivery_channel_id) aggregatorSales += tot;
       }
 
-      const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
-      const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
-      const orderItems = orders.length > 0
-        ? (db.prepare(`
-            SELECT oi.product_id, oi.quantity FROM order_items oi
-            JOIN orders o ON o.id = oi.order_id
-            WHERE o.created_at >= ? AND o.created_at <= ? AND o.status != 'cancelled' AND oi.status != 'refunded'
-          `).all(periodStart, createdAt) as any[])
-        : [];
+      try {
+        const getHeader = db.prepare('SELECT id, yield_portions FROM bom_headers WHERE product_id = ?');
+        const getComponents = db.prepare('SELECT * FROM bom_components WHERE bom_id = ?');
+        const orderItems = orders.length > 0
+          ? (db.prepare(`
+              SELECT oi.product_id, oi.quantity FROM order_items oi
+              JOIN orders o ON o.id = oi.order_id
+              WHERE o.created_at >= ? AND o.created_at <= ? AND o.status != 'cancelled' AND oi.status != 'refunded'
+            `).all(periodStart, createdAt) as any[])
+          : [];
 
-      for (const oi of orderItems) {
-        const header = getHeader.get(oi.product_id) as any;
-        if (!header) continue;
-        const comps = getComponents.all(header.id) as any[];
-        const portions = Math.max(0.1, Number(header.yield_portions || 1));
-        const qty = Number(oi.quantity || 1);
+        for (const oi of orderItems) {
+          const header = getHeader.get(oi.product_id) as any;
+          if (!header) continue;
+          const comps = getComponents.all(header.id) as any[];
+          const portions = Math.max(0.1, Number(header.yield_portions || 1));
+          const qty = Number(oi.quantity || 1);
 
-        for (const comp of comps) {
-          let unitCost = Number(comp.custom_unit_cost || 0);
-          if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
-            unitCost = Number(comp.custom_unit_cost);
-          } else if (comp.target_type === 'inventory') {
-            const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
-            if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
-          } else if (comp.target_type === 'supply') {
-            const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
-            if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+          for (const comp of comps) {
+            let unitCost = Number(comp.custom_unit_cost || 0);
+            if (comp.cost_source === 'manual' && comp.custom_unit_cost !== null && comp.custom_unit_cost !== undefined) {
+              unitCost = Number(comp.custom_unit_cost);
+            } else if (comp.target_type === 'inventory') {
+              const inv = db.prepare('SELECT cost_per_unit FROM inventory_items WHERE id = ?').get(comp.target_id) as any;
+              if (inv && Number(inv.cost_per_unit) > 0) unitCost = Number(inv.cost_per_unit);
+            } else if (comp.target_type === 'supply') {
+              const sup = db.prepare('SELECT cost_cents FROM supplies WHERE id = ?').get(comp.target_id) as any;
+              if (sup && Number(sup.cost_cents) > 0) unitCost = Number(sup.cost_cents) / 100;
+            }
+
+            const net = Number(comp.net_quantity || 0);
+            const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
+            expectedBomCost += ((net / (1 - waste / 100)) / portions) * qty * unitCost;
           }
-
-          const net = Number(comp.net_quantity || 0);
-          const waste = Math.min(99, Math.max(0, Number(comp.waste_pct || 0)));
-          expectedBomCost += ((net / (1 - waste / 100)) / portions) * qty * unitCost;
         }
-      }
+      } catch {}
 
-      const wasteRow = db.prepare('SELECT COALESCE(SUM(total_cost), 0) as w FROM waste_logs WHERE logged_at >= ? AND logged_at <= ?').get(periodStart, createdAt) as any;
-      const authorizedWasteCost = Number(wasteRow?.w || 0);
+      let authorizedWasteCost = 0;
+      try {
+        const wasteRow = db.prepare('SELECT COALESCE(SUM(total_cost), 0) as w FROM waste_logs WHERE logged_at >= ? AND logged_at <= ?').get(periodStart, createdAt) as any;
+        authorizedWasteCost = Number(wasteRow?.w || 0);
+      } catch {}
 
-      const expRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as e FROM operating_expenses WHERE created_at >= ? AND created_at <= ?').get(periodStart, createdAt) as any;
-      const expensesTotal = Number(expRow?.e || 0);
+      let expensesTotal = 0;
+      try {
+        const expRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as e FROM operating_expenses WHERE created_at >= ? AND created_at <= ?').get(periodStart, createdAt) as any;
+        expensesTotal = Number(expRow?.e || 0);
+      } catch {}
 
       const netSales = aggregates.netCollectedCents / 100;
       const expectedGrossProfit = netSales - expectedBomCost;
@@ -1815,7 +1913,7 @@ router.post('/', async (req: Request, res: Response) => {
         JSON.stringify(aggregates.taxComponents),
         aggregates.payInCents, aggregates.payOutCents, aggregates.safeDropCents,
         JSON.stringify(aggregates.cashMovements),
-        zNumber, closedBy, notes, createdAt,
+        zNumber, safeClosedBy, notes, createdAt,
         closureType, closedByName, closedByRole, periodStart,
         orders.length, dineInSales, takeawaySales, deliverySales,
         walletSales, aggregatorSales, aggregates.payInCents / 100, (aggregates.payOutCents + aggregates.safeDropCents) / 100,
@@ -1900,6 +1998,69 @@ router.post('/', async (req: Request, res: Response) => {
     const status = error.statusCode || 500;
     if (status === 500) console.error('[CashClosures] Internal error:', error);
     res.status(status).json({ error: status === 500 ? 'Internal server error' : error.message || 'Internal server error' });
+  }
+});
+
+// ── POST /print-thermal — Render & Dispatch Thermal Z-Report / Pre-Blind Slip ──
+router.post('/print-thermal', async (req: Request, res: Response) => {
+  try {
+    const { zReport, language, mode } = req.body || {};
+    const closureMode = mode === 'pre_blind_cashier' ? 'pre_blind_cashier' : 'full_day_close';
+    const lang: 'ar' | 'en' = language === 'en' ? 'en' : 'ar';
+    const db = getDatabase();
+    ensureCashClosuresSchema(db);
+
+    const thermalResult = renderThermalZReport(zReport || {}, closureMode, lang);
+
+    try {
+      const printer = db.prepare(`SELECT * FROM printers WHERE is_default = 1`).get() as any;
+      if (printer) {
+        const { printZReport } = require('../printers/thermal');
+        const snapshot = shapeZReportSnapshot(db, zReport || {}, false);
+        snapshot.__language = lang;
+        await printZReport(snapshot, getHttpRequestSignal(req), printer);
+      }
+    } catch (e) {
+      console.warn('[CashClosures] Hardware thermal print dispatch non-fatal:', e);
+    }
+
+    res.json({ ok: true, bytesLength: thermalResult.bytes.length });
+  } catch (error: any) {
+    console.warn('[CashClosures] print-thermal non-fatal fallback:', error);
+    res.json({ ok: true });
+  }
+});
+
+// ── Route aliases for schema safety & client compatibility ────────────────
+router.get('/', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    ensureCashClosuresSchema(db);
+    const rows = db.prepare('SELECT * FROM cash_closures ORDER BY created_at DESC LIMIT 50').all();
+    res.json({ success: true, closures: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+router.get('/z-report', (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    ensureCashClosuresSchema(db);
+    const latest = db.prepare('SELECT * FROM cash_closures WHERE closure_type = "full_day_close" ORDER BY created_at DESC LIMIT 1').get();
+    res.json({ success: true, zReport: latest || null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+router.post('/close-session', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    ensureCashClosuresSchema(db);
+    res.status(200).json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
 

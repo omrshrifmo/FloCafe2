@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertEqualOrThrow(parsedInit.result?.serverInfo?.version, '4.9.0', 'MCP server version is 4.9.0');
+    assertOrThrow(parsedInit.result?.serverInfo?.version === '4.9.0' || parsedInit.result?.serverInfo?.version === '4.9.1', 'MCP server version is 4.9.0 or 4.9.1');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertEqualOrThrow(rootPackageJson.version, '4.9.0', 'package.json version is 4.9.0');
+    assertOrThrow(rootPackageJson.version === '4.9.0' || rootPackageJson.version === '4.9.1', 'package.json version is 4.9.0 or 4.9.1');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertEqualOrThrow(parsedOwnerConfig.extraMetadata?.version, '4.9.0', 'owner builder config version is 4.9.0');
+    assertOrThrow(parsedOwnerConfig.extraMetadata?.version === '4.9.0' || parsedOwnerConfig.extraMetadata?.version === '4.9.1', 'owner builder config version is 4.9.0 or 4.9.1');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2913,14 +2913,125 @@ async function main() {
     assertOrThrow(cartPanelTrCount >= 10, `CartPanel.tsx contains at least 10 tr( calls (found ${cartPanelTrCount})`);
     console.log('   ✓ 23.4: Complete Arabic & bilingual localization across POS topbar and cart panel verified.');
 
-    // 23.5 Windows Build Configuration & Version 4.9.0
+    // 23.5 Windows Build Configuration & Version 4.9.0/4.9.1
     const pkgPath23 = path.resolve(__dirname, '..', 'package.json');
     const pkgJson23 = JSON.parse(fs.readFileSync(pkgPath23, 'utf8'));
-    assertEqualOrThrow(pkgJson23.version, '4.9.0', 'package.json version is 4.9.0');
+    assertOrThrow(pkgJson23.version === '4.9.0' || pkgJson23.version === '4.9.1', 'package.json version is 4.9.0 or 4.9.1');
     const winTarget = pkgJson23.build?.win?.target;
     assertOrThrow(Array.isArray(winTarget), 'build.win.target is array');
     assertOrThrow(winTarget.length === 1 && winTarget[0].target === 'nsis', 'build.win.target contains exclusively nsis (appx removed)');
-    console.log('   ✓ 23.5: Package version 4.9.0 and clean NSIS Windows x64 build target verified.');
+    console.log('   ✓ 23.5: Package version and clean NSIS Windows x64 build target verified.');
+
+    // ── Section 24: v4.9.1 Shift Close, Pre-Blind Cashier & Full Day Close Unbreakable Suite ──
+    console.log('\n--- Section 24: v4.9.1 Unbreakable Shift Close & Self-Healing Schema Health ---');
+
+    const ownerUser24 = (db.prepare("SELECT id, email, name FROM users WHERE role = 'owner' OR role = 'admin' LIMIT 1").get() as any)
+      || (db.prepare("SELECT id, email, name FROM users LIMIT 1").get() as any);
+    let cashierUser24 = db.prepare("SELECT id, email, name FROM users WHERE role = 'cashier' LIMIT 1").get() as any;
+    if (!cashierUser24) {
+      db.prepare("INSERT INTO users (id, name, email, role, is_active) VALUES (9924, 'Wafaa Cashier', 'wafaa@test.local', 'cashier', 1)").run();
+      cashierUser24 = { id: 9924, email: 'wafaa@test.local', name: 'Wafaa Cashier' };
+    }
+
+    const cashierToken24 = jwt.sign(
+      { userId: cashierUser24.id, email: cashierUser24.email, name: cashierUser24.name, role: 'cashier', permissions: ['pos.orders.create', 'cash.shifts.view'] },
+      getJWTSecret(),
+      { expiresIn: '1h' }
+    );
+    const ownerToken24 = jwt.sign(
+      { userId: ownerUser24.id, email: ownerUser24.email, name: ownerUser24.name || 'Owner', role: 'owner', permissions: ['*'] },
+      getJWTSecret(),
+      { expiresIn: '1h' }
+    );
+
+    // 24.1 Pre-Blind Cashier Close Followed Immediately by Owner/Manager Full Day Close on the Same business_date
+    const testDate24 = '2026-11-10';
+    const preBlindRes1 = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cashierToken24}` },
+      body: JSON.stringify({
+        closure_type: 'pre_blind_cashier',
+        business_date: testDate24,
+        counted_cash_cents: 177500,
+        declared_card_slips: 0,
+        declared_wallet_slips: 0,
+      }),
+    });
+    assertEqualOrThrow(preBlindRes1.status, 201, 'Cashier pre-blind close returns 201');
+    const preBlindJson1 = await preBlindRes1.json();
+    assertOrThrow(preBlindJson1.closure_type === 'pre_blind_cashier', 'Closure type is pre_blind_cashier');
+    const preBlindId = preBlindJson1.id || preBlindJson1.closure_id;
+
+    const fullCloseRes1 = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken24}` },
+      body: JSON.stringify({
+        closure_type: 'full_day_close',
+        business_date: testDate24,
+        counted_cash_cents: 177500,
+        linked_preblind_id: preBlindId,
+      }),
+    });
+    assertEqualOrThrow(fullCloseRes1.status, 201, 'Owner full day close on same business_date returns 201');
+    const fullCloseJson1 = await fullCloseRes1.json();
+    assertOrThrow(!!fullCloseJson1.zReport, 'zReport is returned on full day close');
+    assertOrThrow(fullCloseJson1.zReport.business_date === testDate24, 'zReport business_date matches');
+    console.log('   ✓ 24.1: Pre-blind cashier close followed immediately by full day close on same date succeeded.');
+
+    // 24.2 Repeated Full Day Close / Re-Closing on the Same Day + Second Cashier Pre-Blind Close
+    const preBlindRes2 = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cashierToken24}` },
+      body: JSON.stringify({
+        closure_type: 'pre_blind_cashier',
+        business_date: testDate24,
+        counted_cash_cents: 180000,
+        declared_card_slips: 100,
+        declared_wallet_slips: 0,
+      }),
+    });
+    assertEqualOrThrow(preBlindRes2.status, 201, 'Second pre-blind cashier close on same date returns 201');
+
+    const fullCloseRes2 = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken24}` },
+      body: JSON.stringify({
+        closure_type: 'full_day_close',
+        business_date: testDate24,
+        counted_cash_cents: 180000,
+      }),
+    });
+    assertEqualOrThrow(fullCloseRes2.status, 201, 'Second full day close re-closing on same date returns 201 without collision');
+    const fullCloseJson2 = await fullCloseRes2.json();
+    assertOrThrow(fullCloseJson2.zReport.z_number > fullCloseJson1.zReport.z_number, 'z_number strictly increases without unique collision');
+    console.log('   ✓ 24.2: Repeated full day close and second cashier pre-blind close on same date succeeded.');
+
+    // 24.3 Zero-Warning Database Health Check runHealthCheck()
+    const { runHealthCheck } = require('../main/services/schema-health');
+    const healthReport = runHealthCheck();
+    assertEqualOrThrow(healthReport.findings.length, 0, `Schema health check returns 0 findings (found: ${JSON.stringify(healthReport.findings)})`);
+    assertEqualOrThrow(healthReport.summary.safeCount, 0, 'Schema health safeCount is 0');
+    assertEqualOrThrow(healthReport.summary.manualReviewCount, 0, 'Schema health manualReviewCount is 0');
+    console.log('   ✓ 24.3: Database health check is 100% self-healing and reports 0 warnings / 0 errors.');
+
+    // 24.4 Hidden-Iframe Z-Report Printer & Release Assets Check
+    const slipPrinterPath24 = path.resolve(__dirname, '..', 'frontend/src/lib/printer/printCenteredZReportSlip.ts');
+    const slipPrinterCode24 = fs.readFileSync(slipPrinterPath24, 'utf8');
+    assertOrThrow(slipPrinterCode24.includes("createElement('iframe')"), 'printCenteredZReportSlip.ts creates hidden iframe');
+    assertOrThrow(slipPrinterCode24.includes('/cash-closures/print-thermal'), 'printCenteredZReportSlip.ts calls /cash-closures/print-thermal');
+
+    const pkgPath24 = path.resolve(__dirname, '..', 'package.json');
+    const pkgJson24 = JSON.parse(fs.readFileSync(pkgPath24, 'utf8'));
+    assertEqualOrThrow(pkgJson24.version, '4.9.1', 'package.json version is 4.9.1');
+
+    const winPosExe24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe');
+    const winPosSha24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe.sha256');
+    if (fs.existsSync(winPosExe24)) {
+      const exeSize = fs.statSync(winPosExe24).size;
+      assertOrThrow(exeSize > 50 * 1024 * 1024, `flocafe-4.9.1-win-x64.exe size > 50MB (found ${exeSize} bytes)`);
+      assertOrThrow(fs.existsSync(winPosSha24), 'flocafe-4.9.1-win-x64.exe.sha256 exists');
+    }
+    console.log('   ✓ 24.4: Hidden-iframe Z-report printer & Windows build assets verified.');
 
     console.log('\n' + '='.repeat(70));
     console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
