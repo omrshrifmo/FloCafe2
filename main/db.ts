@@ -4870,8 +4870,9 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         );
         DROP INDEX IF EXISTS cash_closures_one_day;
         DROP INDEX IF EXISTS idx_cash_closures_business_date;
+        DROP INDEX IF EXISTS idx_cash_closures_bdate_scope;
         CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
-          ON cash_closures(business_date, scope);
+          ON cash_closures(business_date, scope, closure_type);
       `);
     },
   },
@@ -6754,8 +6755,9 @@ function runMigrations(): void {
     db.exec(`
       DROP INDEX IF EXISTS cash_closures_one_day;
       DROP INDEX IF EXISTS idx_cash_closures_business_date;
+      DROP INDEX IF EXISTS idx_cash_closures_bdate_scope;
       CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
-        ON cash_closures(business_date, scope);
+        ON cash_closures(business_date, scope, closure_type);
     `);
   } catch {}
 }
@@ -7116,8 +7118,11 @@ function createSchema(): void {
       post_print_deletions_count INTEGER NOT NULL DEFAULT 0,
       no_sale_drawer_opens_count INTEGER NOT NULL DEFAULT 0
     );
+    DROP INDEX IF EXISTS cash_closures_one_day;
+    DROP INDEX IF EXISTS idx_cash_closures_business_date;
+    DROP INDEX IF EXISTS idx_cash_closures_bdate_scope;
     CREATE INDEX IF NOT EXISTS idx_cash_closures_bdate_scope
-      ON cash_closures(business_date, scope);
+      ON cash_closures(business_date, scope, closure_type);
 
     CREATE TABLE IF NOT EXISTS _flo_hardware_license (
       id INTEGER PRIMARY KEY CHECK (id = 1),

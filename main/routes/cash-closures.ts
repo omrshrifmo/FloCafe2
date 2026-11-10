@@ -106,6 +106,14 @@ export function ensureCashClosuresSchema(db: ReturnType<typeof getDatabase>): vo
       }
     }
 
+    // Check if idx_cash_closures_bdate_scope has fewer than 3 columns (closure_type missing)
+    try {
+      const idxInfo = db.prepare("PRAGMA index_info('idx_cash_closures_bdate_scope')").all() as { name: string }[];
+      if (idxInfo.length < 3 || !idxInfo.some((c) => c.name === 'closure_type')) {
+        db.exec('DROP INDEX IF EXISTS idx_cash_closures_bdate_scope');
+      }
+    } catch {}
+
     // Permanently drop the blocking unique index on business_date so pre_blind_cashier
     // and multiple shift/day closes on the same date NEVER throw UNIQUE constraint failed!
     db.exec(`

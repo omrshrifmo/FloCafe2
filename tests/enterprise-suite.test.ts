@@ -3006,13 +3006,16 @@ async function main() {
     assertOrThrow(fullCloseJson2.zReport.z_number > fullCloseJson1.zReport.z_number, 'z_number strictly increases without unique collision');
     console.log('   ✓ 24.2: Repeated full day close and second cashier pre-blind close on same date succeeded.');
 
-    // 24.3 Zero-Warning Database Health Check runHealthCheck()
+    // 24.3 Zero-Warning Database Health Check runHealthCheck() & 3-Column idx_cash_closures_bdate_scope
+    const idxCols24 = (db.prepare("PRAGMA index_info('idx_cash_closures_bdate_scope')").all() as { name: string }[]).map((r) => r.name);
+    assertEqualOrThrow(JSON.stringify(idxCols24), JSON.stringify(['business_date', 'scope', 'closure_type']), 'idx_cash_closures_bdate_scope has 3 columns [business_date, scope, closure_type]');
+
     const { runHealthCheck } = require('../main/services/schema-health');
     const healthReport = runHealthCheck();
     assertEqualOrThrow(healthReport.findings.length, 0, `Schema health check returns 0 findings (found: ${JSON.stringify(healthReport.findings)})`);
     assertEqualOrThrow(healthReport.summary.safeCount, 0, 'Schema health safeCount is 0');
     assertEqualOrThrow(healthReport.summary.manualReviewCount, 0, 'Schema health manualReviewCount is 0');
-    console.log('   ✓ 24.3: Database health check is 100% self-healing and reports 0 warnings / 0 errors.');
+    console.log('   ✓ 24.3: Database health check is 100% self-healing and reports 0 warnings / 0 errors, and idx_cash_closures_bdate_scope has 3 columns.');
 
     // 24.4 Hidden-Iframe Z-Report Printer & Release Assets Check
     const slipPrinterPath24 = path.resolve(__dirname, '..', 'frontend/src/lib/printer/printCenteredZReportSlip.ts');

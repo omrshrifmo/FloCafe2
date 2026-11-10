@@ -216,6 +216,21 @@ function diffSchemas(live: DbSchemaSnapshot, ideal: DbSchemaSnapshot): HealthFin
     }
 
     for (const idealIdx of idealTable.indexes) {
+      const liveIdxSameName = liveTable.indexes.find((i) => i.name === idealIdx.name);
+      if (liveIdxSameName && !sameColumnList(liveIdxSameName.columns, idealIdx.columns)) {
+        findings.push({
+          id: `index_mismatch:${tableName}.${idealIdx.name}`,
+          table: tableName,
+          index: idealIdx.name,
+          kind: 'missing_index',
+          risk: 'safe',
+          autoApplicable: true,
+          description: `Index "${idealIdx.name}" has columns (${liveIdxSameName.columns.join(', ')}) but expected (${idealIdx.columns.join(', ')}).`,
+          suggestedDdl: `DROP INDEX IF EXISTS ${idealIdx.name}; CREATE ${idealIdx.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${idealIdx.name} ON ${tableName}(${idealIdx.columns.join(', ')});`,
+        });
+        continue;
+      }
+
       const hasEquivalent = liveTable.indexes.some((i) => sameColumnList(i.columns, idealIdx.columns) && i.unique === idealIdx.unique);
       if (!hasEquivalent) {
         findings.push({
