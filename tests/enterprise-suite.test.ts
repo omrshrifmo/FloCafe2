@@ -1332,7 +1332,7 @@ async function main() {
     const initOutput = execSync(`echo '${initJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
     const parsedInit = JSON.parse(initOutput.trim());
     assertEqualOrThrow(parsedInit.result?.serverInfo?.name, 'flocafe-owner-mcp', 'MCP server name is flocafe-owner-mcp');
-    assertOrThrow(parsedInit.result?.serverInfo?.version === '4.9.0' || parsedInit.result?.serverInfo?.version === '4.9.1', 'MCP server version is 4.9.0 or 4.9.1');
+    assertOrThrow(parsedInit.result?.serverInfo?.version === '4.9.0' || parsedInit.result?.serverInfo?.version === '4.9.1' || parsedInit.result?.serverInfo?.version === '4.9.2', 'MCP server version is 4.9.0, 4.9.1, or 4.9.2');
 
     const toolsJson = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsOutput = execSync(`echo '${toolsJson}' | node "${mcpScriptPath}"`, { encoding: 'utf8' });
@@ -1824,7 +1824,7 @@ async function main() {
     assertOrThrow(fs.existsSync(pkgbuildPath), 'scripts/arch/PKGBUILD-owner-control exists');
 
     const rootPackageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
-    assertOrThrow(rootPackageJson.version === '4.9.0' || rootPackageJson.version === '4.9.1', 'package.json version is 4.9.0 or 4.9.1');
+    assertOrThrow(rootPackageJson.version === '4.9.0' || rootPackageJson.version === '4.9.1' || rootPackageJson.version === '4.9.2', 'package.json version is 4.9.0, 4.9.1, or 4.9.2');
     assertEqualOrThrow(rootPackageJson.scripts?.['owner:app'], 'node scripts/launch-owner-control.cjs', 'owner:app script configured in package.json');
 
     // FloOwner Control Standalone Electron desktop & packaging scripts verification
@@ -1840,7 +1840,7 @@ async function main() {
     assertOrThrow(fs.existsSync(ownerBuilderConfig), 'owner-system/electron-builder-owner.json exists');
     const parsedOwnerConfig = JSON.parse(fs.readFileSync(ownerBuilderConfig, 'utf8'));
     assertEqualOrThrow(parsedOwnerConfig.appId, 'com.omrshrifmo.floownercontrol', 'owner builder appId is com.omrshrifmo.floownercontrol');
-    assertOrThrow(parsedOwnerConfig.extraMetadata?.version === '4.9.0' || parsedOwnerConfig.extraMetadata?.version === '4.9.1', 'owner builder config version is 4.9.0 or 4.9.1');
+    assertOrThrow(parsedOwnerConfig.extraMetadata?.version === '4.9.0' || parsedOwnerConfig.extraMetadata?.version === '4.9.1' || parsedOwnerConfig.extraMetadata?.version === '4.9.2', 'owner builder config version is 4.9.0, 4.9.1, or 4.9.2');
 
     const ownerHtmlFile = path.resolve(__dirname, '../owner-system/flo-owner-control.html');
     assertOrThrow(fs.existsSync(ownerHtmlFile), 'owner-system/flo-owner-control.html exists');
@@ -2267,10 +2267,10 @@ async function main() {
     const currentPkgVersion = JSON.parse(fsMod.readFileSync(pathMod.join(process.cwd(), 'package.json'), 'utf8')).version;
     let apkPath = pathMod.join(process.cwd(), 'release', `FloOwner-Control-${currentPkgVersion}-android.apk`);
     if (!fsMod.existsSync(apkPath)) {
-      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.9.0-android.apk');
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.9.1-android.apk');
     }
     if (!fsMod.existsSync(apkPath)) {
-      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.8.0-android.apk');
+      apkPath = pathMod.join(process.cwd(), 'release', 'FloOwner-Control-4.9.0-android.apk');
     }
     assertOrThrow(fsMod.existsSync(apkPath), `release APK must exist (checked ${apkPath})`);
 
@@ -2913,10 +2913,10 @@ async function main() {
     assertOrThrow(cartPanelTrCount >= 10, `CartPanel.tsx contains at least 10 tr( calls (found ${cartPanelTrCount})`);
     console.log('   ✓ 23.4: Complete Arabic & bilingual localization across POS topbar and cart panel verified.');
 
-    // 23.5 Windows Build Configuration & Version 4.9.0/4.9.1
+    // 23.5 Windows Build Configuration & Version 4.9.0/4.9.1/4.9.2
     const pkgPath23 = path.resolve(__dirname, '..', 'package.json');
     const pkgJson23 = JSON.parse(fs.readFileSync(pkgPath23, 'utf8'));
-    assertOrThrow(pkgJson23.version === '4.9.0' || pkgJson23.version === '4.9.1', 'package.json version is 4.9.0 or 4.9.1');
+    assertOrThrow(pkgJson23.version === '4.9.0' || pkgJson23.version === '4.9.1' || pkgJson23.version === '4.9.2', 'package.json version is 4.9.0, 4.9.1, or 4.9.2');
     const winTarget = pkgJson23.build?.win?.target;
     assertOrThrow(Array.isArray(winTarget), 'build.win.target is array');
     assertOrThrow(winTarget.length === 1 && winTarget[0].target === 'nsis', 'build.win.target contains exclusively nsis (appx removed)');
@@ -3025,14 +3025,18 @@ async function main() {
 
     const pkgPath24 = path.resolve(__dirname, '..', 'package.json');
     const pkgJson24 = JSON.parse(fs.readFileSync(pkgPath24, 'utf8'));
-    assertEqualOrThrow(pkgJson24.version, '4.9.1', 'package.json version is 4.9.1');
+    assertOrThrow(pkgJson24.version === '4.9.1' || pkgJson24.version === '4.9.2', 'package.json version is 4.9.1 or 4.9.2');
 
-    const winPosExe24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe');
-    const winPosSha24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe.sha256');
+    let winPosExe24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.2-win-x64.exe');
+    let winPosSha24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.2-win-x64.exe.sha256');
+    if (!fs.existsSync(winPosExe24)) {
+      winPosExe24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe');
+      winPosSha24 = path.resolve(__dirname, '..', 'release/flocafe-4.9.1-win-x64.exe.sha256');
+    }
     if (fs.existsSync(winPosExe24)) {
       const exeSize = fs.statSync(winPosExe24).size;
-      assertOrThrow(exeSize > 50 * 1024 * 1024, `flocafe-4.9.1-win-x64.exe size > 50MB (found ${exeSize} bytes)`);
-      assertOrThrow(fs.existsSync(winPosSha24), 'flocafe-4.9.1-win-x64.exe.sha256 exists');
+      assertOrThrow(exeSize > 50 * 1024 * 1024, `flocafe Windows exe size > 50MB (found ${exeSize} bytes)`);
+      assertOrThrow(fs.existsSync(winPosSha24), 'flocafe Windows exe sha256 exists');
     }
     console.log('   ✓ 24.4: Hidden-iframe Z-report printer & Windows build assets verified.');
 
