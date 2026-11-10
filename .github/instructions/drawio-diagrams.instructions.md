@@ -7,7 +7,7 @@ applyTo:
   - **/diagrams/**
   - **/docs/diagrams/**
   - **/docs/architecture/**
-deployedAt: "2026-11-10T19:16:52.161Z"
+deployedAt: "2026-11-10T19:41:00.340Z"
 ---
 
 # drawio-diagrams
