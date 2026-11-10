@@ -116,6 +116,10 @@ export function printCenteredZReportSlip(
     };
     html = renderPreBlindSlipHtml(slipData, language);
   } else {
+    const snapshot = (closureData.z_report_snapshot && typeof closureData.z_report_snapshot === 'object'
+      ? closureData.z_report_snapshot
+      : {}) as Record<string, unknown>;
+
     const slipData: FullZReportSlipData = {
       storeName: closureData.store_name || closureData.storeName || 'FloCafe',
       branchName: closureData.branch_name || closureData.branchName,
@@ -154,6 +158,20 @@ export function printCenteredZReportSlip(
       preblindCount: closureData.preblind_count || closureData.preblindCount,
       actualCash: closureData.actual_cash !== undefined ? closureData.actual_cash : (closureData.counted_cash_cents ? closureData.counted_cash_cents / 100 : 0),
       cashVariance: closureData.variance !== undefined ? closureData.variance : (closureData.variance_cents ? closureData.variance_cents / 100 : 0),
+      deficitAmount: (closureData.deficit_amount as number) ?? (closureData.deficitAmount as number) ?? (snapshot.deficit_amount as number) ?? undefined,
+      surplusAmount: (closureData.surplus_amount as number) ?? (closureData.surplusAmount as number) ?? (snapshot.surplus_amount as number) ?? undefined,
+      varianceStatus: (closureData.variance_status as string) ?? (closureData.varianceStatus as string) ?? (snapshot.variance_status as string) ?? undefined,
+      soldItemsBreakdown: (closureData.sold_items_breakdown as any) ?? (closureData.soldItemsBreakdown as any) ?? (snapshot.sold_items_breakdown as any) ?? undefined,
+      totalSoldItemsQty: (closureData.total_sold_items_qty as number) ?? (closureData.totalSoldItemsQty as number) ?? (snapshot.total_sold_items_qty as number) ?? undefined,
+      totalSalesExclTax: (closureData.total_sales_excl_tax as number) ?? (closureData.totalSalesExclTax as number) ?? (snapshot.total_sales_excl_tax as number) ?? undefined,
+      totalTaxQuantity: (closureData.total_tax_quantity as number) ?? (closureData.totalTaxQuantity as number) ?? (snapshot.total_tax_quantity as number) ?? undefined,
+      totalTaxAmount: (closureData.total_tax_amount as number) ?? (closureData.totalTaxAmount as number) ?? (snapshot.total_tax_amount as number) ?? undefined,
+      ordersBreakdown: (closureData.orders_breakdown as any) ?? (closureData.ordersBreakdown as any) ?? (snapshot.orders_breakdown as any) ?? undefined,
+      ordersList: (closureData.orders_list as any) ?? (closureData.ordersList as any) ?? (snapshot.orders_list as any) ?? undefined,
+      paymentMethodsDetailed: (closureData.payment_methods_detailed as any) ?? (closureData.paymentMethodsDetailed as any) ?? (snapshot.payment_methods_detailed as any) ?? undefined,
+      paymentsList: (closureData.payments_list as any) ?? (closureData.paymentsList as any) ?? (snapshot.payments_list as any) ?? undefined,
+      cashMovementsSummary: (closureData.cash_movements_summary as any) ?? (closureData.cashMovementsSummary as any) ?? (snapshot.cash_movements_summary as any) ?? undefined,
+      cashMovementsDetailed: (closureData.cash_movements_detailed as any) ?? (closureData.cashMovementsDetailed as any) ?? (snapshot.cash_movements_detailed as any) ?? undefined,
       soldItemsCount: closureData.sold_items_count || closureData.soldItemsCount,
       expectedBomCost: closureData.expected_bom_cost || closureData.expectedBomCost || 0,
       expectedGrossProfit: closureData.expected_gross_profit || closureData.expectedGrossProfit || 0,

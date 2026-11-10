@@ -216,7 +216,7 @@ export default function CashClosuresPage() {
                       </div>
 
                       {/* Financial Metrics */}
-                      <div className="flex items-center gap-4 text-xs font-mono">
+                      <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
                         <div>
                           <span className="text-muted-foreground block">{tr('Physical Cash', 'النقدية الفعلية')}</span>
                           <span className="text-sm font-bold text-foreground">{fmt(counted)}</span>
@@ -229,12 +229,27 @@ export default function CashClosuresPage() {
                               <span className="text-sm font-bold text-foreground">{fmt(expected)}</span>
                             </div>
 
-                            <div>
-                              <span className="text-muted-foreground block">{tr('Variance', 'الفارق')}</span>
-                              <span className={`text-sm font-bold ${Math.abs(variance) < 0.01 ? 'text-green-600' : variance > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                                {variance > 0 ? `+${fmt(variance)}` : fmt(variance)}
-                              </span>
-                            </div>
+                            {(() => {
+                              const diff = counted - expected;
+                              const def = (c as any).deficit_amount !== undefined ? Number((c as any).deficit_amount) : (diff < -0.009 ? Math.abs(diff) : 0);
+                              const sur = (c as any).surplus_amount !== undefined ? Number((c as any).surplus_amount) : (diff > 0.009 ? diff : 0);
+                              return (
+                                <>
+                                  <div>
+                                    <span className="text-muted-foreground block">{tr('Deficit', 'عجز')}</span>
+                                    <span className={`text-sm font-bold ${def > 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                      {def > 0 ? `-${fmt(def)}` : '0.00'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground block">{tr('Surplus', 'فائض')}</span>
+                                    <span className={`text-sm font-bold ${sur > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                      {sur > 0 ? `+${fmt(sur)}` : '0.00'}
+                                    </span>
+                                  </div>
+                                </>
+                              );
+                            })()}
 
                             {Number(c.expected_bom_cost || 0) > 0 && (
                               <div className="hidden lg:block">
@@ -285,7 +300,7 @@ export default function CashClosuresPage() {
       {/* Closure Slip Detail Modal */}
       {selectedClosure && (
         <Dialog open={!!selectedClosure} onOpenChange={() => setSelectedClosure(null)}>
-          <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-xl max-h-[88vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-base font-bold">
                 <Printer size={18} className="text-brand" />
@@ -298,40 +313,151 @@ export default function CashClosuresPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="p-4 rounded-xl border border-border bg-card space-y-3 text-xs font-mono">
-              <div className="flex justify-between border-b pb-2">
-                <span>{tr('Operator', 'الموظف')}</span>
-                <strong>{selectedClosure.closed_by_name} ({selectedClosure.closed_by_role})</strong>
-              </div>
-              <div className="flex justify-between border-b pb-2">
-                <span>{tr('Physical Cash Counted', 'النقدية الفعلية')}</span>
-                <strong>{fmt((selectedClosure.counted_cash_cents || 0) / 100)}</strong>
-              </div>
-              {selectedClosure.closure_type !== 'pre_blind_cashier' && (
-                <>
-                  <div className="flex justify-between border-b pb-2">
-                    <span>{tr('Expected Cash', 'النقدية المتوقعة')}</span>
-                    <strong>{fmt((selectedClosure.expected_cash_cents || 0) / 100)}</strong>
-                  </div>
-                  <div className="flex justify-between border-b pb-2">
-                    <span>{tr('Variance', 'فارق العجز / الزيادة')}</span>
-                    <strong className={(selectedClosure.variance_cents || 0) < 0 ? 'text-red-600' : 'text-green-600'}>
-                      {fmt((selectedClosure.variance_cents || 0) / 100)}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between border-b pb-2">
-                    <span>{tr('Expected BOM Materials Cost', 'تكلفة خامات BOM المتوقعة')}</span>
-                    <strong className="text-amber-600">{fmt(selectedClosure.expected_bom_cost || 0)}</strong>
-                  </div>
-                  <div className="flex justify-between border-b pb-2">
-                    <span>{tr('Expected Gross Profit', 'مجمل الربح المتوقع')}</span>
-                    <strong className="text-green-600">{fmt(selectedClosure.expected_gross_profit || 0)}</strong>
-                  </div>
-                </>
-              )}
-            </div>
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList className="grid grid-cols-3 mb-3 text-xs">
+                <TabsTrigger value="overview">{tr('Overview', 'نظرة عامة')}</TabsTrigger>
+                <TabsTrigger value="sold_items">{tr('Sold Items', 'الأصناف المباعة')}</TabsTrigger>
+                <TabsTrigger value="breakdowns">{tr('Payments & Cash', 'المدفوعات والدرج')}</TabsTrigger>
+              </TabsList>
 
-            <div className="flex justify-end gap-2 pt-2">
+              <TabsContent value="overview" className="space-y-3">
+                {/* 4 Cards: Expected, Counted, Deficit, Surplus */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="p-2.5 rounded-xl border border-border bg-card">
+                    <span className="text-muted-foreground block">{tr('Expected Cash', 'النقدية المتوقعة')}</span>
+                    <span className="text-sm font-bold">{fmt((selectedClosure.expected_cash_cents || 0) / 100)}</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl border border-border bg-card">
+                    <span className="text-muted-foreground block">{tr('Counted Cash', 'النقدية المعدودة')}</span>
+                    <span className="text-sm font-bold">{fmt((selectedClosure.counted_cash_cents || 0) / 100)}</span>
+                  </div>
+                  {(() => {
+                    const diff = ((selectedClosure.counted_cash_cents || 0) - (selectedClosure.expected_cash_cents || 0)) / 100;
+                    const defVal = (selectedClosure as any).deficit_amount !== undefined ? Number((selectedClosure as any).deficit_amount) : (diff < -0.009 ? Math.abs(diff) : 0);
+                    const surVal = (selectedClosure as any).surplus_amount !== undefined ? Number((selectedClosure as any).surplus_amount) : (diff > 0.009 ? diff : 0);
+                    return (
+                      <>
+                        <div className={`p-2.5 rounded-xl border ${defVal > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-border bg-card'}`}>
+                          <span className={`block font-semibold ${defVal > 0 ? 'text-red-700' : 'text-muted-foreground'}`}>{tr('Deficit', 'عجز')}</span>
+                          <span className={`text-sm font-bold ${defVal > 0 ? 'text-red-600' : ''}`}>{fmt(defVal)}</span>
+                        </div>
+                        <div className={`p-2.5 rounded-xl border ${surVal > 0 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-card'}`}>
+                          <span className={`block font-semibold ${surVal > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>{tr('Surplus', 'فائض')}</span>
+                          <span className={`text-sm font-bold ${surVal > 0 ? 'text-emerald-600' : ''}`}>{fmt(surVal)}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <div className="p-3 rounded-xl border border-border bg-card space-y-2 text-xs">
+                  <div className="flex justify-between border-b pb-1.5">
+                    <span>{tr('Operator', 'الموظف المسئول')}</span>
+                    <strong>{selectedClosure.closed_by_name} ({selectedClosure.closed_by_role})</strong>
+                  </div>
+                  {selectedClosure.closure_type !== 'pre_blind_cashier' && (
+                    <>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span>{tr('BOM Materials Cost', 'تكلفة خامات BOM')}</span>
+                        <strong className="text-amber-600">{fmt(selectedClosure.expected_bom_cost || 0)}</strong>
+                      </div>
+                      <div className="flex justify-between border-b pb-1.5">
+                        <span>{tr('Expected Gross Profit', 'مجمل الربح المتوقع')}</span>
+                        <strong className="text-green-600">{fmt(selectedClosure.expected_gross_profit || 0)}</strong>
+                      </div>
+                      <div className="flex justify-between pb-1">
+                        <span>{tr('Expected Net Profit', 'صافي الربح المتوقع')}</span>
+                        <strong className="text-emerald-600 font-bold">{fmt(selectedClosure.expected_net_profit || 0)}</strong>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="sold_items" className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Total Items Sold', 'إجمالي القطع المباعة')}</span>
+                    <span className="font-bold font-mono">{(selectedClosure as any).total_sold_items_qty || (selectedClosure as any).sold_items_count || 0}</span>
+                  </div>
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Sales Excl. Tax', 'المبيعات بدون ضريبة')}</span>
+                    <span className="font-bold font-mono">{fmt((selectedClosure as any).total_sales_excl_tax || 0)}</span>
+                  </div>
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Taxed Items Qty', 'كمية الأصناف الخاضعة للضريبة')}</span>
+                    <span className="font-bold font-mono">{(selectedClosure as any).total_tax_quantity || 0}</span>
+                  </div>
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Total Tax Collected', 'إجمالي الضريبة المحصلة')}</span>
+                    <span className="font-bold font-mono">{fmt((selectedClosure as any).total_tax_amount || 0)}</span>
+                  </div>
+                </div>
+
+                {Array.isArray((selectedClosure as any).sold_items_breakdown) && (selectedClosure as any).sold_items_breakdown.length > 0 ? (
+                  <div className="rounded-xl border border-border bg-card overflow-hidden">
+                    <div className="max-h-56 overflow-y-auto divide-y divide-border text-xs">
+                      {((selectedClosure as any).sold_items_breakdown as any[]).map((item, idx) => (
+                        <div key={idx} className="p-2 flex items-center justify-between">
+                          <div>
+                            <span className="font-bold">{item.product_name}</span>
+                            {item.variant_name && <span className="text-muted-foreground ms-1">({item.variant_name})</span>}
+                            <div className="text-[11px] text-muted-foreground">
+                              {tr('Unit Pre-tax', 'سعر الوحدة بدون ضريبة')}: {fmt(item.unit_price_excl_tax)}
+                            </div>
+                          </div>
+                          <div className="text-end font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-muted text-[11px] font-bold me-2">x{item.bulk_qty}</span>
+                            <span className="font-bold">{fmt(item.total_excl_tax)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    {tr('No sold items records captured for this closure.', 'لا توجد أصناف مباعة مسجلة لهذه الوردية.')}
+                  </p>
+                )}
+              </TabsContent>
+
+              <TabsContent value="breakdowns" className="space-y-3">
+                {Array.isArray((selectedClosure as any).payment_methods_detailed) && (selectedClosure as any).payment_methods_detailed.length > 0 && (
+                  <div className="space-y-1.5 text-xs">
+                    <span className="font-bold text-muted-foreground block">{tr('Payment Methods', 'طرق الدفع')}</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {((selectedClosure as any).payment_methods_detailed as any[]).map((pm, idx) => (
+                        <div key={idx} className="p-2 rounded-lg border border-border bg-card flex justify-between items-center">
+                          <span>{isAr ? pm.label_ar : pm.label_en} ({pm.transactions_count})</span>
+                          <strong className="font-mono">{fmt(pm.total_amount)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray((selectedClosure as any).cash_movements_detailed) && (selectedClosure as any).cash_movements_detailed.length > 0 && (
+                  <div className="space-y-1.5 text-xs pt-2 border-t">
+                    <span className="font-bold text-muted-foreground block">{tr('Cash Movements & Expenses', 'حركات الدرج والمصروفات')}</span>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {((selectedClosure as any).cash_movements_detailed as any[]).map((mov, idx) => (
+                        <div key={idx} className="p-2 rounded-lg border border-border bg-card flex justify-between items-center">
+                          <div>
+                            <span className="font-bold">{isAr ? mov.label_ar : mov.label_en}</span>
+                            {mov.reason && <span className="text-muted-foreground ms-1 text-[11px]">({mov.reason})</span>}
+                          </div>
+                          <span className={`font-mono font-bold ${mov.direction === 'in' ? 'text-green-600' : 'text-amber-600'}`}>
+                            {mov.direction === 'in' ? '+' : '-'}{fmt(mov.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
               <Button
                 onClick={() => printCenteredZReportSlip(selectedClosure, isAr ? 'ar' : 'en', selectedClosure.closure_type || 'full_day_close')}
                 className="bg-brand text-white font-bold"

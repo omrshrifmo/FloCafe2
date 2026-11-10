@@ -373,8 +373,9 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-border p-3 bg-muted/40">
+                {/* 4 Metric Cards: Expected, Counted, Deficit, Surplus */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-border p-2.5 bg-muted/40">
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-muted-foreground">{tr('Expected Cash', 'النقدية المتوقعة بالدرج')}</p>
                       {!adminUnlocked && closureType === 'pre_blind_cashier' && (
@@ -385,24 +386,52 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                             setAdminPinInput('');
                             setShowAdminPinPrompt(!showAdminPinPrompt);
                           }}
-                          className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-2 py-0.5 rounded-md"
+                          className="text-[10px] font-bold text-brand hover:underline inline-flex items-center gap-1 cursor-pointer bg-brand/10 hover:bg-brand/20 px-1.5 py-0.5 rounded-md"
                         >
-                          <KeyRound size={12} />
-                          <span>{tr('Manager PIN', 'رمز المدير')}</span>
+                          <KeyRound size={11} />
+                          <span>{tr('PIN', 'رمز')}</span>
                         </button>
                       )}
                     </div>
-                    <p className="text-xl font-bold text-foreground ltr-island">
+                    <p className="text-base font-bold text-foreground ltr-island mt-1">
                       {adminUnlocked || closureType === 'full_day_close' ? (amountsValid ? fmt(expectedCashTotalCents / minorFactor) : '—') : '••••••••'}
                     </p>
                   </div>
 
-                  <div className={`rounded-lg border p-3 ${adminUnlocked || closureType === 'full_day_close' ? (varianceCents === 0 ? 'border-border bg-muted/40' : varianceCents < 0 ? 'border-red-300 dark:border-red-800/40 bg-red-50 dark:bg-red-950/40' : 'border-amber-300 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/40') : 'border-border bg-muted/40'}`}>
-                    <p className="text-xs text-muted-foreground">{tr('Variance', 'فارق الدرج (عجز / زيادة)')}</p>
-                    <p className={`text-xl font-bold ltr-island ${!adminUnlocked && closureType === 'pre_blind_cashier' ? 'text-muted-foreground font-mono tracking-widest select-none' : varianceCents === 0 ? 'text-foreground' : varianceCents < 0 ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                      {adminUnlocked || closureType === 'full_day_close' ? (amountsValid ? fmt(varianceCents / minorFactor) : '—') : '••••••••'}
+                  <div className="rounded-lg border border-border p-2.5 bg-muted/40">
+                    <p className="text-xs text-muted-foreground">{tr('Counted Cash', 'النقدية المعدودة')}</p>
+                    <p className="text-base font-bold text-foreground ltr-island mt-1">
+                      {countedInput ? fmt(parseFloat(countedInput) || 0) : '0.00'}
                     </p>
                   </div>
+
+                  {(() => {
+                    const isVisible = adminUnlocked || closureType === 'full_day_close';
+                    const defVal = varianceCents < 0 ? Math.abs(varianceCents) / minorFactor : 0;
+                    const surVal = varianceCents > 0 ? varianceCents / minorFactor : 0;
+
+                    return (
+                      <>
+                        <div className={`rounded-lg border p-2.5 ${isVisible && defVal > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-border bg-muted/40'}`}>
+                          <p className={`text-xs font-semibold ${isVisible && defVal > 0 ? 'text-red-700' : 'text-muted-foreground'}`}>
+                            {tr('Deficit', 'عجز نقدية')}
+                          </p>
+                          <p className={`text-base font-bold ltr-island mt-1 ${isVisible ? (defVal > 0 ? 'text-red-600' : 'text-foreground') : 'text-muted-foreground font-mono select-none'}`}>
+                            {isVisible ? (amountsValid ? fmt(defVal) : '—') : '••••••••'}
+                          </p>
+                        </div>
+
+                        <div className={`rounded-lg border p-2.5 ${isVisible && surVal > 0 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-muted/40'}`}>
+                          <p className={`text-xs font-semibold ${isVisible && surVal > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
+                            {tr('Surplus', 'فائض نقدية')}
+                          </p>
+                          <p className={`text-base font-bold ltr-island mt-1 ${isVisible ? (surVal > 0 ? 'text-emerald-600' : 'text-foreground') : 'text-muted-foreground font-mono select-none'}`}>
+                            {isVisible ? (amountsValid ? fmt(surVal) : '—') : '••••••••'}
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {submitError && (
@@ -432,15 +461,39 @@ export function CashCloseModal({ model }: { model: CashCloseModel }) {
                     {tr(`Period: ${closedZ.period_start} to ${closedZ.period_end}`, `الفترة: ${closedZ.period_start} إلى ${closedZ.period_end}`)}
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">{tr('Opening Float', 'الرصيد الافتتاحي')}</p>
-                    <p className="text-base font-semibold text-foreground"><Ltr>{fmt(closedZ.opening_float_cents / minorFactor)}</Ltr></p>
+                {/* 4 Metric Cards for Closed Result */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-border p-2.5 bg-muted/40">
+                    <p className="text-xs text-muted-foreground">{tr('Expected Cash', 'النقدية المتوقعة')}</p>
+                    <p className="text-sm font-bold text-foreground ltr-island mt-1">
+                      <Ltr>{fmt(Number(closedZ.expected_cash_cents || 0) / minorFactor)}</Ltr>
+                    </p>
                   </div>
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs text-muted-foreground">{tr('Counted Cash', 'النقدية الفعلية المعدودة')}</p>
-                    <p className="text-base font-semibold text-foreground"><Ltr>{fmt(closedZ.counted_cash_cents / minorFactor)}</Ltr></p>
+                  <div className="rounded-lg border border-border p-2.5 bg-muted/40">
+                    <p className="text-xs text-muted-foreground">{tr('Counted Cash', 'النقدية الفعلية')}</p>
+                    <p className="text-sm font-bold text-foreground ltr-island mt-1">
+                      <Ltr>{fmt(Number(closedZ.counted_cash_cents || 0) / minorFactor)}</Ltr>
+                    </p>
                   </div>
+                  {(() => {
+                    const exp = Number(closedZ.expected_cash_cents || 0) / minorFactor;
+                    const cnt = Number(closedZ.counted_cash_cents || 0) / minorFactor;
+                    const diff = cnt - exp;
+                    const defVal = (closedZ as any).deficit_amount !== undefined ? Number((closedZ as any).deficit_amount) : (diff < -0.009 ? Math.abs(diff) : 0);
+                    const surVal = (closedZ as any).surplus_amount !== undefined ? Number((closedZ as any).surplus_amount) : (diff > 0.009 ? diff : 0);
+                    return (
+                      <>
+                        <div className={`rounded-lg border p-2.5 ${defVal > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-border bg-muted/40'}`}>
+                          <p className={`text-xs font-semibold ${defVal > 0 ? 'text-red-700' : 'text-muted-foreground'}`}>{tr('Deficit', 'عجز نقدية')}</p>
+                          <p className={`text-sm font-bold ltr-island mt-1 ${defVal > 0 ? 'text-red-600' : 'text-foreground'}`}><Ltr>{fmt(defVal)}</Ltr></p>
+                        </div>
+                        <div className={`rounded-lg border p-2.5 ${surVal > 0 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-muted/40'}`}>
+                          <p className={`text-xs font-semibold ${surVal > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>{tr('Surplus', 'فائض نقدية')}</p>
+                          <p className={`text-sm font-bold ltr-island mt-1 ${surVal > 0 ? 'text-emerald-600' : 'text-foreground'}`}><Ltr>{fmt(surVal)}</Ltr></p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="rounded-lg border border-border p-3 bg-muted/40">

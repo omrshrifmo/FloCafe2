@@ -3040,8 +3040,148 @@ async function main() {
     }
     console.log('   ✓ 24.4: Hidden-iframe Z-report printer & Windows build assets verified.');
 
+    // ── Section 25: Pure Center-Column Z-Report Slip & Granular Deficit/Surplus Suite ──
+    console.log('\n--- Section 25: v4.9.2 Pure Center-Column Slip & Granular Breakdown Audit ---');
+
+    // 25.1 Zero Side-Text Verification in Templates & Thermal Slip Generator
+    const zreportTemplatePath = path.resolve(__dirname, '..', 'shared/print/templates/zreport.ts');
+    const zreportTemplateCode = fs.readFileSync(zreportTemplatePath, 'utf8');
+    assertOrThrow(!zreportTemplateCode.includes('justify-content:'), 'shared/print/templates/zreport.ts has ZERO justify-content properties');
+    assertOrThrow(zreportTemplateCode.includes('max-width: 190px'), 'shared/print/templates/zreport.ts enforces max-width: 190px narrow column');
+    assertOrThrow(zreportTemplateCode.includes('padding: 10px 28px'), 'shared/print/templates/zreport.ts enforces padding: 10px 28px safety margins');
+    assertOrThrow(zreportTemplateCode.includes('text-align: center'), 'shared/print/templates/zreport.ts enforces text-align: center');
+
+    const thermalZPath = path.resolve(__dirname, '..', 'main/print/z-report.ts');
+    const thermalZCode = fs.readFileSync(thermalZPath, 'utf8');
+    assertOrThrow(!thermalZCode.includes('formatLine'), 'main/print/z-report.ts has ZERO formatLine calls');
+    assertOrThrow(thermalZCode.includes('ESC_ALIGN_CENTER'), 'main/print/z-report.ts uses ESC_ALIGN_CENTER');
+
+    const sampleSlipHtml = renderFullZReportSlipHtml({
+      storeName: 'FloCafe Center Test',
+      expectedCash: 500,
+      actualCash: 450,
+      deficitAmount: 50,
+      surplusAmount: 0,
+      soldItemsBreakdown: [
+        { product_name: 'Espresso Double', bulk_qty: 3, unit_price_excl_tax: 25, total_excl_tax: 75, item_tax_amount: 10.5, total_incl_tax: 85.5 }
+      ],
+      totalSoldItemsQty: 3,
+      totalSalesExclTax: 75,
+      totalTaxQuantity: 3,
+      totalTaxAmount: 10.5,
+    }, 'ar');
+    assertOrThrow(sampleSlipHtml.includes('عجز'), 'renderFullZReportSlipHtml includes deficit in Arabic');
+    assertOrThrow(sampleSlipHtml.includes('Espresso Double'), 'renderFullZReportSlipHtml includes itemized product name');
+    assertOrThrow(sampleSlipHtml.includes('max-width: 190px'), 'sample HTML uses narrow 190px centered container');
+    assertOrThrow(!sampleSlipHtml.includes('justify-content'), 'sample HTML has zero justify-content occurrences');
+
+    const sampleThermalResult = renderThermalZReport({
+      storeName: 'FloCafe Thermal Test',
+      closure_type: 'full_day_close',
+      expectedCash: 500,
+      actualCash: 550,
+      deficitAmount: 0,
+      surplusAmount: 50,
+      soldItemsBreakdown: [
+        { product_name: 'Cappuccino Large', bulk_qty: 2, unit_price_excl_tax: 30, total_excl_tax: 60, item_tax_amount: 8.4 }
+      ],
+      totalSoldItemsQty: 2,
+      totalSalesExclTax: 60,
+      totalTaxQuantity: 2,
+      totalTaxAmount: 8.4,
+    }, 'ar');
+    assertOrThrow(sampleThermalResult.raw.includes('فائض'), 'renderThermalZReport includes surplus in Arabic output');
+    assertOrThrow(sampleThermalResult.raw.includes('Cappuccino Large'), 'renderThermalZReport includes itemized product name');
+    console.log('   ✓ 25.1: Zero side-text, narrow centered columns, and pure centered thermal slips verified.');
+
+    // 25.2 Granular Breakdowns & Deficit/Surplus in Cash Closures API
+    const testDate25 = '2026-11-09';
+    // Insert test order with items & bill
+    db.prepare(`
+      INSERT INTO orders (id, order_number, type, status, total, subtotal, tax_amount, created_at)
+      VALUES (9501, 'ORD-2501', 'dine_in', 'completed', 100, 90, 10, '2026-11-09 10:00:00')
+    `).run();
+    db.prepare(`
+      INSERT INTO order_items (id, order_id, product_id, product_name, quantity, unit_price, tax_amount, subtotal, total, status)
+      VALUES (95011, 9501, 'prod-latte', 'Spanish Latte Cold', 2, 45, 10, 90, 100, 'active')
+    `).run();
+    db.prepare(`
+      INSERT INTO bills (bill_number, order_id, total, paid_amount, payment_method, payment_status, paid_at, created_at)
+      VALUES ('BILL-2501', 9501, 100, 100, 'cash', 'paid', '2026-11-09 10:05:00', '2026-11-09 10:05:00')
+    `).run();
+
+    // Test GET /preview
+    const previewRes25 = await fetch(`${baseUrl}/api/cash-closures/preview?business_date=${testDate25}`, {
+      headers: { Authorization: `Bearer ${ownerToken24}` },
+    });
+    assertEqualOrThrow(previewRes25.status, 200, 'GET /preview returns 200');
+    const previewJson25 = await previewRes25.json();
+    assertOrThrow(Array.isArray(previewJson25.sold_items_breakdown), 'preview returns sold_items_breakdown array');
+    assertOrThrow(previewJson25.total_sold_items_qty >= 2, 'preview computes total_sold_items_qty');
+    assertOrThrow(previewJson25.total_sales_excl_tax > 0, 'preview computes total_sales_excl_tax');
+    assertOrThrow(previewJson25.total_tax_quantity >= 2, 'preview computes total_tax_quantity');
+    assertOrThrow(previewJson25.total_tax_amount > 0, 'preview computes total_tax_amount');
+    assertOrThrow(previewJson25.orders_breakdown !== null, 'preview returns orders_breakdown');
+    assertOrThrow(Array.isArray(previewJson25.payment_methods_detailed), 'preview returns payment_methods_detailed');
+
+    // Test POST / with Deficit Scenario (counted < expected)
+    const deficitCloseRes = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken24}` },
+      body: JSON.stringify({
+        closure_type: 'full_day_close',
+        business_date: testDate25,
+        counted_cash_cents: 1000, // Very low count -> deficit
+        opening_float_cents: 5000,
+      }),
+    });
+    assertEqualOrThrow(deficitCloseRes.status, 201, 'POST / with deficit returns 201');
+    const deficitJson = await deficitCloseRes.json();
+    assertOrThrow(deficitJson.deficit_amount > 0, 'deficit_amount > 0 for cash shortage');
+    assertEqualOrThrow(deficitJson.surplus_amount, 0, 'surplus_amount is 0 for cash shortage');
+    assertEqualOrThrow(deficitJson.variance_status, 'deficit', 'variance_status is deficit');
+    assertOrThrow(Array.isArray(deficitJson.sold_items_breakdown), 'sold_items_breakdown present in full_day_close');
+
+    // Test POST / with Surplus Scenario (counted > expected)
+    const surplusCloseRes = await fetch(`${baseUrl}/api/cash-closures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken24}` },
+      body: JSON.stringify({
+        closure_type: 'full_day_close',
+        business_date: testDate25,
+        counted_cash_cents: 999900, // Very high count -> surplus
+        opening_float_cents: 5000,
+      }),
+    });
+    assertEqualOrThrow(surplusCloseRes.status, 201, 'POST / with surplus returns 201');
+    const surplusJson = await surplusCloseRes.json();
+    assertOrThrow(surplusJson.surplus_amount > 0, 'surplus_amount > 0 for cash overage');
+    assertEqualOrThrow(surplusJson.deficit_amount, 0, 'deficit_amount is 0 for cash overage');
+    assertEqualOrThrow(surplusJson.variance_status, 'surplus', 'variance_status is surplus');
+
+    // Test GET /history returns enriched breakdown
+    const historyRes25 = await fetch(`${baseUrl}/api/cash-closures/history`, {
+      headers: { Authorization: `Bearer ${ownerToken24}` },
+    });
+    assertEqualOrThrow(historyRes25.status, 200, 'GET /history returns 200');
+    const historyJson25 = await historyRes25.json();
+    const latestHistorical = historyJson25.closures[0];
+    assertOrThrow(latestHistorical.surplus_amount > 0 || latestHistorical.deficit_amount > 0, 'history closure has explicit deficit or surplus');
+    assertOrThrow(Array.isArray(latestHistorical.sold_items_breakdown), 'history closure has sold_items_breakdown');
+
+    // Test GET /z-report returns enriched breakdown
+    const zReportRes25 = await fetch(`${baseUrl}/api/cash-closures/z-report`, {
+      headers: { Authorization: `Bearer ${ownerToken24}` },
+    });
+    assertEqualOrThrow(zReportRes25.status, 200, 'GET /z-report returns 200');
+    const zReportJson25 = await zReportRes25.json();
+    assertOrThrow(zReportJson25.zReport !== null, 'latest zReport exists');
+    assertOrThrow(Array.isArray(zReportJson25.zReport.sold_items_breakdown), 'zReport includes sold_items_breakdown');
+    assertOrThrow(zReportJson25.zReport.total_sold_items_qty !== undefined, 'zReport includes total_sold_items_qty');
+    console.log('   ✓ 25.2: Granular breakdowns, pre-tax metrics, deficit/surplus calculations and API endpoints verified.');
+
     console.log('\n' + '='.repeat(70));
-    console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS PASSED CLEANLY');
+    console.log('✅ ALL ENTERPRISE SUITE VERIFICATIONS (SECTIONS 1-25) PASSED CLEANLY');
   } finally {
     server.close();
     closeDatabase();

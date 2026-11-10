@@ -1664,12 +1664,30 @@ export default function DashboardPage() {
                                 <span className="text-muted-foreground text-[10px] block">{isAr ? 'المتوقع' : 'Expected'}</span>
                                 <span className="font-bold">{fmt(expected)}</span>
                               </div>
-                              <div>
-                                <span className="text-muted-foreground text-[10px] block">{isAr ? 'الفارق' : 'Variance'}</span>
-                                <span className={`font-bold ${Math.abs(variance) < 0.01 ? 'text-green-600' : variance > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                                  {variance > 0 ? `+${fmt(variance)}` : fmt(variance)}
-                                </span>
-                              </div>
+                              {(() => {
+                                const def = (c as any).deficit_amount !== undefined ? Number((c as any).deficit_amount) : (variance < -0.009 ? Math.abs(variance) : 0);
+                                const sur = (c as any).surplus_amount !== undefined ? Number((c as any).surplus_amount) : (variance > 0.009 ? variance : 0);
+                                return (
+                                  <>
+                                    {def > 0 ? (
+                                      <div>
+                                        <span className="text-red-700 text-[10px] block font-semibold">{isAr ? 'عجز' : 'Deficit'}</span>
+                                        <span className="font-bold text-red-600">-{fmt(def)}</span>
+                                      </div>
+                                    ) : sur > 0 ? (
+                                      <div>
+                                        <span className="text-emerald-700 text-[10px] block font-semibold">{isAr ? 'فائض' : 'Surplus'}</span>
+                                        <span className="font-bold text-emerald-600">+{fmt(sur)}</span>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <span className="text-muted-foreground text-[10px] block">{isAr ? 'الفارق' : 'Variance'}</span>
+                                        <span className="font-bold text-green-600">{fmt(0)}</span>
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </>
                           )}
                           <Button

@@ -486,33 +486,100 @@ export function ShiftCloseModal({ model, mode = 'pre_blind_cashier', onModeChang
               )}
 
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
-                  <span className="text-muted-foreground">{tr('Counted Cash', 'النقدية المعدودة')}</span>
-                  <div className="text-base font-bold text-foreground">{fmt(parseFloat(countedInput || '0'))}</div>
-                </div>
+              {activeMode === 'full_day_close' && previewData ? (
+                <div className="space-y-3">
+                  {/* 4 Metric Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
+                      <span className="text-muted-foreground block">{tr('Expected Cash', 'النقدية المتوقعة')}</span>
+                      <div className="text-sm font-bold text-foreground">{fmt(previewData.expected_cash || 0)}</div>
+                    </div>
 
-                <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
-                  <span className="text-muted-foreground">{tr('Declared Card/Wallet', 'الفيزا والمحافظ')}</span>
-                  <div className="text-base font-bold text-foreground">
-                    {fmt((parseFloat(declaredCardSlips) || 0) + (parseFloat(declaredWalletSlips) || 0))}
+                    <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
+                      <span className="text-muted-foreground block">{tr('Counted Cash', 'النقدية المعدودة')}</span>
+                      <div className="text-sm font-bold text-foreground">{fmt(parseFloat(countedInput || '0'))}</div>
+                    </div>
+
+                    {(() => {
+                      const countedVal = parseFloat(countedInput || '0');
+                      const expectedVal = Number(previewData.expected_cash || 0);
+                      const diffVal = Number((countedVal - expectedVal).toFixed(2));
+                      const deficitVal = diffVal < -0.009 ? Math.abs(diffVal) : 0;
+                      const surplusVal = diffVal > 0.009 ? diffVal : 0;
+                      return (
+                        <>
+                          <div className={`p-2.5 rounded-xl border space-y-1 ${deficitVal > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-border bg-card'}`}>
+                            <span className={`block font-semibold ${deficitVal > 0 ? 'text-red-700' : 'text-muted-foreground'}`}>
+                              {tr('Deficit', 'عجز نقدية')}
+                            </span>
+                            <div className={`text-sm font-bold ${deficitVal > 0 ? 'text-red-600' : 'text-foreground'}`}>
+                              {fmt(deficitVal)}
+                            </div>
+                          </div>
+
+                          <div className={`p-2.5 rounded-xl border space-y-1 ${surplusVal > 0 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-card'}`}>
+                            <span className={`block font-semibold ${surplusVal > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
+                              {tr('Surplus', 'فائض نقدية')}
+                            </span>
+                            <div className={`text-sm font-bold ${surplusVal > 0 ? 'text-emerald-600' : 'text-foreground'}`}>
+                              {fmt(surplusVal)}
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 rounded-lg border border-border bg-card">
+                      <span className="text-muted-foreground block">{tr('Declared Card/Wallet', 'الفيزا والمحافظ')}</span>
+                      <span className="font-bold">{fmt((parseFloat(declaredCardSlips) || 0) + (parseFloat(declaredWalletSlips) || 0))}</span>
+                    </div>
+                    <div className="p-2 rounded-lg border border-border bg-card">
+                      <span className="text-muted-foreground block">{tr('Expected BOM Cost', 'تكلفة خامات BOM')}</span>
+                      <span className="font-bold text-amber-600">{fmt(previewData.expected_bom_cost || 0)}</span>
+                    </div>
+                  </div>
+
+                  {/* Sold items breakdown compact preview */}
+                  {Array.isArray((previewData as any).sold_items_breakdown) && (previewData as any).sold_items_breakdown.length > 0 && (
+                    <div className="rounded-xl border border-border bg-muted/20 p-2.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between font-bold border-b pb-1">
+                        <span>{tr('Sold Items Breakdown', 'تفاصيل الأصناف المباعة')}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {tr('Total Qty', 'إجمالي الكمية')}: {(previewData as any).total_sold_items_qty || 0}
+                        </span>
+                      </div>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {((previewData as any).sold_items_breakdown as any[]).slice(0, 8).map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between py-0.5 text-[11px]">
+                            <span className="truncate max-w-[180px]">
+                              {item.product_name} {item.variant_name ? `(${item.variant_name})` : ''}
+                            </span>
+                            <span className="font-mono text-muted-foreground">
+                              {item.bulk_qty}x @ {fmt(item.unit_price_excl_tax)} = <strong>{fmt(item.total_excl_tax)}</strong>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
+                    <span className="text-muted-foreground">{tr('Counted Cash', 'النقدية المعدودة')}</span>
+                    <div className="text-base font-bold text-foreground">{fmt(parseFloat(countedInput || '0'))}</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
+                    <span className="text-muted-foreground">{tr('Declared Card/Wallet', 'الفيزا والمحافظ')}</span>
+                    <div className="text-base font-bold text-foreground">
+                      {fmt((parseFloat(declaredCardSlips) || 0) + (parseFloat(declaredWalletSlips) || 0))}
+                    </div>
                   </div>
                 </div>
-
-                {activeMode === 'full_day_close' && previewData && (
-                  <>
-                    <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
-                      <span className="text-muted-foreground">{tr('Expected Drawer Cash', 'النقدية المتوقعة')}</span>
-                      <div className="text-base font-bold text-foreground">{fmt(previewData.expected_cash || 0)}</div>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl border border-border bg-card space-y-1">
-                      <span className="text-muted-foreground">{tr('Expected BOM Cost', 'تكلفة خامات BOM')}</span>
-                      <div className="text-base font-bold text-amber-600">{fmt(previewData.expected_bom_cost || 0)}</div>
-                    </div>
-                  </>
-                )}
-              </div>
+              )}
 
               {activeMode === 'full_day_close' && previewData?.latest_preblind_closure && (
                 <div className="p-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-xs text-blue-900 space-y-1">
@@ -536,16 +603,26 @@ export function ShiftCloseModal({ model, mode = 'pre_blind_cashier', onModeChang
               <div className="size-10 rounded-full bg-green-500/20 text-green-600 flex items-center justify-center mx-auto">
                 <Check size={20} />
               </div>
-              <div>
-                <h4 className="font-bold text-sm">
-                  {closedResult.closure_type === 'pre_blind_cashier'
-                    ? tr('Pre-Blind Shift Handover Complete!', 'تم إغلاق وتسليم الوردية المبدئي بنجاح!')
-                    : tr('Full Day Close Z-Report Finalized!', 'تم اعتماد إغلاق اليوم الشامل بنجاح!')}
-                </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {tr('Centered thermal receipt ready for printing.', 'الإيصال الحراري الموسط جاهز للطباعة والتسليم.')}
-                </p>
-              </div>
+              {closedResult.closure_type === 'full_day_close' && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-start">
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Expected Cash', 'النقدية المتوقعة')}</span>
+                    <span className="font-bold">{fmt(Number(closedResult.expected_cash_cents || 0) / 100)}</span>
+                  </div>
+                  <div className="p-2 rounded-lg border border-border bg-muted/40">
+                    <span className="text-muted-foreground block">{tr('Counted Cash', 'النقدية المعدودة')}</span>
+                    <span className="font-bold">{fmt(Number(closedResult.counted_cash_cents || 0) / 100)}</span>
+                  </div>
+                  <div className={`p-2 rounded-lg border ${Number(closedResult.deficit_amount || 0) > 0 ? 'border-red-500/40 bg-red-500/10' : 'border-border bg-muted/40'}`}>
+                    <span className={`block font-semibold ${Number(closedResult.deficit_amount || 0) > 0 ? 'text-red-700' : 'text-muted-foreground'}`}>{tr('Deficit', 'عجز نقدية')}</span>
+                    <span className={`font-bold ${Number(closedResult.deficit_amount || 0) > 0 ? 'text-red-600' : ''}`}>{fmt(Number(closedResult.deficit_amount || 0))}</span>
+                  </div>
+                  <div className={`p-2 rounded-lg border ${Number(closedResult.surplus_amount || 0) > 0 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-muted/40'}`}>
+                    <span className={`block font-semibold ${Number(closedResult.surplus_amount || 0) > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>{tr('Surplus', 'فائض نقدية')}</span>
+                    <span className={`font-bold ${Number(closedResult.surplus_amount || 0) > 0 ? 'text-emerald-600' : ''}`}>{fmt(Number(closedResult.surplus_amount || 0))}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="pt-2 flex justify-center gap-2">
                 <Button

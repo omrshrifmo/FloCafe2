@@ -1264,6 +1264,375 @@ router.post('/movements/:id/void', requirePermission('cash.movements.void'), (re
   }
 });
 
+// ── Helper: Detailed Closure Breakdown ──────────────────────────────────────
+export function buildDetailedClosureBreakdown(
+  db: ReturnType<typeof getDatabase>,
+  businessDate: string,
+  periodStart: string,
+  periodEnd: string,
+  expectedCash: number,
+  countedCash: number
+) {
+  // 1. Sold Items Only — Bulk Quantity, Unit Price Without Tax & Total Price Without Tax
+  let soldItems: any[] = [];
+  try {
+    soldItems = db.prepare(`
+      SELECT
+        COALESCE(oi.product_id, 0) as product_id,
+        COALESCE(oi.product_name, 'Item') as product_name,
+        '' as variant_name,
+        SUM(COALESCE(oi.quantity, 1)) as bulk_qty,
+        AVG(COALESCE(oi.unit_price, 0)) as unit_price_excl_tax,
+        SUM(COALESCE(oi.quantity, 1) * COALESCE(oi.unit_price, 0) - COALESCE(oi.discount_amount, 0)) as total_excl_tax,
+        SUM(COALESCE(oi.tax_amount, 0)) as item_tax_amount
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE (o.created_at >= ? AND o.created_at <= ? OR DATE(o.created_at) = DATE(?))
+        AND COALESCE(o.status, '') NOT IN ('cancelled', 'voided')
+        AND COALESCE(oi.status, '') NOT IN ('cancelled', 'voided')
+      GROUP BY oi.product_name
+      HAVING SUM(COALESCE(oi.quantity, 1)) > 0
+      ORDER BY bulk_qty DESC, total_excl_tax DESC
+    `).all(periodStart, periodEnd, businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] soldItems query fallback:', e);
+  }
+
+  let total_sold_items_qty = 0;
+  let total_sales_excl_tax = 0;
+  let total_tax_quantity = 0;
+  let total_tax_amount = 0;
+
+  const sold_items_breakdown = soldItems.map((item) => {
+    const bulk_qty = Number(item.bulk_qty || 0);
+    const unit_price_excl_tax = Number(Number(item.unit_price_excl_tax || 0).toFixed(2));
+    const total_excl_tax = Number(Number(item.total_excl_tax || 0).toFixed(2));
+    const item_tax_amount = Number(Number(item.item_tax_amount || 0).toFixed(2));
+    const total_incl_tax = Number((total_excl_tax + item_tax_amount).toFixed(2));
+
+    total_sold_items_qty += bulk_qty;
+    total_sales_excl_tax += total_excl_tax;
+    if (item_tax_amount > 0) total_tax_quantity += bulk_qty;
+    total_tax_amount += item_tax_amount;
+
+    return {
+      product_id: item.product_id,
+      product_name: item.product_name,
+      variant_name: item.variant_name || '',
+      bulk_qty,
+      unit_price_excl_tax,
+      total_excl_tax,
+      item_tax_amount,
+      total_incl_tax,
+    };
+  });
+
+  // 2. Orders details
+  let rawOrders: any[] = [];
+  try {
+    rawOrders = db.prepare(`
+      SELECT o.id, o.order_number, o.type, o.status, o.total, o.subtotal, COALESCE(o.tax_amount, 0) as tax,
+             COALESCE((SELECT payment_method FROM bills WHERE order_id = o.id LIMIT 1), 'cash') as payment_method,
+             o.created_at,
+             (SELECT SUM(COALESCE(quantity, 1)) FROM order_items WHERE order_id = o.id AND COALESCE(status, '') NOT IN ('cancelled', 'voided')) as items_qty
+      FROM orders o
+      WHERE (o.created_at >= ? AND o.created_at <= ? OR DATE(o.created_at) = DATE(?))
+      ORDER BY o.created_at ASC
+    `).all(periodStart, periodEnd, businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] rawOrders query fallback:', e);
+  }
+
+  const orders_breakdown = {
+    dine_in: { count: 0, total: 0 },
+    takeaway: { count: 0, total: 0 },
+    delivery: { count: 0, total: 0 },
+    cancelled: { count: 0, total: 0 },
+  };
+
+  const orders_list = rawOrders.map((o) => {
+    const tot = Number(o.total || 0);
+    const sub = Number(o.subtotal || tot);
+    const tax = Number(o.tax || 0);
+    const disc = Math.max(0, sub - tot + tax);
+    const t = String(o.order_type || o.type || 'dine_in').toLowerCase();
+    const isCancelled = o.status === 'cancelled' || o.status === 'voided';
+
+    if (isCancelled) {
+      orders_breakdown.cancelled.count++;
+      orders_breakdown.cancelled.total += tot;
+    } else if (t === 'dine_in' || t === 'table') {
+      orders_breakdown.dine_in.count++;
+      orders_breakdown.dine_in.total += tot;
+    } else if (t === 'takeaway' || t === 'pickup') {
+      orders_breakdown.takeaway.count++;
+      orders_breakdown.takeaway.total += tot;
+    } else if (t === 'delivery') {
+      orders_breakdown.delivery.count++;
+      orders_breakdown.delivery.total += tot;
+    }
+
+    return {
+      id: o.id,
+      order_number: o.order_number || `#${o.id}`,
+      order_type: t,
+      status: o.status || 'completed',
+      items_qty: Number(o.items_qty || 0),
+      subtotal_excl_tax: Number(sub.toFixed(2)),
+      discount_amount: Number(disc.toFixed(2)),
+      tax_amount: Number(tax.toFixed(2)),
+      total_incl_tax: Number(tot.toFixed(2)),
+      payment_method: o.payment_method || 'cash',
+      created_at: o.created_at,
+    };
+  });
+
+  // 3. Payment methods details
+  let rawBills: any[] = [];
+  try {
+    rawBills = db.prepare(`
+      SELECT b.id, b.order_id, b.payment_method, b.paid_amount, b.payment_details, b.paid_at,
+             o.order_number
+      FROM bills b
+      LEFT JOIN orders o ON o.id = b.order_id
+      WHERE (b.paid_at >= ? AND b.paid_at <= ? OR DATE(b.paid_at) = DATE(?))
+      ORDER BY b.paid_at ASC
+    `).all(periodStart, periodEnd, businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] rawBills query fallback:', e);
+  }
+
+  const methodsMap: Record<string, { label_en: string; label_ar: string; count: number; total: number; tendered: number; change: number }> = {
+    cash: { label_en: 'Cash', label_ar: 'نقدي', count: 0, total: 0, tendered: 0, change: 0 },
+    card: { label_en: 'Cards / Visa', label_ar: 'بطاقات وفيزا', count: 0, total: 0, tendered: 0, change: 0 },
+    wallet: { label_en: 'Wallets / InstaPay', label_ar: 'محافظ إلكترونية وإنستاباي', count: 0, total: 0, tendered: 0, change: 0 },
+    custom: { label_en: 'Custom / Other', label_ar: 'طرق دفع أخرى', count: 0, total: 0, tendered: 0, change: 0 },
+    aggregator: { label_en: 'Delivery Aggregators', label_ar: 'تطبيقات التوصيل', count: 0, total: 0, tendered: 0, change: 0 },
+  };
+
+  const payments_list: any[] = [];
+
+  for (const b of rawBills) {
+    const amt = Number(b.paid_amount || 0);
+    const tendered = Number(b.tendered_amount || amt);
+    const change = Number(b.change_amount || 0);
+    const methodStr = String(b.payment_method || 'cash').toLowerCase();
+
+    let bucket = 'custom';
+    if (methodStr === 'cash') bucket = 'cash';
+    else if (methodStr === 'card' || methodStr === 'visa' || methodStr === 'mastercard') bucket = 'card';
+    else if (methodStr === 'wallet' || methodStr === 'instapay' || methodStr === 'vodafone_cash') bucket = 'wallet';
+    else if (methodStr.includes('talabat') || methodStr.includes('jahez') || methodStr.includes('hungerstation') || methodStr.includes('aggregator')) bucket = 'aggregator';
+
+    methodsMap[bucket].count++;
+    methodsMap[bucket].total += amt;
+    methodsMap[bucket].tendered += tendered;
+    methodsMap[bucket].change += change;
+
+    payments_list.push({
+      id: b.id,
+      order_number: b.order_number || `#${b.order_id || b.id}`,
+      method: methodStr,
+      amount: Number(amt.toFixed(2)),
+      tendered: Number(tendered.toFixed(2)),
+      change: Number(change.toFixed(2)),
+      created_at: b.paid_at,
+    });
+  }
+
+  // Fallback: if bills table had no rows, derive from orders with payment_method
+  if (payments_list.length === 0 && rawOrders.length > 0) {
+    for (const o of rawOrders) {
+      if (o.status === 'cancelled' || o.status === 'voided') continue;
+      const amt = Number(o.total || 0);
+      const m = String(o.payment_method || 'cash').toLowerCase();
+      let bucket = 'custom';
+      if (m === 'cash') bucket = 'cash';
+      else if (m === 'card' || m === 'visa') bucket = 'card';
+      else if (m === 'wallet' || m === 'instapay') bucket = 'wallet';
+      else if (m.includes('aggregator')) bucket = 'aggregator';
+
+      methodsMap[bucket].count++;
+      methodsMap[bucket].total += amt;
+      methodsMap[bucket].tendered += amt;
+
+      payments_list.push({
+        id: o.id,
+        order_number: o.order_number || `#${o.id}`,
+        method: m,
+        amount: Number(amt.toFixed(2)),
+        tendered: Number(amt.toFixed(2)),
+        change: 0,
+        created_at: o.created_at,
+      });
+    }
+  }
+
+  const payment_methods_detailed = Object.entries(methodsMap).map(([k, v]) => ({
+    method: k,
+    label_en: v.label_en,
+    label_ar: v.label_ar,
+    transactions_count: v.count,
+    total_amount: Number(v.total.toFixed(2)),
+    tendered_amount: Number(v.tendered.toFixed(2)),
+    change_amount: Number(v.change.toFixed(2)),
+  }));
+
+  // 4. Cash movements details
+  let rawMovements: any[] = [];
+  try {
+    rawMovements = db.prepare(`
+      SELECT m.id, m.movement_type, m.amount_cents, m.reason, m.created_at, u.name as user_name
+      FROM cash_drawer_movements m
+      LEFT JOIN users u ON u.id = m.created_by
+      WHERE m.business_date = ? AND m.voided_at IS NULL
+      ORDER BY m.created_at ASC
+    `).all(businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] rawMovements query fallback:', e);
+  }
+
+  let opExpenses: any[] = [];
+  try {
+    opExpenses = db.prepare(`
+      SELECT e.id, e.amount, e.category, e.notes, e.created_at, u.name as user_name
+      FROM operating_expenses e
+      LEFT JOIN users u ON u.id = e.created_by
+      WHERE (e.created_at >= ? AND e.created_at <= ? OR DATE(e.created_at) = DATE(?))
+      ORDER BY e.created_at ASC
+    `).all(periodStart, periodEnd, businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] opExpenses query fallback:', e);
+  }
+
+  let safeDrops: any[] = [];
+  try {
+    safeDrops = db.prepare(`
+      SELECT s.id, s.amount, s.reference_note as notes, s.created_at, s.actor_user_name as user_name
+      FROM safe_vault_ledger s
+      WHERE s.tx_type = 'mid_shift_safe_drop'
+        AND (s.created_at >= ? AND s.created_at <= ? OR DATE(s.created_at) = DATE(?))
+      ORDER BY s.created_at ASC
+    `).all(periodStart, periodEnd, businessDate) as any[];
+  } catch (e) {
+    console.warn('[CashClosures] safeDrops query fallback:', e);
+  }
+
+  let opening_cash = 0;
+  let pay_in_total = 0;
+  let pay_out_total = 0;
+  let safe_drops_total = 0;
+  let cash_expenses_total = 0;
+  let cash_refunds_total = 0;
+
+  const cash_movements_detailed: any[] = [];
+
+  for (const m of rawMovements) {
+    const amt = Number(m.amount_cents || 0) / 100;
+    const type = m.movement_type;
+    let dir: 'in' | 'out' = 'in';
+    let label_en = 'Pay In';
+    let label_ar = 'توريد نقدية';
+
+    if (type === 'opening_float') {
+      opening_cash += amt;
+      dir = 'in';
+      label_en = 'Opening Float';
+      label_ar = 'رصيد افتتاحي';
+    } else if (type === 'pay_in') {
+      pay_in_total += amt;
+      dir = 'in';
+      label_en = 'Pay In';
+      label_ar = 'توريد نقدية';
+    } else if (type === 'pay_out' || type === 'safe_drop') {
+      pay_out_total += amt;
+      dir = 'out';
+      label_en = type === 'safe_drop' ? 'Safe Drop' : 'Pay Out';
+      label_ar = type === 'safe_drop' ? 'توريد للخزنة' : 'مسحوبات نقدية';
+    }
+
+    cash_movements_detailed.push({
+      id: `cdm_${m.id}`,
+      movement_type: type,
+      label_en,
+      label_ar,
+      direction: dir,
+      amount: Number(amt.toFixed(2)),
+      reason: m.reason || '',
+      created_by_name: m.user_name || 'Staff',
+      created_at: m.created_at,
+    });
+  }
+
+  for (const e of opExpenses) {
+    const amt = Number(e.amount || 0);
+    cash_expenses_total += amt;
+    cash_movements_detailed.push({
+      id: `exp_${e.id}`,
+      movement_type: 'expense',
+      label_en: 'Operating Expense',
+      label_ar: 'مصروف تشغيلي',
+      direction: 'out',
+      amount: Number(amt.toFixed(2)),
+      reason: `${e.category || ''} ${e.notes || ''}`.trim() || 'Expense',
+      created_by_name: e.user_name || 'Staff',
+      created_at: e.created_at,
+    });
+  }
+
+  for (const s of safeDrops) {
+    const amt = Number(s.amount || 0);
+    safe_drops_total += amt;
+    cash_movements_detailed.push({
+      id: `safe_${s.id}`,
+      movement_type: 'safe_drop',
+      label_en: 'Mid-Shift Safe Drop',
+      label_ar: 'توريد للخزنة الرئيسية',
+      direction: 'out',
+      amount: Number(amt.toFixed(2)),
+      reason: s.notes || 'Safe drop',
+      created_by_name: s.user_name || 'Staff',
+      created_at: s.created_at,
+    });
+  }
+
+  const cash_sales = methodsMap.cash.total;
+
+  const cash_movements_summary = {
+    opening_cash: Number(opening_cash.toFixed(2)),
+    cash_sales: Number(cash_sales.toFixed(2)),
+    pay_in_total: Number(pay_in_total.toFixed(2)),
+    pay_out_total: Number(pay_out_total.toFixed(2)),
+    cash_expenses_total: Number(cash_expenses_total.toFixed(2)),
+    safe_drops_total: Number(safe_drops_total.toFixed(2)),
+    cash_refunds_total: Number(cash_refunds_total.toFixed(2)),
+    expected_cash: Number(expectedCash.toFixed(2)),
+  };
+
+  // 5. Explicit Deficit & Surplus
+  const diff = Number((countedCash - expectedCash).toFixed(2));
+  const deficit_amount = diff < -0.009 ? Number(Math.abs(diff).toFixed(2)) : 0;
+  const surplus_amount = diff > 0.009 ? Number(diff.toFixed(2)) : 0;
+  const variance_status = diff < -0.009 ? 'deficit' : diff > 0.009 ? 'surplus' : 'exact';
+
+  return {
+    sold_items_breakdown,
+    total_sold_items_qty,
+    total_sales_excl_tax: Number(total_sales_excl_tax.toFixed(2)),
+    total_tax_quantity,
+    total_tax_amount: Number(total_tax_amount.toFixed(2)),
+    orders_breakdown,
+    orders_list,
+    payment_methods_detailed,
+    payments_list,
+    cash_movements_summary,
+    cash_movements_detailed,
+    deficit_amount,
+    surplus_amount,
+    variance_status,
+  };
+}
+
 // ── GET /api/cash-closures/history ──────────────────────────────────────────
 // Returns all closures (pre_blind_cashier and full_day_close)
 router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res: Response) => {
@@ -1279,10 +1648,17 @@ router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res
     `).all() as any[];
 
     const closures = rows.map((r) => {
-      let zSnapshot = null;
+      let zSnapshot: any = null;
       try { if (r.z_report_snapshot_json) zSnapshot = JSON.parse(r.z_report_snapshot_json); } catch {}
       let denoms = null;
       try { if (r.denominations_json) denoms = JSON.parse(r.denominations_json); } catch {}
+
+      const counted = Number(r.counted_cash_cents || 0) / 100;
+      const expected = Number(r.expected_cash_cents || 0) / 100;
+      const diff = Number((counted - expected).toFixed(2));
+      const deficit_amount = zSnapshot?.deficit_amount !== undefined ? Number(zSnapshot.deficit_amount) : (diff < -0.009 ? Math.abs(diff) : 0);
+      const surplus_amount = zSnapshot?.surplus_amount !== undefined ? Number(zSnapshot.surplus_amount) : (diff > 0.009 ? diff : 0);
+      const variance_status = zSnapshot?.variance_status || (diff < -0.009 ? 'deficit' : diff > 0.009 ? 'surplus' : 'exact');
 
       return {
         ...r,
@@ -1290,6 +1666,20 @@ router.get('/history', requirePermission('cash.shifts.view'), (req: Request, res
         closed_by_role: r.closed_by_role || r.closed_by_user_role || 'staff',
         z_report_snapshot: zSnapshot,
         denominations: denoms,
+        deficit_amount,
+        surplus_amount,
+        variance_status,
+        sold_items_breakdown: zSnapshot?.sold_items_breakdown || [],
+        total_sold_items_qty: zSnapshot?.total_sold_items_qty || 0,
+        total_sales_excl_tax: zSnapshot?.total_sales_excl_tax || 0,
+        total_tax_quantity: zSnapshot?.total_tax_quantity || 0,
+        total_tax_amount: zSnapshot?.total_tax_amount || 0,
+        orders_breakdown: zSnapshot?.orders_breakdown || null,
+        orders_list: zSnapshot?.orders_list || [],
+        payment_methods_detailed: zSnapshot?.payment_methods_detailed || [],
+        payments_list: zSnapshot?.payments_list || [],
+        cash_movements_summary: zSnapshot?.cash_movements_summary || null,
+        cash_movements_detailed: zSnapshot?.cash_movements_detailed || [],
       };
     });
 
@@ -1565,6 +1955,15 @@ router.get('/preview', (req: Request, res: Response) => {
       noSaleDrawerOpensCount = Number(anomRow?.no_sale_cnt || 0);
     } catch {}
 
+    const detailedBreakdown = buildDetailedClosureBreakdown(
+      db,
+      bDate,
+      effectiveStart,
+      effectiveEnd,
+      expectedCash,
+      shouldMask ? 0 : expectedCash
+    );
+
     const previewData = {
       shift_opened_at: effectiveStart,
       business_date: bDate,
@@ -1605,6 +2004,10 @@ router.get('/preview', (req: Request, res: Response) => {
       no_sale_drawer_opens_count: noSaleDrawerOpensCount,
       masked_for_cashier: shouldMask,
       latest_preblind_closure: latestPreblind || null,
+      ...detailedBreakdown,
+      deficit_amount: 0,
+      surplus_amount: 0,
+      variance_status: 'exact',
     };
 
     res.json({
@@ -1793,6 +2196,15 @@ router.post('/', async (req: Request, res: Response) => {
       const expectedGrossProfit = netSales - expectedBomCost;
       const expectedNetProfit = netSales - expectedBomCost - authorizedWasteCost - expensesTotal;
 
+      const detailedBreakdown = buildDetailedClosureBreakdown(
+        db,
+        businessDate,
+        periodStart,
+        createdAt,
+        expectedCashCents / 100,
+        countedCashCents / 100
+      );
+
       const fullZSnapshot = {
         z_number: zNumber,
         business_date: businessDate,
@@ -1820,6 +2232,7 @@ router.post('/', async (req: Request, res: Response) => {
         expected_net_profit: expectedNetProfit,
         payment_methods: aggregates.paymentMethods,
         staff_sales: aggregates.staffSales,
+        ...detailedBreakdown,
       };
 
       // Safe drops & anomaly metrics
@@ -1947,6 +2360,7 @@ router.post('/', async (req: Request, res: Response) => {
           declared_card_slips: declaredCardSlips,
           declared_wallet_slips: declaredWalletSlips,
           masked_for_cashier: true,
+          ...detailedBreakdown,
           message: 'Pre-blind shift handover recorded successfully',
         };
       }
@@ -1980,6 +2394,7 @@ router.post('/', async (req: Request, res: Response) => {
         authorized_waste_cost: authorizedWasteCost,
         expected_gross_profit: expectedGrossProfit,
         expected_net_profit: expectedNetProfit,
+        ...detailedBreakdown,
         z_report_snapshot: fullZSnapshot,
         notes,
         created_at: createdAt,
@@ -1999,8 +2414,8 @@ router.post('/', async (req: Request, res: Response) => {
       zReport: result,
       ...result,
       closure_id: result.id,
-      expected_cash_cents: result.expected_cash_cents ?? null,
-      variance_cents: result.variance_cents ?? null,
+      expected_cash_cents: (result as any).expected_cash_cents ?? null,
+      variance_cents: (result as any).variance_cents ?? null,
     });
   } catch (error: any) {
     const status = error.statusCode || 500;
@@ -2055,8 +2470,38 @@ router.get('/z-report', (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     ensureCashClosuresSchema(db);
-    const latest = db.prepare('SELECT * FROM cash_closures WHERE closure_type = "full_day_close" ORDER BY created_at DESC LIMIT 1').get();
-    res.json({ success: true, zReport: latest || null });
+    const latest = db.prepare("SELECT * FROM cash_closures WHERE closure_type = 'full_day_close' ORDER BY created_at DESC LIMIT 1").get() as any;
+    if (latest) {
+      let zSnapshot: any = null;
+      try { if (latest.z_report_snapshot_json) zSnapshot = JSON.parse(latest.z_report_snapshot_json); } catch {}
+      const counted = Number(latest.counted_cash_cents || 0) / 100;
+      const expected = Number(latest.expected_cash_cents || 0) / 100;
+      const diff = Number((counted - expected).toFixed(2));
+      const deficit_amount = zSnapshot?.deficit_amount !== undefined ? Number(zSnapshot.deficit_amount) : (diff < -0.009 ? Math.abs(diff) : 0);
+      const surplus_amount = zSnapshot?.surplus_amount !== undefined ? Number(zSnapshot.surplus_amount) : (diff > 0.009 ? diff : 0);
+      const variance_status = zSnapshot?.variance_status || (diff < -0.009 ? 'deficit' : diff > 0.009 ? 'surplus' : 'exact');
+
+      const enriched = {
+        ...latest,
+        z_report_snapshot: zSnapshot,
+        deficit_amount,
+        surplus_amount,
+        variance_status,
+        sold_items_breakdown: zSnapshot?.sold_items_breakdown || [],
+        total_sold_items_qty: zSnapshot?.total_sold_items_qty || 0,
+        total_sales_excl_tax: zSnapshot?.total_sales_excl_tax || 0,
+        total_tax_quantity: zSnapshot?.total_tax_quantity || 0,
+        total_tax_amount: zSnapshot?.total_tax_amount || 0,
+        orders_breakdown: zSnapshot?.orders_breakdown || null,
+        orders_list: zSnapshot?.orders_list || [],
+        payment_methods_detailed: zSnapshot?.payment_methods_detailed || [],
+        payments_list: zSnapshot?.payments_list || [],
+        cash_movements_summary: zSnapshot?.cash_movements_summary || null,
+        cash_movements_detailed: zSnapshot?.cash_movements_detailed || [],
+      };
+      return res.json({ success: true, zReport: enriched });
+    }
+    res.json({ success: true, zReport: null });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Internal error' });
   }
